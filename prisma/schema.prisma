@@ -1,0 +1,1009 @@
+// TTFL Store — Database schema (Phase 1: identity & access)
+// Covers spec §7 (database), §8 (auth), §9 (user types), §13 (vendor store
+// shell), §17 (vendor tiers — enum only for now), §36 (audit logs).
+// Orders, products, payments, commissions etc. are deliberately out of
+// scope for this pass and will extend this same schema additively.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  CUSTOMER
+  VENDOR
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum VendorStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum VendorTier {
+  FREE
+  PRO
+  BUSINESS
+  ENTERPRISE
+}
+
+enum AuditAction {
+  ADMIN_LOGIN
+  USER_SUSPENDED
+  USER_REACTIVATED
+  VENDOR_APPLICATION_SUBMITTED
+  VENDOR_APPROVED
+  VENDOR_REJECTED
+  VENDOR_SUSPENDED
+  VENDOR_TIER_CHANGED
+  PASSWORD_CHANGED
+  PASSWORD_RESET
+  EMAIL_VERIFIED
+  ACCOUNT_DELETED
+  PRODUCT_SUSPENDED
+  PRODUCT_REINSTATED
+  PRODUCT_DELETED
+  CATEGORY_CREATED
+  CATEGORY_UPDATED
+  VENDOR_PLAN_CREATED
+  VENDOR_PLAN_UPDATED
+  SUBSCRIPTION_CHANGED
+  FEATURED_PRODUCT_APPROVED
+  FEATURED_PRODUCT_CANCELLED
+  FEATURED_STORE_APPROVED
+  FEATURED_STORE_CANCELLED
+  REVIEW_HIDDEN
+  REVIEW_DELETED
+  COUPON_CREATED
+  COUPON_UPDATED
+  PAYOUT_APPROVED
+  PAYOUT_REJECTED
+  PAYOUT_PAID
+  ORDER_REFUNDED
+}
+
+enum ProductCondition {
+  NEW
+  USED
+}
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  SUSPENDED
+  OUT_OF_STOCK
+}
+
+// Spec §14 — the three selling methods a vendor can choose per product.
+enum SellingMethod {
+  CHECKOUT
+  EXTERNAL_LINK
+  WHATSAPP
+}
+
+// Spec §14/§15 — referral events recorded before redirecting off-platform.
+enum ReferralType {
+  EXTERNAL_CLICK
+  WHATSAPP_CLICK
+}
+
+// Spec §21 — sub-order fulfillment lifecycle (per vendor).
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+  REFUND_REQUESTED
+  REFUNDED
+  FAILED
+}
+
+// Payment status on the parent (customer-facing) order.
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum CommissionType {
+  PERCENTAGE
+  FIXED
+}
+
+// --- Phase 2 enums -----------------------------------------------------
+
+enum BillingPeriod {
+  MONTHLY
+  YEARLY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+
+enum FeaturedPlacement {
+  HOMEPAGE
+  CATEGORY
+  SEARCH
+  TRENDING
+}
+
+enum FeaturedStatus {
+  PENDING_PAYMENT
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum ReviewStatus {
+  VISIBLE
+  HIDDEN
+  REPORTED
+}
+
+enum CouponType {
+  PERCENTAGE
+  FIXED
+}
+
+enum PayoutStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+}
+
+enum SupportConversationStatus {
+  OPEN
+  ASSIGNED
+  RESOLVED
+  CLOSED
+}
+
+enum SupportSender {
+  CUSTOMER
+  AGENT
+  SYSTEM
+}
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+  RETRYING
+}
+
+// ---------------------------------------------------------------------------
+// Core identity
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String     @id @default(uuid())
+  email         String     @unique
+  passwordHash  String
+  role          Role       @default(CUSTOMER)
+  status        UserStatus @default(ACTIVE)
+
+  firstName     String
+  lastName      String
+  phone         String?
+
+  emailVerified   Boolean  @default(false)
+  emailVerifiedAt DateTime?
+
+  lastLoginAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+
+  sessions              Session[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens   PasswordResetToken[]
+  vendorProfile         VendorProfile?
+  addresses             Address[]
+  auditLogsAsActor      AuditLog[] @relation("AuditActor")
+  orders                Order[]
+  reviews               Review[]
+  wishlistItems         WishlistItem[]
+  supportConversations  SupportConversation[]
+  supportMessages       SupportMessage[]
+
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+model Address {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  label     String   // "Home", "Office", etc.
+  line1     String
+  line2     String?
+  city      String
+  state     String
+  country   String   @default("Nigeria")
+  isDefault Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("addresses")
+}
+
+// ---------------------------------------------------------------------------
+// Sessions & tokens (refresh-token rotation, email verification, resets)
+// ---------------------------------------------------------------------------
+
+model Session {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  refreshTokenHash String @unique
+  userAgent     String?
+  ipAddress     String?
+  deviceLabel   String?
+
+  revoked       Boolean  @default(false)
+  revokedAt     DateTime?
+  expiresAt     DateTime
+
+  createdAt     DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("email_verification_tokens")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Vendor & store shell (products/orders/commissions come in a later phase)
+// ---------------------------------------------------------------------------
+
+model VendorProfile {
+  id            String       @id @default(uuid())
+  userId        String       @unique
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  storeName     String
+  storeSlug     String       @unique
+  bio           String?
+  location      String?
+  whatsappNumber String?
+
+  status        VendorStatus @default(PENDING)
+  tier          VendorTier   @default(FREE)
+  verified      Boolean      @default(false)
+
+  // Overrides the tier's default commission % when set (spec §16 —
+  // vendor-specific agreements). Null means "use the tier default".
+  commissionRateOverride Decimal? @db.Decimal(5, 2)
+
+  // Store page view counter (spec §13 analytics) — incremented on public
+  // storefront reads, same fire-and-forget pattern as Product.viewCount.
+  viewCount     Int          @default(0)
+
+  appliedAt     DateTime     @default(now())
+  approvedAt    DateTime?
+  rejectedAt    DateTime?
+  rejectionReason String?
+
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  products      Product[]
+  referralEvents ReferralEvent[]
+  vendorOrders  VendorOrder[]
+  commissionRules CommissionRule[]
+  subscription  VendorSubscription?
+  featuredProducts FeaturedProduct[]
+  featuredStores FeaturedStore[]
+  coupons       Coupon[]
+  payouts       Payout[]
+
+  @@index([status])
+  @@index([tier])
+  @@map("vendor_profiles")
+}
+
+// ---------------------------------------------------------------------------
+// Catalog: categories & products (spec §11, §12, §14, §45)
+// ---------------------------------------------------------------------------
+
+model Category {
+  id        String     @id @default(uuid())
+  name      String
+  slug      String     @unique
+  icon      String?
+
+  parentId  String?
+  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children  Category[] @relation("CategoryTree")
+
+  products  Product[]
+
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+model Product {
+  id            String        @id @default(uuid())
+  vendorId      String
+  vendor        VendorProfile @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  categoryId    String
+  category      Category      @relation(fields: [categoryId], references: [id])
+
+  name          String
+  slug          String        @unique
+  description   String
+  specifications Json?
+
+  price         Decimal       @db.Decimal(12, 2)
+  previousPrice Decimal?      @db.Decimal(12, 2)
+  currency      String        @default("NGN")
+
+  condition     ProductCondition @default(NEW)
+  stock         Int           @default(0)
+  status        ProductStatus @default(ACTIVE)
+
+  // Selling method (spec §14). For EXTERNAL_LINK, externalUrl is required.
+  // For WHATSAPP, whatsappNumber falls back to the vendor's store number
+  // if not set per-product. CHECKOUT uses the normal cart/order flow.
+  sellingMethod SellingMethod @default(CHECKOUT)
+  externalUrl   String?
+  whatsappNumber String?
+
+  location      String?
+  viewCount     Int           @default(0)
+
+  // Denormalized rating cache (spec §9 product review display) — kept in
+  // sync by the reviews service on create/update/delete so product list
+  // pages don't need a join+aggregate per card.
+  avgRating     Decimal?      @db.Decimal(3, 2)
+  reviewCount   Int           @default(0)
+
+  images        ProductImage[]
+  referralEvents ReferralEvent[]
+  reviews       Review[]
+  wishlistedBy  WishlistItem[]
+  featuredEntries FeaturedProduct[]
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  deletedAt     DateTime?
+
+  @@index([vendorId])
+  @@index([categoryId])
+  @@index([status])
+  @@index([sellingMethod])
+  @@map("products")
+}
+
+model ProductImage {
+  id        String   @id @default(uuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  url       String
+  position  Int      @default(0)
+  isPrimary Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+// ---------------------------------------------------------------------------
+// Referral tracking (spec §15) — one record per external-link or WhatsApp
+// click, written BEFORE the redirect happens.
+// ---------------------------------------------------------------------------
+
+model ReferralEvent {
+  id          String       @id @default(uuid())
+  vendorId    String
+  vendor      VendorProfile @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  productId   String
+  product     Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  type        ReferralType
+  sessionId   String?
+  source      String?      // e.g. "product_page", "search_results"
+  campaign    String?      // e.g. utm_campaign, if the click came from a tracked link
+  destination String?      // the external URL or wa.me link actually opened
+  userAgent   String?
+  deviceType  String?      // "mobile" | "desktop" | "tablet" — derived from userAgent
+  ipAddress   String?
+
+  createdAt   DateTime     @default(now())
+
+  @@index([vendorId])
+  @@index([productId])
+  @@index([type])
+  @@index([createdAt])
+  @@map("referral_events")
+}
+
+// ---------------------------------------------------------------------------
+// Audit log (spec §36)
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String      @id @default(uuid())
+  actorId    String?
+  actor      User?       @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  action     AuditAction
+  targetType String?     // e.g. "User", "VendorProfile"
+  targetId   String?
+  metadata   Json?
+
+  ipAddress  String?
+  createdAt  DateTime    @default(now())
+
+  @@index([actorId])
+  @@index([action])
+  @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Commerce: orders, sub-orders, commissions, payments (spec §16, §20, §21, §22)
+// ---------------------------------------------------------------------------
+
+// A customer's single checkout. Splits into one VendorOrder per vendor in
+// the cart (spec §22 — one checkout, per-vendor fulfillment), but payment
+// happens once, against the parent Order's total.
+model Order {
+  id              String        @id @default(uuid())
+  orderNumber     String        @unique // e.g. "TTFL-2026-000001"
+
+  customerId      String
+  customer        User          @relation(fields: [customerId], references: [id])
+
+  totalAmount     Decimal       @db.Decimal(12, 2)
+  subtotalAmount  Decimal?      @db.Decimal(12, 2) // pre-discount; null on older orders predating coupons
+  discountAmount  Decimal       @default(0) @db.Decimal(12, 2)
+  couponCode      String?
+  currency        String        @default("NGN")
+
+  paymentStatus   PaymentStatus @default(PENDING)
+  paymentReference String       @unique // Paystack transaction reference
+  paidAt          DateTime?
+
+  deliveryName    String
+  deliveryPhone   String
+  deliveryLine1   String
+  deliveryLine2   String?
+  deliveryCity    String
+  deliveryState   String
+  deliveryCountry String        @default("Nigeria")
+
+  vendorOrders    VendorOrder[]
+  payments        Payment[]
+  couponRedemption CouponRedemption?
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([customerId])
+  @@index([paymentStatus])
+  @@map("orders")
+}
+
+// Per-vendor slice of an Order — this is the unit vendors see, fulfill,
+// and get paid against (spec §21 fulfillment statuses, §16 commission).
+model VendorOrder {
+  id              String        @id @default(uuid())
+
+  orderId         String
+  order           Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  vendorId        String
+  vendor          VendorProfile @relation(fields: [vendorId], references: [id])
+
+  status          OrderStatus   @default(PENDING)
+
+  subtotal        Decimal       @db.Decimal(12, 2) // sum of line items, pre-commission
+  commissionRate  Decimal       @db.Decimal(5, 2)  // % snapshot at time of sale
+  commissionAmount Decimal      @db.Decimal(12, 2)
+  vendorEarnings  Decimal       @db.Decimal(12, 2) // subtotal - commissionAmount
+
+  payoutStatus    String        @default("PENDING") // PENDING | PAID — kept simple until Phase: payouts
+  payoutAt        DateTime?
+
+  // Delivery tracking (spec §21) — per-vendor since each vendor ships
+  // their own share of a multi-vendor order independently.
+  deliveryMethod  String?       // e.g. "vendor" | "ttfl" | "pickup" | "third_party"
+  deliveryFee     Decimal       @default(0) @db.Decimal(12, 2)
+  deliveryProvider String?
+  trackingNumber  String?
+  trackingUrl     String?
+  estimatedDeliveryAt DateTime?
+
+  items           OrderItem[]
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([orderId])
+  @@index([vendorId])
+  @@index([status])
+  @@map("vendor_orders")
+}
+
+model OrderItem {
+  id            String      @id @default(uuid())
+
+  vendorOrderId String
+  vendorOrder   VendorOrder @relation(fields: [vendorOrderId], references: [id], onDelete: Cascade)
+
+  productId     String
+  // Snapshots — so a later price/name edit on the product never rewrites
+  // history on a past order.
+  productName   String
+  unitPrice     Decimal     @db.Decimal(12, 2)
+  quantity      Int
+  lineTotal     Decimal     @db.Decimal(12, 2)
+
+  createdAt     DateTime    @default(now())
+
+  @@index([vendorOrderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+// Raw payment attempts against an Order — mainly here so retried/failed
+// Paystack attempts are traceable, not just the final successful one.
+model Payment {
+  id          String   @id @default(uuid())
+
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  reference   String   @unique
+  amount      Decimal  @db.Decimal(12, 2)
+  status      PaymentStatus @default(PENDING)
+  channel     String?  // card | bank_transfer | ussd, from Paystack
+  gatewayResponse Json?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([orderId])
+  @@map("payments")
+}
+
+// Admin-configurable commission overrides (spec §16). Resolution order:
+// vendor-specific rule > category rule > VendorProfile.commissionRateOverride
+// > tier default (hard-coded in application code, see commissions.ts).
+model CommissionRule {
+  id          String          @id @default(uuid())
+
+  vendorId    String?
+  vendor      VendorProfile?  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  categoryId  String?
+
+  type        CommissionType  @default(PERCENTAGE)
+  value       Decimal         @db.Decimal(12, 2) // percentage points, or fixed NGN amount
+
+  active      Boolean         @default(true)
+
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@index([vendorId])
+  @@index([categoryId])
+  @@map("commission_rules")
+}
+
+// ---------------------------------------------------------------------------
+// Vendor plans & subscriptions (spec Phase 2 §4, §5) — admin-configurable,
+// replaces the hard-coded tier defaults that used to live only in code.
+// ---------------------------------------------------------------------------
+
+// One row per VendorTier "kind". Admin edits these rows rather than code —
+// resolveCommissionRate() and the product-limit guard both read from here
+// now, falling back to a hard-coded default only if a plan row is somehow
+// missing (e.g. a fresh DB before the seed script runs).
+model VendorPlan {
+  id             String        @id @default(uuid())
+  tier           VendorTier    @unique
+  name           String
+  price          Decimal       @db.Decimal(12, 2)
+  billingPeriod  BillingPeriod @default(MONTHLY)
+
+  productLimit   Int?          // null = unlimited (Enterprise)
+  commissionRate Decimal       @db.Decimal(5, 2)
+  features       Json?         // free-form list of feature strings for display
+
+  active         Boolean       @default(true)
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  subscriptions  VendorSubscription[]
+
+  @@map("vendor_plans")
+}
+
+model VendorSubscription {
+  id              String             @id @default(uuid())
+
+  vendorId        String             @unique
+  vendor          VendorProfile      @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  planId          String
+  plan            VendorPlan         @relation(fields: [planId], references: [id])
+
+  status          SubscriptionStatus @default(ACTIVE)
+  startDate       DateTime           @default(now())
+  renewalDate     DateTime?
+  cancelledAt     DateTime?
+
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  payments        SubscriptionPayment[]
+
+  @@index([status])
+  @@map("vendor_subscriptions")
+}
+
+model SubscriptionPayment {
+  id             String             @id @default(uuid())
+
+  subscriptionId String
+  subscription   VendorSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  reference      String             @unique // Paystack transaction reference
+  amount         Decimal            @db.Decimal(12, 2)
+  status         PaymentStatus      @default(PENDING)
+  gatewayResponse Json?
+
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([subscriptionId])
+  @@map("subscription_payments")
+}
+
+// ---------------------------------------------------------------------------
+// Featured products & stores (spec §6, §7) — paid promotion, admin-approved
+// ---------------------------------------------------------------------------
+
+model FeaturedProduct {
+  id               String            @id @default(uuid())
+
+  productId        String
+  product          Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  vendorId         String
+  vendor           VendorProfile     @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  placement        FeaturedPlacement
+  durationDays     Int
+  price            Decimal           @db.Decimal(12, 2)
+
+  paymentReference String?           @unique
+  status           FeaturedStatus    @default(PENDING_PAYMENT)
+
+  startDate        DateTime?
+  endDate          DateTime?
+
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([productId])
+  @@index([vendorId])
+  @@index([status])
+  @@index([placement])
+  @@map("featured_products")
+}
+
+model FeaturedStore {
+  id               String         @id @default(uuid())
+
+  vendorId         String
+  vendor           VendorProfile  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  durationDays     Int
+  price            Decimal        @db.Decimal(12, 2)
+
+  paymentReference String?        @unique
+  status           FeaturedStatus @default(PENDING_PAYMENT)
+
+  startDate        DateTime?
+  endDate          DateTime?
+
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([vendorId])
+  @@index([status])
+  @@map("featured_stores")
+}
+
+// ---------------------------------------------------------------------------
+// Reviews (spec §9) — one per verified purchase, cached rating on Product
+// ---------------------------------------------------------------------------
+
+model Review {
+  id          String       @id @default(uuid())
+
+  productId   String
+  product     Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  customerId  String
+  customer    User         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  // Ties the review to the specific order item that proves purchase —
+  // required at creation time so a review can never be filed without a
+  // real, paid order behind it (spec §9 "prevent fake verified status").
+  orderItemId String       @unique
+
+  rating      Int          // 1-5, validated in the service layer
+  comment     String?
+  images      String[]     @default([])
+
+  status      ReviewStatus @default(VISIBLE)
+  reportCount Int          @default(0)
+
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  // One review per customer per product, even across multiple orders.
+  @@unique([productId, customerId])
+  @@index([productId])
+  @@index([customerId])
+  @@map("reviews")
+}
+
+// ---------------------------------------------------------------------------
+// Wishlist (spec §10)
+// ---------------------------------------------------------------------------
+
+model WishlistItem {
+  id        String   @id @default(uuid())
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@map("wishlist_items")
+}
+
+// ---------------------------------------------------------------------------
+// Coupons & promotions (spec §11) — backend-validated, never trust the
+// frontend's discount math.
+// ---------------------------------------------------------------------------
+
+model Coupon {
+  id                String    @id @default(uuid())
+  code              String    @unique
+
+  type              CouponType
+  value             Decimal   @db.Decimal(12, 2) // percentage points, or fixed NGN
+
+  // Null vendorId = TTFL-wide coupon. Set = vendor-specific, only applies
+  // to that vendor's items in a multi-vendor cart.
+  vendorId          String?
+  vendor            VendorProfile? @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  categoryId        String?   // restrict to one category if set
+
+  minOrderAmount    Decimal?  @db.Decimal(12, 2)
+  maxDiscountAmount Decimal?  @db.Decimal(12, 2) // caps a PERCENTAGE coupon's payout
+
+  usageLimit        Int?      // total redemptions allowed across all users, null = unlimited
+  usageLimitPerUser Int       @default(1)
+  firstOrderOnly    Boolean   @default(false)
+
+  startsAt          DateTime?
+  expiresAt         DateTime?
+  active            Boolean   @default(true)
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  redemptions       CouponRedemption[]
+
+  @@index([vendorId])
+  @@index([active])
+  @@map("coupons")
+}
+
+model CouponRedemption {
+  id             String   @id @default(uuid())
+
+  couponId       String
+  coupon         Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+
+  userId         String
+  orderId        String   @unique
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  discountAmount Decimal  @db.Decimal(12, 2)
+  createdAt      DateTime @default(now())
+
+  @@index([couponId])
+  @@index([userId])
+  @@map("coupon_redemptions")
+}
+
+// ---------------------------------------------------------------------------
+// Vendor payouts (spec §17) — records only; no automatic money movement.
+// ---------------------------------------------------------------------------
+
+model Payout {
+  id            String       @id @default(uuid())
+
+  vendorId      String
+  vendor        VendorProfile @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  amount        Decimal      @db.Decimal(12, 2)
+  status        PayoutStatus @default(PENDING)
+
+  // Which sub-orders this payout covers — kept as a simple ID array rather
+  // than a join table since a payout is an immutable snapshot once created.
+  vendorOrderIds String[]
+
+  requestedAt   DateTime     @default(now())
+  reviewedAt    DateTime?
+  reviewedBy    String?      // admin user id
+  paidAt        DateTime?
+  note          String?
+
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@index([vendorId])
+  @@index([status])
+  @@map("payouts")
+}
+
+// ---------------------------------------------------------------------------
+// Email delivery log (spec §18) — queue/retry bookkeeping
+// ---------------------------------------------------------------------------
+
+model EmailLog {
+  id         String      @id @default(uuid())
+
+  to         String
+  subject    String
+  body       String      // full rendered HTML, stored so retries/restarts can resend without the caller re-rendering
+  event      String      // e.g. "order_confirmation", "vendor_new_order"
+  status     EmailStatus @default(PENDING)
+  attempts   Int         @default(0)
+  lastError  String?
+  sentAt     DateTime?
+
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@index([status])
+  @@index([event])
+  @@map("email_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Live support (spec §20) — REST-polled conversation model, MAX-AI-ready
+// (see products.controller-style handlers: a future MAX integration can
+// post SYSTEM/AGENT messages into the same table).
+// ---------------------------------------------------------------------------
+
+model SupportConversation {
+  id              String                     @id @default(uuid())
+
+  customerId      String
+  customer        User                       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  orderNumber     String?                    // optional context, not a hard FK (order may be from either flow)
+  status          SupportConversationStatus  @default(OPEN)
+  assignedAdminId String?
+
+  messages        SupportMessage[]
+
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+
+  @@index([customerId])
+  @@index([status])
+  @@map("support_conversations")
+}
+
+model SupportMessage {
+  id             String              @id @default(uuid())
+
+  conversationId String
+  conversation   SupportConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  senderId       String?             // null for SYSTEM messages
+  sender         User?               @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  senderType     SupportSender
+
+  body           String
+
+  createdAt      DateTime            @default(now())
+
+  @@index([conversationId])
+  @@map("support_messages")
+}
+
+// ---------------------------------------------------------------------------
+// Platform settings (Phase 2 follow-up) — admin-configurable numbers that
+// were previously hard-coded constants (featured listing pricing, min
+// payout amount). Simple key/value store rather than a bespoke table per
+// setting, since these are few and loosely structured.
+// ---------------------------------------------------------------------------
+
+model PlatformSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@map("platform_settings")
+}

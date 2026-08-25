@@ -1,0 +1,75 @@
+import { v2 as cloudinary } from "cloudinary";
+import { AppError } from "@/utils/app-error";
+import { logger } from "@/lib/logger";
+
+const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/avif"]);
+
+let configured = false;
+
+function ensureConfigured() {
+  if (configured) return;
+
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+
+  if (!cloudName || !apiKey || !apiSecret) {
+    throw AppError.internal(
+      "Image uploads aren't configured yet — missing Cloudinary credentials",
+      "UPLOADS_NOT_CONFIGURED"
+    );
+  }
+
+  cloudinary.config({ cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret });
+  configured = true;
+}
+
+export function validateUploadFile(file: { mimetype: string; size: number }) {
+  if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
+    throw AppError.badRequest("Only JPEG, PNG, WebP, or AVIF images are allowed", "INVALID_FILE_TYPE");
+  }
+  if (file.size > MAX_FILE_SIZE_BYTES) {
+    throw AppError.badRequest("Images must be under 5MB", "FILE_TOO_LARGE");
+  }
+}
+
+/**
+ * Uploads a single image buffer to Cloudinary under a per-vendor folder,
+ * with automatic format/quality optimization (spec §8 "optimize images for
+ * the frontend") applied via Cloudinary's f_auto/q_auto transformation —
+ * the URL returned already serves WebP/AVIF to browsers that support it,
+ * no extra work needed on the frontend.
+ */
+export async function uploadProductImage(vendorId: string, buffer: Buffer, mimetype: string): Promise<{ url: string; publicId: string }> {
+  ensureConfigured();
+
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: `ttfl-store/vendors/${vendorId}/products`,
+        resource_type: "image",
+        transformation: [{ quality: "auto", fetch_format: "auto" }],
+      },
+      (error, result) => {
+        if (error || !result) {
+          logger.error("Cloudinary upload failed", { error });
+          return reject(AppError.internal("Image upload failed, please try again", "UPLOAD_FAILED"));
+        }
+        resolve({ url: result.secure_url, publicId: result.public_id });
+      }
+    );
+    stream.end(buffer);
+  });
+}
+
+export async function deleteProductImage(publicId: string) {
+  ensureConfigured();
+  try {
+    await cloudinary.uploader.destroy(publicId);
+  } catch (err) {
+    // Non-fatal — an orphaned Cloudinary asset costs storage, not
+    // correctness, so this never blocks the product edit that triggered it.
+    logger.warn("Cloudinary delete failed (non-fatal)", { publicId, err });
+  }
+}
