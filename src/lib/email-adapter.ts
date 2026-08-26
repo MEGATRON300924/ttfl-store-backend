@@ -1,3 +1,4 @@
+import { Resend } from "resend";
 import nodemailer from "nodemailer";
 import type SMTPTransport from "nodemailer/lib/smtp-transport";
 import { env } from "@/config/env";
@@ -10,9 +11,16 @@ export type EmailAdapterResult = { ok: true } | { ok: false; error: string };
  * in the app calls the queue (lib/email-queue.ts), never this directly.
  * Swapping providers means changing this file (or adding a branch here),
  * nothing else in the codebase.
+ *
+ * Resend is the production provider. SMTP is kept as a secondary option
+ * (some deployments may still want it — removing working code isn't free),
+ * but is not the default and Render's env should set EMAIL_PROVIDER=resend.
+ * "console" remains for local dev with no provider configured at all.
  */
 export async function deliverEmail(params: { to: string; subject: string; html: string }): Promise<EmailAdapterResult> {
   switch (env.email.provider) {
+    case "resend":
+      return deliverViaResend(params);
     case "smtp":
       return deliverViaSmtp(params);
     case "console":
@@ -21,6 +29,48 @@ export async function deliverEmail(params: { to: string; subject: string; html: 
       return { ok: true };
   }
 }
+
+// --- Resend (production) ---------------------------------------------------
+
+let resendClient: Resend | null = null;
+
+function getResendClient(): Resend {
+  if (resendClient) return resendClient;
+
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    throw new Error("EMAIL_PROVIDER=resend requires RESEND_API_KEY to be set");
+  }
+  // The key never leaves this process — it's read straight from the
+  // environment and handed to the SDK, never logged, never returned in
+  // any API response, never referenced anywhere else in the codebase.
+  resendClient = new Resend(apiKey);
+  return resendClient;
+}
+
+async function deliverViaResend(params: { to: string; subject: string; html: string }): Promise<EmailAdapterResult> {
+  try {
+    const client = getResendClient();
+    const { error } = await client.emails.send({
+      from: env.email.from,
+      to: params.to,
+      subject: params.subject,
+      html: params.html,
+    });
+
+    if (error) {
+      logger.error("Resend delivery failed", { error: error.message, to: params.to });
+      return { ok: false, error: error.message };
+    }
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown Resend error";
+    logger.error("Resend delivery threw", { error: message, to: params.to });
+    return { ok: false, error: message };
+  }
+}
+
+// --- SMTP (secondary/optional) ----------------------------------------------
 
 let smtpTransport: nodemailer.Transporter | null = null;
 

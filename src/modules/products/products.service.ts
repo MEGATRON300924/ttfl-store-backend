@@ -190,11 +190,26 @@ export async function searchProducts(params: ProductSearchInput) {
     ];
   }
   if (params.category) where.category = { slug: params.category };
-  if (params.vendor) where.vendor = { storeSlug: params.vendor };
   if (params.condition) where.condition = params.condition;
   if (params.sellingMethod) where.sellingMethod = params.sellingMethod;
   if (params.location) where.location = { contains: params.location, mode: "insensitive" };
-  if (params.verifiedOnly) where.vendor = { ...where.vendor, verified: true };
+
+  // Built as a separate, plainly-typed object and applied via the `is:`
+  // wrapper — Prisma generates required to-one relation filters (like
+  // Product.vendor here) as an XOR<VendorProfileRelationFilter,
+  // VendorProfileWhereInput>. Spreading `where.vendor` back into itself
+  // (the old `{ ...where.vendor, verified: true }` pattern) doesn't
+  // type-check against that XOR union — TS reports the extra key as not
+  // assignable to the sibling branch's `never`-typed properties. Building
+  // the filter separately and assigning once via `is:` sidesteps the XOR
+  // entirely and is the pattern Prisma's own docs use for this exact case.
+  if (params.vendor || params.verifiedOnly) {
+    const vendorFilter: Prisma.VendorProfileWhereInput = {};
+    if (params.vendor) vendorFilter.storeSlug = params.vendor;
+    if (params.verifiedOnly) vendorFilter.verified = true;
+    where.vendor = { is: vendorFilter };
+  }
+
   if (params.minPrice || params.maxPrice) {
     where.price = {
       ...(params.minPrice ? { gte: params.minPrice } : {}),

@@ -4,7 +4,7 @@ import { AppError } from "@/utils/app-error";
 import { initializeTransaction, verifyTransaction, refundTransaction } from "@/lib/paystack";
 import { resolveCommissionRate, calculateCommission } from "@/lib/commissions";
 import { validateCoupon, recordRedemption, type CartLineForCoupon } from "@/modules/coupons/coupons.service";
-import { sendEmail, orderConfirmationEmail, vendorNewOrderEmail, adminNewOrderEmail } from "@/lib/email";
+import { sendEmail, orderConfirmationEmail, vendorNewOrderEmail, adminNewOrderEmail, orderRefundedEmail } from "@/lib/email";
 import { sendWhatsAppNotification, newOrderWhatsAppMessage } from "@/lib/whatsapp-notifications";
 import { recordAudit } from "@/lib/audit";
 import type { CheckoutInput } from "./orders.validators";
@@ -405,12 +405,7 @@ export async function refundOrder(orderId: string, adminId: string) {
 
   const customer = await prisma.user.findUnique({ where: { id: order.customerId } });
   if (customer) {
-    void sendEmail({
-      to: customer.email,
-      subject: `Order ${order.orderNumber} refunded`,
-      html: `<p>Your order ${order.orderNumber} has been refunded. The funds should reflect in 5-10 business days depending on your bank.</p>`,
-      event: "order_refunded",
-    });
+    void sendEmail({ to: customer.email, ...orderRefundedEmail(order.orderNumber) });
   }
 
   await recordAudit({ actorId: adminId, action: "ORDER_REFUNDED", targetType: "Order", targetId: order.id });

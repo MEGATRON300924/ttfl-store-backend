@@ -11,7 +11,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "seed:admin": "tsx prisma/seed.ts"
+    "seed:admin": "tsx prisma/seed.ts",
+    "test:email": "tsx scripts/test-email.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -29,6 +30,7 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.2.0",
     "nodemailer": "^9.0.5",
+    "resend": "^6.22.1",
     "uuid": "^9.0.1",
     "winston": "^3.14.2",
     "zod": "^3.23.8"

@@ -377,3 +377,29 @@ Found and fixed while doing a final pass, not left for later:
   account — every "works" claim here means "compiles clean and the logic
   was reasoned through," not "observed working in production." Please
   treat first real deployment as integration testing, not launch.
+
+## Production email — Resend (replaces the SMTP-primary setup)
+
+`EMAIL_PROVIDER=resend` is now the recommended production value.
+`lib/email-adapter.ts` gained a Resend branch using the official `resend`
+SDK; SMTP is kept as a secondary option (not removed — no working code
+was deleted), `console` remains the safe local-dev default.
+
+- Set `RESEND_API_KEY` (from your Resend dashboard) and `EMAIL_FROM` on
+  Render. Never commit the real key — `.env.example` only has a
+  placeholder in the same format as the other secrets.
+- Templates now render through a shared branded layout
+  (`lib/email-layout.ts`) instead of bare `<p>` tags, and every
+  user-controlled value (a customer's name, a store name, a rejection
+  reason) is run through `escapeHtml()` before being interpolated — this
+  closes a real stored-XSS gap the previous inline templates had.
+- Test real delivery without going through the HTTP API at all:
+  ```bash
+  npm run test:email -- --to=you@example.com
+  ```
+  This is a CLI script only (`scripts/test-email.ts`) — it's never
+  imported by `app.ts` or any router, so there's no way to trigger it
+  over the network.
+- The existing queue/retry architecture (`lib/email-queue.ts`) is
+  untouched — still in-process, still fine for one Render instance, still
+  documented as needing Redis/BullMQ if you ever run more than one.
