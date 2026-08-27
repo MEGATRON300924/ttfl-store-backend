@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { AppError } from "@/utils/app-error";
 import { recordAudit } from "@/lib/audit";
 import { sendEmail, vendorApprovedEmail, vendorRejectedEmail } from "@/lib/email";
+import { logger } from "@/lib/logger";
 
 export async function getMyVendorProfile(userId: string) {
   const profile = await prisma.vendorProfile.findUnique({ where: { userId } });
@@ -28,9 +29,15 @@ export async function getPublicVendorBySlug(slug: string) {
     throw AppError.notFound("Store not found");
   }
 
-  // Fire-and-forget view counter — same pattern as Product.viewCount.
-  void prisma.vendorProfile.update({ where: { id: profile.id }, data: { viewCount: { increment: 1 } } });
-
+   // Fire-and-forget view counter — same pattern as Product.viewCount.
+  // .catch() here matters: this fires on every storefront page view
+  // (unauthenticated, high-frequency), so a bare `void` with no error
+  // handling would crash the whole server on any transient DB hiccup —
+  // exactly the bug class that caused the production crash loop this
+  // was fixed alongside (see email-queue.ts for the fuller writeup).
+  prisma.vendorProfile
+    .update({ where: { id: profile.id }, data: { viewCount: { increment: 1 } } })
+    .catch((err: unknown) => logger.error("Failed to increment store view count (non-fatal)", { err }));
   return profile;
 }
 
