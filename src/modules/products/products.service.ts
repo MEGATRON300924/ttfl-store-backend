@@ -3,6 +3,7 @@ import { env } from "@/config/env";
 import { AppError } from "@/utils/app-error";
 import { slugify } from "@/utils/slugify";
 import { recordAudit } from "@/lib/audit";
+import { logger } from "@/lib/logger";
 import { assertProductLimitNotExceeded } from "@/modules/vendor-plans/vendor-plans.service";
 import type { CreateProductInput, ProductSearchInput } from "./products.validators";
 import type { Prisma } from "@prisma/client";
