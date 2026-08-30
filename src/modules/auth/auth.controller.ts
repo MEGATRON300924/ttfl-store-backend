@@ -1,8 +1,3 @@
-import type { Request, Response } from "express";
-import { asyncHandler } from "@/middleware/error-handler";
-import { setAuthCookies, clearAuthCookies, REFRESH_COOKIE } from "@/lib/cookies";
-import { AppError } from "@/utils/app-error";
-import * as authService from "./auth.service";
 import {
   registerCustomerSchema,
   registerVendorSchema,
@@ -11,6 +6,8 @@ import {
   resetPasswordSchema,
   changePasswordSchema,
   verifyEmailSchema,
+  updateProfileSchema,
+  avatarSchema,
 } from "./auth.validators";
 
 function requestMeta(req: Request) {
@@ -102,5 +99,17 @@ export const deleteAccount = asyncHandler(async (req: Request, res: Response) =>
 
 export const me = asyncHandler(async (req: Request, res: Response) => {
   const user = await authService.getCurrentUser(req.user!.sub);
+  res.status(200).json({ user });
+});
+
+export const updateProfile = asyncHandler(async (req: Request, res: Response) => {
+  const input = updateProfileSchema.parse(req.body);
+  const user = await authService.updateProfile(req.user!.sub, input);
+  res.status(200).json({ user });
+});
+
+export const updateAvatar = asyncHandler(async (req: Request, res: Response) => {
+  const { avatarUrl } = avatarSchema.parse(req.body);
+  const user = await authService.setAvatar(req.user!.sub, avatarUrl);
   res.status(200).json({ user });
 });
