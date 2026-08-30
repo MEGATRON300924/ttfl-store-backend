@@ -73,3 +73,24 @@ export async function deleteProductImage(publicId: string) {
     logger.warn("Cloudinary delete failed (non-fatal)", { publicId, err });
   }
 }
+export async function uploadAvatar(userId: string, buffer: Buffer, mimetype: string): Promise<{ url: string; publicId: string }> {
+  ensureConfigured();
+
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder: `ttfl-store/users/${userId}/avatar`,
+        resource_type: "image",
+        transformation: [{ width: 256, height: 256, crop: "fill", gravity: "face", quality: "auto", fetch_format: "auto" }],
+      },
+      (error, result) => {
+        if (error || !result) {
+          logger.error("Cloudinary avatar upload failed", { error });
+          return reject(AppError.internal("Avatar upload failed, please try again", "UPLOAD_FAILED"));
+        }
+        resolve({ url: result.secure_url, publicId: result.public_id });
+      }
+    );
+    stream.end(buffer);
+  });
+}
