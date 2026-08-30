@@ -17,5 +17,7 @@ authRouter.post("/reset-password", authRateLimiter, authController.resetPassword
 
 // Authenticated
 authRouter.get("/me", requireAuth, authController.me);
+authRouter.patch("/me", requireAuth, authController.updateProfile);
+authRouter.patch("/me/avatar", requireAuth, authController.updateAvatar);
 authRouter.post("/change-password", requireAuth, authController.changePassword);
 authRouter.delete("/account", requireAuth, authController.deleteAccount);
