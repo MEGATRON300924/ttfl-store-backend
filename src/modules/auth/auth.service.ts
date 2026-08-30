@@ -317,3 +317,16 @@ export async function getCurrentUser(userId: string) {
   if (!user) throw AppError.notFound("User not found");
   return publicUser(user);
 }
+
+export async function updateProfile(
+  userId: string,
+  input: { firstName?: string; lastName?: string; phone?: string }
+) {
+  const user = await prisma.user.update({ where: { id: userId }, data: input });
+  return publicUser(user);
+}
+
+export async function setAvatar(userId: string, avatarUrl: string) {
+  const user = await prisma.user.update({ where: { id: userId }, data: { avatarUrl } });
+  return publicUser(user);
+}
