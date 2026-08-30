@@ -23,6 +23,7 @@ import { analyticsRouter } from "@/modules/analytics/analytics.routes";
 import { supportRouter } from "@/modules/support/support.routes";
 import { uploadsRouter } from "@/modules/uploads/uploads.routes";
 import { settingsRouter } from "@/modules/settings/settings.routes";
+import { addressesRouter } from "@/modules/addresses/addresses.routes";
 
 export function createApp() {
   const app = express();
@@ -77,6 +78,7 @@ export function createApp() {
   app.use("/api/support", supportRouter);
   app.use("/api/uploads", uploadsRouter);
   app.use("/api/settings", settingsRouter);
+  app.use("/api/addresses", addressesRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
