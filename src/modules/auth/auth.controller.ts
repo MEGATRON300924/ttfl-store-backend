@@ -1,3 +1,8 @@
+import type { Request, Response } from "express";
+import { asyncHandler } from "@/middleware/error-handler";
+import { setAuthCookies, clearAuthCookies, REFRESH_COOKIE } from "@/lib/cookies";
+import { AppError } from "@/utils/app-error";
+import * as authService from "./auth.service";
 import {
   registerCustomerSchema,
   registerVendorSchema,
