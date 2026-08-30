@@ -4,7 +4,7 @@ import { asyncHandler } from "@/middleware/error-handler";
 import { requireAuth, requireRole } from "@/middleware/auth";
 import { AppError } from "@/utils/app-error";
 import { prisma } from "@/lib/prisma";
-import { validateUploadFile, uploadProductImage, deleteProductImage } from "./uploads.service";
+import { validateUploadFile, uploadProductImage, deleteProductImage, uploadAvatar } from "./uploads.service";
 
 export const uploadsRouter = Router();
 
@@ -41,5 +41,17 @@ uploadsRouter.delete(
     const publicId = decodeURIComponent(req.params.publicId);
     await deleteProductImage(publicId);
     res.status(204).send();
+  })
+);
+
+uploadsRouter.post(
+  "/avatar",
+  requireAuth,
+  upload.single("image"),
+  asyncHandler(async (req, res) => {
+    if (!req.file) throw AppError.badRequest("No image file provided", "NO_FILE");
+    validateUploadFile({ mimetype: req.file.mimetype, size: req.file.size });
+    const result = await uploadAvatar(req.user!.sub, req.file.buffer, req.file.mimetype);
+    res.status(201).json(result);
   })
 );
