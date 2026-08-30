@@ -48,3 +48,12 @@ export const verifyEmailSchema = z.object({
 export type RegisterCustomerInput = z.infer<typeof registerCustomerSchema>;
 export type RegisterVendorInput = z.infer<typeof registerVendorSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
+export const updateProfileSchema = z.object({
+  firstName: z.string().min(1).max(80).optional(),
+  lastName: z.string().min(1).max(80).optional(),
+  phone: z.string().min(7).max(20).optional(),
+});
+
+export const avatarSchema = z.object({
+  avatarUrl: z.string().url(),
+});
