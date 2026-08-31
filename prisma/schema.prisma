@@ -208,6 +208,7 @@ model User {
   firstName     String
   lastName      String
   phone         String?
+  avatarUrl     String?
 
   emailVerified   Boolean  @default(false)
   emailVerifiedAt DateTime?
