@@ -1,4 +1,3 @@
-```ts
 import "dotenv/config";
 
 function required(name: string): string {
@@ -81,4 +80,3 @@ export const env = {
   paystackSecretKey:
     process.env.PAYSTACK_SECRET_KEY,
 };
-```
