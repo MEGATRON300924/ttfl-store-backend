@@ -318,12 +318,14 @@ model VendorProfile {
   id            String       @id @default(uuid())
   userId        String       @unique
   user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   storeName     String
   storeSlug     String       @unique
   bio           String?
   location      String?
   whatsappNumber String?
 
+  // Store branding
   logoUrl       String?
   logoPublicId  String?
   bannerUrl     String?
@@ -349,15 +351,15 @@ model VendorProfile {
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
-  products      Product[]
-  referralEvents ReferralEvent[]
-  vendorOrders  VendorOrder[]
-  commissionRules CommissionRule[]
-  subscription  VendorSubscription?
-  featuredProducts FeaturedProduct[]
-  featuredStores FeaturedStore[]
-  coupons       Coupon[]
-  payouts       Payout[]
+  products           Product[]
+  referralEvents     ReferralEvent[]
+  vendorOrders       VendorOrder[]
+  commissionRules    CommissionRule[]
+  subscription       VendorSubscription?
+  featuredProducts   FeaturedProduct[]
+  featuredStores     FeaturedStore[]
+  coupons            Coupon[]
+  payouts            Payout[]
 
   @@index([status])
   @@index([tier])
