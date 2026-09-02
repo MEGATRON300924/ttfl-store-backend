@@ -76,6 +76,7 @@ enum AuditAction {
   PAYOUT_REJECTED
   PAYOUT_PAID
   ORDER_REFUNDED
+  VENDOR_PROFILE_UPDATED
 }
 
 enum ProductCondition {
@@ -317,16 +318,51 @@ model VendorProfile {
   id            String       @id @default(uuid())
   userId        String       @unique
   user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-
   storeName     String
   storeSlug     String       @unique
   bio           String?
   location      String?
   whatsappNumber String?
 
+  logoUrl       String?
+  logoPublicId  String?
+  bannerUrl     String?
+  bannerPublicId String?
+
   status        VendorStatus @default(PENDING)
   tier          VendorTier   @default(FREE)
   verified      Boolean      @default(false)
+
+  // Overrides the tier's default commission % when set (spec §16 —
+  // vendor-specific agreements). Null means "use the tier default".
+  commissionRateOverride Decimal? @db.Decimal(5, 2)
+
+  // Store page view counter (spec §13 analytics) — incremented on public
+  // storefront reads, same fire-and-forget pattern as Product.viewCount.
+  viewCount     Int          @default(0)
+
+  appliedAt     DateTime     @default(now())
+  approvedAt    DateTime?
+  rejectedAt    DateTime?
+  rejectionReason String?
+
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  products      Product[]
+  referralEvents ReferralEvent[]
+  vendorOrders  VendorOrder[]
+  commissionRules CommissionRule[]
+  subscription  VendorSubscription?
+  featuredProducts FeaturedProduct[]
+  featuredStores FeaturedStore[]
+  coupons       Coupon[]
+  payouts       Payout[]
+
+  @@index([status])
+  @@index([tier])
+  @@map("vendor_profiles")
+}
 
   // Overrides the tier's default commission % when set (spec §16 —
   // vendor-specific agreements). Null means "use the tier default".
