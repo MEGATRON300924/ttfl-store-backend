@@ -16,6 +16,12 @@ export async function convertOrder(userId: string, orderNumber: string, code: st
   const affiliate = rows[0];
   if (!affiliate || affiliate.user_id === userId) return { converted: false };
 
+  const recentClick = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
+    `SELECT id FROM affiliate_clicks WHERE affiliate_id = $1 AND created_at >= NOW() - INTERVAL '30 days' ORDER BY created_at DESC LIMIT 1`,
+    affiliate.id
+  );
+  if (!recentClick[0]) return { converted: false };
+
   const rate = Number(affiliate.commission_rate);
   const amount = Math.round(Number(order.totalAmount) * rate) / 100;
 
