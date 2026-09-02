@@ -1,9 +1,16 @@
 import { v2 as cloudinary } from "cloudinary";
+
 import { AppError } from "@/utils/app-error";
 import { logger } from "@/lib/logger";
 
-const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
-const ALLOWED_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/avif"]);
+const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
+
+const ALLOWED_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/avif",
+]);
 
 let configured = false;
 
@@ -21,27 +28,46 @@ function ensureConfigured() {
     );
   }
 
-  cloudinary.config({ cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret });
+  cloudinary.config({
+    cloud_name: cloudName,
+    api_key: apiKey,
+    api_secret: apiSecret,
+  });
+
   configured = true;
 }
 
-export function validateUploadFile(file: { mimetype: string; size: number }) {
+export function validateUploadFile(file: {
+  mimetype: string;
+  size: number;
+}) {
   if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
-    throw AppError.badRequest("Only JPEG, PNG, WebP, or AVIF images are allowed", "INVALID_FILE_TYPE");
+    throw AppError.badRequest(
+      "Only JPEG, PNG, WebP, or AVIF images are allowed",
+      "INVALID_FILE_TYPE"
+    );
   }
+
   if (file.size > MAX_FILE_SIZE_BYTES) {
-    throw AppError.badRequest("Images must be under 5MB", "FILE_TOO_LARGE");
+    throw AppError.badRequest(
+      "Images must be under 5MB",
+      "FILE_TOO_LARGE"
+    );
   }
 }
 
-/**
- * Uploads a single image buffer to Cloudinary under a per-vendor folder,
- * with automatic format/quality optimization (spec §8 "optimize images for
- * the frontend") applied via Cloudinary's f_auto/q_auto transformation —
- * the URL returned already serves WebP/AVIF to browsers that support it,
- * no extra work needed on the frontend.
- */
-export async function uploadProductImage(vendorId: string, buffer: Buffer, mimetype: string): Promise<{ url: string; publicId: string }> {
+// ---------------------------------------------------------------------------
+// Product images
+// ---------------------------------------------------------------------------
+
+export async function uploadProductImage(
+  vendorId: string,
+  buffer: Buffer,
+  mimetype: string
+): Promise<{
+  url: string;
+  publicId: string;
+}> {
   ensureConfigured();
 
   return new Promise((resolve, reject) => {
@@ -49,31 +75,63 @@ export async function uploadProductImage(vendorId: string, buffer: Buffer, mimet
       {
         folder: `ttfl-store/vendors/${vendorId}/products`,
         resource_type: "image",
-        transformation: [{ quality: "auto", fetch_format: "auto" }],
+        transformation: [
+          {
+            quality: "auto",
+            fetch_format: "auto",
+          },
+        ],
       },
       (error, result) => {
         if (error || !result) {
-          logger.error("Cloudinary upload failed", { error });
-          return reject(AppError.internal("Image upload failed, please try again", "UPLOAD_FAILED"));
+          logger.error("Cloudinary upload failed", {
+            error,
+          });
+
+          return reject(
+            AppError.internal(
+              "Image upload failed, please try again",
+              "UPLOAD_FAILED"
+            )
+          );
         }
-        resolve({ url: result.secure_url, publicId: result.public_id });
+
+        resolve({
+          url: result.secure_url,
+          publicId: result.public_id,
+        });
       }
     );
+
     stream.end(buffer);
   });
 }
 
 export async function deleteProductImage(publicId: string) {
   ensureConfigured();
+
   try {
     await cloudinary.uploader.destroy(publicId);
   } catch (err) {
-    // Non-fatal — an orphaned Cloudinary asset costs storage, not
-    // correctness, so this never blocks the product edit that triggered it.
-    logger.warn("Cloudinary delete failed (non-fatal)", { publicId, err });
+    logger.warn("Cloudinary delete failed (non-fatal)", {
+      publicId,
+      err,
+    });
   }
 }
-export async function uploadAvatar(userId: string, buffer: Buffer, mimetype: string): Promise<{ url: string; publicId: string }> {
+
+// ---------------------------------------------------------------------------
+// User avatar
+// ---------------------------------------------------------------------------
+
+export async function uploadAvatar(
+  userId: string,
+  buffer: Buffer,
+  mimetype: string
+): Promise<{
+  url: string;
+  publicId: string;
+}> {
   ensureConfigured();
 
   return new Promise((resolve, reject) => {
@@ -81,16 +139,135 @@ export async function uploadAvatar(userId: string, buffer: Buffer, mimetype: str
       {
         folder: `ttfl-store/users/${userId}/avatar`,
         resource_type: "image",
-        transformation: [{ width: 256, height: 256, crop: "fill", gravity: "face", quality: "auto", fetch_format: "auto" }],
+        transformation: [
+          {
+            width: 256,
+            height: 256,
+            crop: "fill",
+            gravity: "face",
+            quality: "auto",
+            fetch_format: "auto",
+          },
+        ],
       },
       (error, result) => {
         if (error || !result) {
-          logger.error("Cloudinary avatar upload failed", { error });
-          return reject(AppError.internal("Avatar upload failed, please try again", "UPLOAD_FAILED"));
+          logger.error("Cloudinary avatar upload failed", {
+            error,
+          });
+
+          return reject(
+            AppError.internal(
+              "Avatar upload failed, please try again",
+              "UPLOAD_FAILED"
+            )
+          );
         }
-        resolve({ url: result.secure_url, publicId: result.public_id });
+
+        resolve({
+          url: result.secure_url,
+          publicId: result.public_id,
+        });
       }
     );
+
     stream.end(buffer);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Vendor store branding
+// ---------------------------------------------------------------------------
+
+export async function uploadStoreBranding(
+  vendorId: string,
+  type: "logo" | "banner",
+  buffer: Buffer,
+  mimetype: string
+): Promise<{
+  url: string;
+  publicId: string;
+  type: "logo" | "banner";
+}> {
+  ensureConfigured();
+
+  const folder = `ttfl-store/vendors/${vendorId}/store`;
+
+  const transformation =
+    type === "logo"
+      ? [
+          {
+            width: 512,
+            height: 512,
+            crop: "limit",
+            quality: "auto",
+            fetch_format: "auto",
+          },
+        ]
+      : [
+          {
+            width: 1600,
+            height: 600,
+            crop: "limit",
+            quality: "auto",
+            fetch_format: "auto",
+          },
+        ];
+
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        folder,
+        public_id: type,
+        overwrite: true,
+        invalidate: true,
+        resource_type: "image",
+        transformation,
+      },
+      (error, result) => {
+        if (error || !result) {
+          logger.error("Cloudinary store branding upload failed", {
+            error,
+            vendorId,
+            type,
+          });
+
+          return reject(
+            AppError.internal(
+              "Store image upload failed, please try again",
+              "STORE_UPLOAD_FAILED"
+            )
+          );
+        }
+
+        resolve({
+          url: result.secure_url,
+          publicId: result.public_id,
+          type,
+        });
+      }
+    );
+
+    stream.end(buffer);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Delete vendor store branding
+// ---------------------------------------------------------------------------
+
+export async function deleteStoreBranding(publicId: string) {
+  ensureConfigured();
+
+  try {
+    await cloudinary.uploader.destroy(publicId);
+  } catch (err) {
+    logger.warn(
+      "Cloudinary store branding delete failed (non-fatal)",
+      {
+        publicId,
+        err,
+      }
+    );
+  }
 }
