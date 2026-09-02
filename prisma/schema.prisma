@@ -1,8 +1,6 @@
-// TTFL Store — Database schema (Phase 1: identity & access)
-// Covers spec §7 (database), §8 (auth), §9 (user types), §13 (vendor store
-// shell), §17 (vendor tiers — enum only for now), §36 (audit logs).
-// Orders, products, payments, commissions etc. are deliberately out of
-// scope for this pass and will extend this same schema additively.
+// TTFL Store — Database schema
+// Phase 1 + Phase 2: identity, access, vendors, catalog, commerce,
+// subscriptions, promotions, payouts, email delivery, support, and settings.
 
 generator client {
   provider = "prisma-client-js"
@@ -130,7 +128,9 @@ enum CommissionType {
   FIXED
 }
 
-// --- Phase 2 enums -----------------------------------------------------
+// ---------------------------------------------------------------------------
+// Phase 2 enums
+// ---------------------------------------------------------------------------
 
 enum BillingPeriod {
   MONTHLY
@@ -220,17 +220,17 @@ model User {
   updatedAt     DateTime  @updatedAt
   deletedAt     DateTime?
 
-  sessions                 Session[]
-  emailVerificationTokens  EmailVerificationToken[]
-  passwordResetTokens      PasswordResetToken[]
-  vendorProfile            VendorProfile?
-  addresses                Address[]
-  auditLogsAsActor         AuditLog[] @relation("AuditActor")
-  orders                   Order[]
-  reviews                  Review[]
-  wishlistItems            WishlistItem[]
-  supportConversations     SupportConversation[]
-  supportMessages          SupportMessage[]
+  sessions                  Session[]
+  emailVerificationTokens   EmailVerificationToken[]
+  passwordResetTokens       PasswordResetToken[]
+  vendorProfile             VendorProfile?
+  addresses                 Address[]
+  auditLogsAsActor          AuditLog[] @relation("AuditActor")
+  orders                    Order[]
+  reviews                   Review[]
+  wishlistItems             WishlistItem[]
+  supportConversations      SupportConversation[]
+  supportMessages           SupportMessage[]
 
   @@index([role])
   @@index([status])
@@ -267,9 +267,9 @@ model Session {
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   refreshTokenHash String  @unique
-  userAgent       String?
-  ipAddress       String?
-  deviceLabel     String?
+  userAgent        String?
+  ipAddress        String?
+  deviceLabel      String?
 
   revoked         Boolean  @default(false)
   revokedAt       DateTime?
@@ -390,35 +390,36 @@ model Category {
 }
 
 model Product {
-  id            String         @id @default(uuid())
+  id            String           @id @default(uuid())
   vendorId      String
-  vendor        VendorProfile  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendor        VendorProfile    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
   categoryId    String
-  category      Category       @relation(fields: [categoryId], references: [id])
+  category      Category         @relation(fields: [categoryId], references: [id])
 
   name          String
-  slug          String         @unique
+  slug          String           @unique
   description   String
   specifications Json?
 
-  price         Decimal        @db.Decimal(12, 2)
-  previousPrice Decimal?       @db.Decimal(12, 2)
-  currency      String         @default("NGN")
+  price         Decimal          @db.Decimal(12, 2)
+  previousPrice Decimal?         @db.Decimal(12, 2)
+  currency      String           @default("NGN")
 
-  condition     ProductCondition @default(NEW)
-  stock         Int             @default(0)
+  condition     ProductCondition  @default(NEW)
+  stock         Int              @default(0)
   status        ProductStatus    @default(ACTIVE)
 
-  sellingMethod String? 
+  // IMPORTANT: Keep this as the SellingMethod enum.
+  sellingMethod SellingMethod     @default(CHECKOUT)
   externalUrl   String?
   whatsappNumber String?
 
   location      String?
-  viewCount     Int             @default(0)
+  viewCount     Int              @default(0)
 
-  avgRating     Decimal?        @db.Decimal(3, 2)
-  reviewCount   Int             @default(0)
+  avgRating     Decimal?         @db.Decimal(3, 2)
+  reviewCount   Int              @default(0)
 
   images          ProductImage[]
   referralEvents  ReferralEvent[]
@@ -426,8 +427,8 @@ model Product {
   wishlistedBy    WishlistItem[]
   featuredEntries FeaturedProduct[]
 
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
   deletedAt      DateTime?
 
   @@index([vendorId])
@@ -457,12 +458,12 @@ model ProductImage {
 // ---------------------------------------------------------------------------
 
 model ReferralEvent {
-  id          String        @id @default(uuid())
+  id          String         @id @default(uuid())
   vendorId    String
-  vendor      VendorProfile @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendor      VendorProfile  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
   productId   String
-  product     Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product     Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   type        ReferralType
   sessionId   String?
@@ -473,7 +474,7 @@ model ReferralEvent {
   deviceType  String?
   ipAddress   String?
 
-  createdAt   DateTime      @default(now())
+  createdAt   DateTime       @default(now())
 
   @@index([vendorId])
   @@index([productId])
@@ -546,35 +547,35 @@ model Order {
 }
 
 model VendorOrder {
-  id                String        @id @default(uuid())
+  id                  String        @id @default(uuid())
 
-  orderId           String
-  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId             String
+  order               Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
-  vendorId          String
-  vendor            VendorProfile @relation(fields: [vendorId], references: [id])
+  vendorId            String
+  vendor              VendorProfile @relation(fields: [vendorId], references: [id])
 
-  status            OrderStatus   @default(PENDING)
+  status              OrderStatus   @default(PENDING)
 
-  subtotal          Decimal       @db.Decimal(12, 2)
-  commissionRate    Decimal       @db.Decimal(5, 2)
-  commissionAmount  Decimal       @db.Decimal(12, 2)
-  vendorEarnings    Decimal       @db.Decimal(12, 2)
+  subtotal            Decimal       @db.Decimal(12, 2)
+  commissionRate      Decimal       @db.Decimal(5, 2)
+  commissionAmount    Decimal       @db.Decimal(12, 2)
+  vendorEarnings      Decimal       @db.Decimal(12, 2)
 
-  payoutStatus      String        @default("PENDING")
-  payoutAt          DateTime?
+  payoutStatus        String        @default("PENDING")
+  payoutAt            DateTime?
 
-  deliveryMethod    String?
-  deliveryFee       Decimal       @default(0) @db.Decimal(12, 2)
-  deliveryProvider  String?
-  trackingNumber    String?
-  trackingUrl       String?
+  deliveryMethod      String?
+  deliveryFee         Decimal       @default(0) @db.Decimal(12, 2)
+  deliveryProvider    String?
+  trackingNumber      String?
+  trackingUrl         String?
   estimatedDeliveryAt DateTime?
 
-  items             OrderItem[]
+  items               OrderItem[]
 
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
 
   @@index([orderId])
   @@index([vendorId])
@@ -819,30 +820,30 @@ model WishlistItem {
 // ---------------------------------------------------------------------------
 
 model Coupon {
-  id                String    @id @default(uuid())
-  code              String    @unique
+  id                String          @id @default(uuid())
+  code              String          @unique
 
   type              CouponType
-  value             Decimal   @db.Decimal(12, 2)
+  value             Decimal         @db.Decimal(12, 2)
 
   vendorId          String?
-  vendor            VendorProfile? @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  vendor            VendorProfile?  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
   categoryId        String?
 
-  minOrderAmount    Decimal?  @db.Decimal(12, 2)
-  maxDiscountAmount Decimal?  @db.Decimal(12, 2)
+  minOrderAmount    Decimal?        @db.Decimal(12, 2)
+  maxDiscountAmount Decimal?        @db.Decimal(12, 2)
 
   usageLimit        Int?
-  usageLimitPerUser Int       @default(1)
-  firstOrderOnly    Boolean   @default(false)
+  usageLimitPerUser Int             @default(1)
+  firstOrderOnly    Boolean         @default(false)
 
   startsAt          DateTime?
   expiresAt         DateTime?
-  active            Boolean   @default(true)
+  active            Boolean         @default(true)
 
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 
   redemptions       CouponRedemption[]
 
