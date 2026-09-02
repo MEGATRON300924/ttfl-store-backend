@@ -14,26 +14,50 @@ export async function ensureAffiliateTables() {
       clicks INTEGER NOT NULL DEFAULT 0, conversions INTEGER NOT NULL DEFAULT 0,
       pending_earnings NUMERIC(12,2) NOT NULL DEFAULT 0, paid_earnings NUMERIC(12,2) NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
+    )
+  `);
+
+  await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS affiliate_clicks (
       id TEXT PRIMARY KEY, affiliate_id TEXT NOT NULL REFERENCES affiliates(id) ON DELETE CASCADE,
       session_id TEXT, landing_path TEXT, source TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS affiliate_clicks_affiliate_idx ON affiliate_clicks(affiliate_id);
-    CREATE INDEX IF NOT EXISTS affiliate_clicks_created_idx ON affiliate_clicks(created_at);
+    )
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS affiliate_clicks_affiliate_idx ON affiliate_clicks(affiliate_id)
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS affiliate_clicks_created_idx ON affiliate_clicks(created_at)
+  `);
+
+  await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS affiliate_attributions (
       id TEXT PRIMARY KEY, affiliate_id TEXT NOT NULL REFERENCES affiliates(id) ON DELETE CASCADE,
       order_id TEXT NOT NULL UNIQUE REFERENCES orders(id) ON DELETE CASCADE, commission_rate NUMERIC(5,2) NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS affiliate_attributions_affiliate_idx ON affiliate_attributions(affiliate_id);
+    )
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS affiliate_attributions_affiliate_idx ON affiliate_attributions(affiliate_id)
+  `);
+
+  await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS affiliate_commissions (
       id TEXT PRIMARY KEY, affiliate_id TEXT NOT NULL REFERENCES affiliates(id) ON DELETE CASCADE,
       order_id TEXT NOT NULL UNIQUE REFERENCES orders(id) ON DELETE CASCADE, order_amount NUMERIC(12,2) NOT NULL,
       amount NUMERIC(12,2) NOT NULL, status TEXT NOT NULL DEFAULT 'PENDING', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), paid_at TIMESTAMPTZ
-    );
-    CREATE INDEX IF NOT EXISTS affiliate_commissions_affiliate_idx ON affiliate_commissions(affiliate_id);
-    CREATE INDEX IF NOT EXISTS affiliate_commissions_status_idx ON affiliate_commissions(status);
+    )
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS affiliate_commissions_affiliate_idx ON affiliate_commissions(affiliate_id)
+  `);
+
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS affiliate_commissions_status_idx ON affiliate_commissions(status)
   `);
 }
 
@@ -100,7 +124,7 @@ export async function attachOrder(orderId: string, affiliateId: string, commissi
 }
 
 export async function recordPaidOrder(tx: any, orderId: string, orderAmount: number) {
-  const attribution = await tx.$queryRawUnsafe(`SELECT affiliate_id, commission_rate::text FROM affiliate_attributions WHERE order_id = $1 LIMIT 1`, orderId) as AttributionRow[];
+  const attribution = await tx.$queryRawUnsafe(`SELECT affiliate_id, commission_rate::text FROM affiliate_attributions WHERE order_id = $1 LIMIT 1`) as AttributionRow[];
   if (!attribution[0]) return;
   const rate = Number(attribution[0].commission_rate);
   const amount = Math.round(orderAmount * rate) / 100;
