@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth } from "@/middleware/auth";
 import { asyncHandler } from "@/middleware/error-handler";
 import * as service from "./affiliates.service";
+import { convertOrder } from "./affiliate-convert.service";
 
 export const affiliatesRouter = Router();
 
@@ -27,4 +28,9 @@ affiliatesRouter.post("/join", requireAuth, asyncHandler(async (req, res) => {
 affiliatesRouter.get("/dashboard", requireAuth, asyncHandler(async (req, res) => {
   const dashboard = await service.getDashboard(req.user!.sub);
   res.json({ dashboard });
+}));
+
+affiliatesRouter.post("/convert", requireAuth, asyncHandler(async (req, res) => {
+  const data = z.object({ orderNumber: z.string().min(5).max(40), code: z.string().min(3).max(40) }).parse(req.body);
+  res.json(await convertOrder(req.user!.sub, data.orderNumber, data.code));
 }));
