@@ -13,14 +13,8 @@ import { logger } from "@/lib/logger";
 // ---------------------------------------------------------------------------
 
 export async function getMyVendorProfile(userId: string) {
-  const profile = await prisma.vendorProfile.findUnique({
-    where: { userId },
-  });
-
-  if (!profile) {
-    throw AppError.notFound("Vendor profile not found");
-  }
-
+  const profile = await prisma.vendorProfile.findUnique({ where: { userId } });
+  if (!profile) throw AppError.notFound("Vendor profile not found");
   return profile;
 }
 
@@ -34,13 +28,8 @@ export async function updateMyVendorProfile(
   },
   ipAddress?: string
 ) {
-  const existing = await prisma.vendorProfile.findUnique({
-    where: { userId },
-  });
-
-  if (!existing) {
-    throw AppError.notFound("Vendor profile not found");
-  }
+  const existing = await prisma.vendorProfile.findUnique({ where: { userId } });
+  if (!existing) throw AppError.notFound("Vendor profile not found");
 
   const profile = await prisma.vendorProfile.update({
     where: { userId },
@@ -58,14 +47,7 @@ export async function updateMyVendorProfile(
     targetType: "VendorProfile",
     targetId: profile.id,
     ipAddress,
-    metadata: {
-      fields: [
-        "storeName",
-        "bio",
-        "location",
-        "whatsappNumber",
-      ],
-    },
+    metadata: { fields: ["storeName", "bio", "location", "whatsappNumber"] },
   });
 
   return profile;
@@ -88,12 +70,7 @@ export async function getPublicVendorBySlug(slug: string) {
       createdAt: true,
       _count: {
         select: {
-          products: {
-            where: {
-              status: "ACTIVE",
-              deletedAt: null,
-            },
-          },
+          products: { where: { status: "ACTIVE", deletedAt: null } },
         },
       },
     },
@@ -104,22 +81,60 @@ export async function getPublicVendorBySlug(slug: string) {
   }
 
   prisma.vendorProfile
-    .update({
-      where: { id: profile.id },
-      data: {
-        viewCount: {
-          increment: 1,
-        },
-      },
-    })
-    .catch((err: unknown) =>
-      logger.error(
-        "Failed to increment store view count (non-fatal)",
-        { err }
-      )
-    );
+    .update({ where: { id: profile.id }, data: { viewCount: { increment: 1 } } })
+    .catch((err: unknown) => logger.error("Failed to increment store view count (non-fatal)", { err }));
 
   return profile;
+}
+
+/** Public directory of approved TTFL Store vendors. */
+export async function listPublicVendors(params: {
+  page: number;
+  limit: number;
+  q?: string;
+}) {
+  const where = {
+    status: "APPROVED" as const,
+    ...(params.q
+      ? { storeName: { contains: params.q, mode: "insensitive" as const } }
+      : {}),
+  };
+
+  const [items, total] = await prisma.$transaction([
+    prisma.vendorProfile.findMany({
+      where,
+      select: {
+        id: true,
+        storeName: true,
+        storeSlug: true,
+        bio: true,
+        location: true,
+        logoUrl: true,
+        bannerUrl: true,
+        verified: true,
+        createdAt: true,
+        _count: {
+          select: {
+            products: { where: { status: "ACTIVE", deletedAt: null } },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      skip: (params.page - 1) * params.limit,
+      take: params.limit,
+    }),
+    prisma.vendorProfile.count({ where }),
+  ]);
+
+  return {
+    items,
+    pagination: {
+      page: params.page,
+      limit: params.limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / params.limit)),
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -132,117 +147,39 @@ export async function listVendorApplications(
   return prisma.vendorProfile.findMany({
     where: status ? { status } : undefined,
     include: {
-      user: {
-        select: {
-          id: true,
-          firstName: true,
-          lastName: true,
-          email: true,
-        },
-      },
+      user: { select: { id: true, firstName: true, lastName: true, email: true } },
     },
-    orderBy: {
-      appliedAt: "desc",
-    },
+    orderBy: { appliedAt: "desc" },
   });
 }
 
-export async function approveVendor(
-  vendorProfileId: string,
-  adminId: string,
-  ipAddress?: string
-) {
+export async function approveVendor(vendorProfileId: string, adminId: string, ipAddress?: string) {
   const profile = await prisma.vendorProfile.update({
-    where: {
-      id: vendorProfileId,
-    },
-    data: {
-      status: "APPROVED",
-      verified: true,
-      approvedAt: new Date(),
-    },
-    include: {
-      user: true,
-    },
+    where: { id: vendorProfileId },
+    data: { status: "APPROVED", verified: true, approvedAt: new Date() },
+    include: { user: true },
   });
 
-  await recordAudit({
-    actorId: adminId,
-    action: "VENDOR_APPROVED",
-    targetType: "VendorProfile",
-    targetId: profile.id,
-    ipAddress,
-  });
-
-  void sendEmail({
-    to: profile.user.email,
-    ...vendorApprovedEmail(profile.storeName),
-  });
-
+  await recordAudit({ actorId: adminId, action: "VENDOR_APPROVED", targetType: "VendorProfile", targetId: profile.id, ipAddress });
+  void sendEmail({ to: profile.user.email, ...vendorApprovedEmail(profile.storeName) });
   return profile;
 }
 
-export async function rejectVendor(
-  vendorProfileId: string,
-  adminId: string,
-  reason: string,
-  ipAddress?: string
-) {
+export async function rejectVendor(vendorProfileId: string, adminId: string, reason: string, ipAddress?: string) {
   const profile = await prisma.vendorProfile.update({
-    where: {
-      id: vendorProfileId,
-    },
-    data: {
-      status: "REJECTED",
-      rejectedAt: new Date(),
-      rejectionReason: reason,
-    },
-    include: {
-      user: true,
-    },
+    where: { id: vendorProfileId },
+    data: { status: "REJECTED", rejectedAt: new Date(), rejectionReason: reason },
+    include: { user: true },
   });
 
-  await recordAudit({
-    actorId: adminId,
-    action: "VENDOR_REJECTED",
-    targetType: "VendorProfile",
-    targetId: profile.id,
-    metadata: {
-      reason,
-    },
-    ipAddress,
-  });
-
-  void sendEmail({
-    to: profile.user.email,
-    ...vendorRejectedEmail(profile.storeName, reason),
-  });
-
+  await recordAudit({ actorId: adminId, action: "VENDOR_REJECTED", targetType: "VendorProfile", targetId: profile.id, metadata: { reason }, ipAddress });
+  void sendEmail({ to: profile.user.email, ...vendorRejectedEmail(profile.storeName, reason) });
   return profile;
 }
 
-export async function suspendVendor(
-  vendorProfileId: string,
-  adminId: string,
-  ipAddress?: string
-) {
-  const profile = await prisma.vendorProfile.update({
-    where: {
-      id: vendorProfileId,
-    },
-    data: {
-      status: "SUSPENDED",
-    },
-  });
-
-  await recordAudit({
-    actorId: adminId,
-    action: "VENDOR_SUSPENDED",
-    targetType: "VendorProfile",
-    targetId: profile.id,
-    ipAddress,
-  });
-
+export async function suspendVendor(vendorProfileId: string, adminId: string, ipAddress?: string) {
+  const profile = await prisma.vendorProfile.update({ where: { id: vendorProfileId }, data: { status: "SUSPENDED" } });
+  await recordAudit({ actorId: adminId, action: "VENDOR_SUSPENDED", targetType: "VendorProfile", targetId: profile.id, ipAddress });
   return profile;
 }
 
@@ -252,33 +189,11 @@ export async function changeVendorTier(
   adminId: string,
   ipAddress?: string
 ) {
-  const profile = await prisma.vendorProfile.update({
-    where: {
-      id: vendorProfileId,
-    },
-    data: {
-      tier,
-    },
-  });
-
-  await recordAudit({
-    actorId: adminId,
-    action: "VENDOR_TIER_CHANGED",
-    targetType: "VendorProfile",
-    targetId: profile.id,
-    metadata: {
-      newTier: tier,
-    },
-    ipAddress,
-  });
-
+  const profile = await prisma.vendorProfile.update({ where: { id: vendorProfileId }, data: { tier } });
+  await recordAudit({ actorId: adminId, action: "VENDOR_TIER_CHANGED", targetType: "VendorProfile", targetId: profile.id, metadata: { newTier: tier }, ipAddress });
   return profile;
 }
 
-/**
- * Custom commission agreement for one vendor.
- * Null clears the override and falls back to the vendor's plan rate.
- */
 export async function setCommissionOverride(
   vendorProfileId: string,
   ratePercent: number | null,
@@ -286,24 +201,9 @@ export async function setCommissionOverride(
   ipAddress?: string
 ) {
   const profile = await prisma.vendorProfile.update({
-    where: {
-      id: vendorProfileId,
-    },
-    data: {
-      commissionRateOverride: ratePercent,
-    },
+    where: { id: vendorProfileId },
+    data: { commissionRateOverride: ratePercent },
   });
-
-  await recordAudit({
-    actorId: adminId,
-    action: "VENDOR_TIER_CHANGED",
-    targetType: "VendorProfile",
-    targetId: profile.id,
-    metadata: {
-      commissionRateOverride: ratePercent,
-    },
-    ipAddress,
-  });
-
+  await recordAudit({ actorId: adminId, action: "VENDOR_TIER_CHANGED", targetType: "VendorProfile", targetId: profile.id, metadata: { commissionRateOverride: ratePercent }, ipAddress });
   return profile;
 }
