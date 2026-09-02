@@ -24,24 +24,13 @@ import { supportRouter } from "@/modules/support/support.routes";
 import { uploadsRouter } from "@/modules/uploads/uploads.routes";
 import { settingsRouter } from "@/modules/settings/settings.routes";
 import { addressesRouter } from "@/modules/addresses/addresses.routes";
+import { affiliatesRouter } from "@/modules/affiliates/affiliates.routes";
 
 export function createApp() {
   const app = express();
-
-  app.set("trust proxy", 1); // needed for correct req.ip behind Render's proxy
-
+  app.set("trust proxy", 1);
   app.use(helmet());
-  app.use(
-    cors({
-      origin: env.corsOrigin,
-      credentials: true,
-    })
-  );
-
-  // Paystack webhook MUST be registered before express.json() with a raw
-  // body parser, because signature verification (lib/paystack.ts) needs
-  // the exact bytes Paystack sent — re-serializing a parsed JSON object
-  // would produce a different byte string and always fail verification.
+  app.use(cors({ origin: env.corsOrigin, credentials: true }));
   app.post(
     "/api/payments/webhook",
     express.raw({ type: "application/json" }),
@@ -52,16 +41,13 @@ export function createApp() {
     },
     paystackWebhook
   );
-
   app.use(express.json({ limit: "1mb" }));
   app.use(cookieParser());
   app.use(generalRateLimiter);
   app.use(attachUser);
-
   app.get("/health", (_req, res) => {
     res.json({ status: "ok", service: "ttfl-store-backend", time: new Date().toISOString() });
   });
-
   app.use("/api/auth", authRouter);
   app.use("/api/vendors", vendorsRouter);
   app.use("/api/categories", categoriesRouter);
@@ -79,9 +65,8 @@ export function createApp() {
   app.use("/api/uploads", uploadsRouter);
   app.use("/api/settings", settingsRouter);
   app.use("/api/addresses", addressesRouter);
-
+  app.use("/api/affiliates", affiliatesRouter);
   app.use(notFoundHandler);
   app.use(errorHandler);
-
   return app;
 }
