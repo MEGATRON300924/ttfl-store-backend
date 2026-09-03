@@ -1,0 +1,213 @@
+import { randomBytes } from "node:crypto";
+import { prisma } from "@/lib/prisma";
+import { recordAudit } from "@/lib/audit";
+import { AppError } from "@/utils/app-error";
+
+export const STORE_BADGES = ["VERIFIED", "BUSINESS", "ENTERPRISE", "PLATINUM"] as const;
+export type StoreBadge = (typeof STORE_BADGES)[number];
+
+const PUBLIC_PROFILE_FIELDS = ["headline", "description", "theme", "accentColor", "layout", "customUrl"] as const;
+
+function normalizeCustomUrl(value: string | null | undefined) {
+  const normalized = (value ?? "").trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  return normalized || null;
+}
+
+export async function ensureStoreProfileTables() {
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS store_public_profiles (
+      id TEXT PRIMARY KEY,
+      vendor_id TEXT NOT NULL UNIQUE REFERENCES vendor_profiles(id) ON DELETE CASCADE,
+      headline TEXT,
+      description TEXT,
+      theme TEXT NOT NULL DEFAULT 'CLASSIC',
+      accent_color TEXT NOT NULL DEFAULT '#E8622C',
+      layout TEXT NOT NULL DEFAULT 'STANDARD',
+      custom_url TEXT UNIQUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS store_badges (
+      id TEXT PRIMARY KEY,
+      vendor_id TEXT NOT NULL REFERENCES vendor_profiles(id) ON DELETE CASCADE,
+      badge TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(vendor_id, badge),
+      CHECK (badge IN ('VERIFIED', 'BUSINESS', 'ENTERPRISE', 'PLATINUM'))
+    )
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS store_badges_vendor_idx ON store_badges(vendor_id)
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS store_gallery_images (
+      id TEXT PRIMARY KEY,
+      vendor_id TEXT NOT NULL REFERENCES vendor_profiles(id) ON DELETE CASCADE,
+      url TEXT NOT NULL,
+      public_id TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS store_gallery_vendor_idx ON store_gallery_images(vendor_id, position)
+  `);
+}
+
+async function getVendorByUserId(userId: string) {
+  const vendor = await prisma.vendorProfile.findUnique({ where: { userId } });
+  if (!vendor) throw AppError.notFound("Vendor profile not found");
+  return vendor;
+}
+
+function assertEnterprise(tier: string) {
+  if (tier !== "ENTERPRISE") {
+    throw AppError.forbidden("Public profile customization is available on the Enterprise plan only");
+  }
+}
+
+export async function getPublicStoreProfile(slug: string) {
+  await ensureStoreProfileTables();
+  const rows = await prisma.$queryRawUnsafe<any[]>(
+    `SELECT vp.id, vp.store_name AS "storeName", vp.store_slug AS "storeSlug", vp.bio, vp.location,
+            vp.whatsapp_number AS "whatsappNumber", vp.logo_url AS "logoUrl", vp.banner_url AS "bannerUrl",
+            vp.verified, vp.tier, vp.created_at AS "createdAt", vp.view_count AS "viewCount",
+            spp.headline, spp.description, spp.theme, spp.accent_color AS "accentColor", spp.layout, spp.custom_url AS "customUrl"
+       FROM vendor_profiles vp
+       LEFT JOIN store_public_profiles spp ON spp.vendor_id = vp.id
+      WHERE vp.store_slug = $1 AND vp.status = 'APPROVED'
+      LIMIT 1`,
+    slug
+  );
+  const vendor = rows[0];
+  if (!vendor) throw AppError.notFound("Store not found");
+
+  const [badges, gallery, productCount] = await Promise.all([
+    prisma.$queryRawUnsafe<Array<{ badge: StoreBadge }>>(`SELECT badge FROM store_badges WHERE vendor_id = $1 ORDER BY created_at ASC`, vendor.id),
+    prisma.$queryRawUnsafe<Array<{ id: string; url: string; position: number }>>(`SELECT id, url, position FROM store_gallery_images WHERE vendor_id = $1 ORDER BY position ASC, created_at ASC`, vendor.id),
+    prisma.product.count({ where: { vendorId: vendor.id, status: "ACTIVE", deletedAt: null } }),
+  ]);
+
+  prisma.vendorProfile.update({ where: { id: vendor.id }, data: { viewCount: { increment: 1 } } }).catch(() => undefined);
+
+  return { ...vendor, productCount, badges: badges.map((item) => item.badge), gallery };
+}
+
+export async function getMyStoreProfile(userId: string) {
+  await ensureStoreProfileTables();
+  const vendor = await getVendorByUserId(userId);
+  const [profileRows, badges, gallery] = await Promise.all([
+    prisma.$queryRawUnsafe<any[]>(`SELECT headline, description, theme, accent_color AS "accentColor", layout, custom_url AS "customUrl" FROM store_public_profiles WHERE vendor_id = $1 LIMIT 1`, vendor.id),
+    prisma.$queryRawUnsafe<Array<{ badge: StoreBadge }>>(`SELECT badge FROM store_badges WHERE vendor_id = $1 ORDER BY created_at ASC`, vendor.id),
+    prisma.$queryRawUnsafe<Array<{ id: string; url: string; publicId: string; position: number }>>(`SELECT id, url, public_id AS "publicId", position FROM store_gallery_images WHERE vendor_id = $1 ORDER BY position ASC, created_at ASC`, vendor.id),
+  ]);
+
+  return {
+    vendorProfile: vendor,
+    profile: profileRows[0] ?? { headline: null, description: null, theme: "CLASSIC", accentColor: "#E8622C", layout: "STANDARD", customUrl: null },
+    badges: badges.map((item) => item.badge),
+    gallery,
+    enterprise: vendor.tier === "ENTERPRISE",
+  };
+}
+
+export async function updateMyStoreProfile(
+  userId: string,
+  data: { headline?: string | null; description?: string | null; theme?: string; accentColor?: string; layout?: string; customUrl?: string | null },
+  ipAddress?: string
+) {
+  await ensureStoreProfileTables();
+  const vendor = await getVendorByUserId(userId);
+  assertEnterprise(vendor.tier);
+  const customUrl = normalizeCustomUrl(data.customUrl);
+  if (customUrl) {
+    const conflict = await prisma.$queryRawUnsafe<Array<{ id: string }>>(`SELECT id FROM store_public_profiles WHERE custom_url = $1 AND vendor_id <> $2 LIMIT 1`, customUrl, vendor.id);
+    if (conflict[0]) throw AppError.conflict("That custom store link is already in use");
+  }
+
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO store_public_profiles (id, vendor_id, headline, description, theme, accent_color, layout, custom_url)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (vendor_id) DO UPDATE SET headline = EXCLUDED.headline, description = EXCLUDED.description,
+       theme = EXCLUDED.theme, accent_color = EXCLUDED.accent_color, layout = EXCLUDED.layout,
+       custom_url = EXCLUDED.custom_url, updated_at = NOW()`,
+    randomBytes(16).toString("hex"), vendor.id, data.headline?.trim() || null, data.description?.trim() || null,
+    data.theme?.trim() || "CLASSIC", data.accentColor?.trim() || "#E8622C", data.layout?.trim() || "STANDARD", customUrl
+  );
+
+  await recordAudit({ actorId: userId, action: "VENDOR_PROFILE_UPDATED", targetType: "StorePublicProfile", targetId: vendor.id, ipAddress, metadata: { fields: [...PUBLIC_PROFILE_FIELDS] } });
+  return getMyStoreProfile(userId);
+}
+
+export async function setBadge(vendorId: string, badge: StoreBadge, enabled: boolean, adminId: string, ipAddress?: string) {
+  await ensureStoreProfileTables();
+  const vendor = await prisma.vendorProfile.findUnique({ where: { id: vendorId } });
+  if (!vendor) throw AppError.notFound("Vendor profile not found");
+
+  if (enabled) {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO store_badges (id, vendor_id, badge) VALUES ($1, $2, $3) ON CONFLICT (vendor_id, badge) DO NOTHING`,
+      randomBytes(16).toString("hex"), vendorId, badge
+    );
+  } else {
+    await prisma.$executeRawUnsafe(`DELETE FROM store_badges WHERE vendor_id = $1 AND badge = $2`, vendorId, badge);
+  }
+
+  if (badge === "VERIFIED") {
+    await prisma.vendorProfile.update({ where: { id: vendorId }, data: { verified: enabled } });
+  }
+
+  await recordAudit({ actorId: adminId, action: "VENDOR_PROFILE_UPDATED", targetType: "VendorProfile", targetId: vendorId, ipAddress, metadata: { badge, enabled } });
+  return getAdminStoreProfile(vendorId);
+}
+
+export async function getAdminStoreProfile(vendorId: string) {
+  await ensureStoreProfileTables();
+  const vendor = await prisma.vendorProfile.findUnique({ where: { id: vendorId }, include: { user: { select: { firstName: true, lastName: true, email: true } } } });
+  if (!vendor) throw AppError.notFound("Vendor profile not found");
+  const badges = await prisma.$queryRawUnsafe<Array<{ badge: StoreBadge }>>(`SELECT badge FROM store_badges WHERE vendor_id = $1 ORDER BY created_at ASC`, vendorId);
+  return { ...vendor, badges: badges.map((item) => item.badge) };
+}
+
+export async function getAdminStoreProfiles() {
+  await ensureStoreProfileTables();
+  const vendors = await prisma.vendorProfile.findMany({
+    where: { status: "APPROVED" },
+    include: { user: { select: { firstName: true, lastName: true, email: true } } },
+    orderBy: { storeName: "asc" },
+  });
+  const badges = await prisma.$queryRawUnsafe<Array<{ vendor_id: string; badge: StoreBadge }>>(`SELECT vendor_id, badge FROM store_badges ORDER BY created_at ASC`);
+  const badgeMap = new Map<string, StoreBadge[]>();
+  for (const row of badges) badgeMap.set(row.vendor_id, [...(badgeMap.get(row.vendor_id) ?? []), row.badge]);
+  return vendors.map((vendor) => ({ ...vendor, badges: badgeMap.get(vendor.id) ?? [] }));
+}
+
+export async function deleteGalleryImage(userId: string, imageId: string) {
+  await ensureStoreProfileTables();
+  const vendor = await getVendorByUserId(userId);
+  assertEnterprise(vendor.tier);
+  const rows = await prisma.$queryRawUnsafe<Array<{ publicId: string }>>(`SELECT public_id AS "publicId" FROM store_gallery_images WHERE id = $1 AND vendor_id = $2 LIMIT 1`, imageId, vendor.id);
+  if (!rows[0]) throw AppError.notFound("Gallery image not found");
+  await prisma.$executeRawUnsafe(`DELETE FROM store_gallery_images WHERE id = $1 AND vendor_id = $2`, imageId, vendor.id);
+  return rows[0].publicId;
+}
+
+export async function addGalleryImage(userId: string, url: string, publicId: string) {
+  await ensureStoreProfileTables();
+  const vendor = await getVendorByUserId(userId);
+  assertEnterprise(vendor.tier);
+  const countRows = await prisma.$queryRawUnsafe<Array<{ count: number }>>(`SELECT COUNT(*)::int AS count FROM store_gallery_images WHERE vendor_id = $1`, vendor.id);
+  if ((countRows[0]?.count ?? 0) >= 12) throw AppError.badRequest("Enterprise stores can have up to 12 gallery images");
+  const positionRows = await prisma.$queryRawUnsafe<Array<{ position: number }>>(`SELECT COALESCE(MAX(position), -1) + 1 AS position FROM store_gallery_images WHERE vendor_id = $1`, vendor.id);
+  const id = randomBytes(16).toString("hex");
+  await prisma.$executeRawUnsafe(`INSERT INTO store_gallery_images (id, vendor_id, url, public_id, position) VALUES ($1, $2, $3, $4, $5)`, id, vendor.id, url, publicId, positionRows[0]?.position ?? 0);
+  return { id, url, publicId, position: positionRows[0]?.position ?? 0 };
+}
+
+export async function getGalleryPublicIdForAdmin(vendorId: string, imageId: string) {
+  const rows = await prisma.$queryRawUnsafe<Array<{ publicId: string }>>(`SELECT public_id AS "publicId" FROM store_gallery_images WHERE id = $1 AND vendor_id = $2 LIMIT 1`, imageId, vendorId);
+  if (!rows[0]) throw AppError.notFound("Gallery image not found");
+  return rows[0].publicId;
+}
