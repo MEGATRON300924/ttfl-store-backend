@@ -145,5 +145,29 @@ if (!schema.includes("storePublicProfile StorePublicProfile?")) {
   schema = schema.replace(vendorRelation, (line, indent) => `${line}\n${indent}storePublicProfile StorePublicProfile?\n${indent}storeBadges        StoreBadge[]\n${indent}storeGalleryImages StoreGalleryImage[]`);
 }
 
+if (!schema.includes("model Broadcast {")) {
+  schema += `
+
+// ---------------------------------------------------------------------------
+// Admin broadcasts
+// ---------------------------------------------------------------------------
+
+model Broadcast {
+  id              String   @id
+  title           String
+  message         String
+  emailSubject    String?  @map("email_subject")
+  sendPopup       Boolean  @default(false) @map("send_popup")
+  sendEmail       Boolean  @default(false) @map("send_email")
+  audience        Json
+  recipientCount Int      @default(0) @map("recipient_count")
+  createdBy       String   @map("created_by")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("ttfl_broadcasts")
+}
+`;
+}
+
 fs.writeFileSync(schemaPath, schema);
-process.stdout.write("Prisma schema prepared without dropping existing affiliate or store-profile data.\n");
+process.stdout.write("Prisma schema prepared without dropping existing affiliate, store-profile, or broadcast data.\n");
