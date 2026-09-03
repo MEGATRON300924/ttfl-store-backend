@@ -25,6 +25,7 @@ import { uploadsRouter } from "@/modules/uploads/uploads.routes";
 import { settingsRouter } from "@/modules/settings/settings.routes";
 import { addressesRouter } from "@/modules/addresses/addresses.routes";
 import { affiliatesRouter } from "@/modules/affiliates/affiliates.routes";
+import storeProfileRouter from "@/modules/store-profile/store-profile.routes";
 
 export function createApp() {
   const app = express();
@@ -50,6 +51,7 @@ export function createApp() {
   });
   app.use("/api/auth", authRouter);
   app.use("/api/vendors", vendorsRouter);
+  app.use("/api/store-profile", storeProfileRouter);
   app.use("/api/categories", categoriesRouter);
   app.use("/api/products", productsRouter);
   app.use("/api/orders", ordersRouter);
