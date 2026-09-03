@@ -1,0 +1,62 @@
+import { Router } from "express";
+import { z } from "zod";
+import { randomBytes } from "node:crypto";
+import { asyncHandler } from "@/middleware/error-handler";
+import { requireAuth, requireRole } from "@/middleware/auth";
+import { prisma } from "@/lib/prisma";
+import { sendEmail } from "@/lib/email";
+import { renderEmailLayout, escapeHtml } from "@/lib/email-layout";
+
+export const broadcastRouter = Router();
+
+async function ensureTables() {
+  await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS ttfl_broadcasts (id TEXT PRIMARY KEY, title TEXT NOT NULL, message TEXT NOT NULL, email_subject TEXT, send_popup BOOLEAN NOT NULL DEFAULT false, send_email BOOLEAN NOT NULL DEFAULT false, audience JSONB NOT NULL, recipient_count INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+}
+
+const schema = z.object({
+  title: z.string().trim().min(1).max(160),
+  message: z.string().trim().min(1).max(10000),
+  emailSubject: z.string().trim().max(200).optional(),
+  sendPopup: z.boolean().default(false),
+  sendEmail: z.boolean().default(false),
+  audience: z.object({
+    mode: z.enum(["ALL", "SELECTED", "NEW", "EXISTING", "VERIFIED", "UNVERIFIED", "VENDORS", "CUSTOMERS"]),
+    days: z.number().int().positive().max(3650).optional(),
+    userIds: z.array(z.string().uuid()).max(500).optional(),
+  }),
+});
+
+broadcastRouter.get("/admin", requireAuth, requireRole("ADMIN"), asyncHandler(async (_req, res) => {
+  await ensureTables();
+  const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT id, title, message, email_subject AS "emailSubject", send_popup AS "sendPopup", send_email AS "sendEmail", audience, recipient_count AS "recipientCount", created_at AS "createdAt" FROM ttfl_broadcasts ORDER BY created_at DESC LIMIT 100`);
+  res.json({ items: rows });
+}));
+
+broadcastRouter.post("/admin", requireAuth, requireRole("ADMIN"), asyncHandler(async (req, res) => {
+  await ensureTables();
+  const input = schema.parse(req.body);
+  if (!input.sendPopup && !input.sendEmail) throw new Error("Choose popup, email, or both");
+  if (input.sendEmail && !input.emailSubject) throw new Error("Email subject is required when email is enabled");
+
+  const where: any = { status: "ACTIVE" };
+  if (input.audience.mode === "SELECTED") where.id = { in: input.audience.userIds ?? [] };
+  if (input.audience.mode === "NEW") where.createdAt = { gte: new Date(Date.now() - (input.audience.days ?? 7) * 86400000) };
+  if (input.audience.mode === "EXISTING") where.createdAt = { lt: new Date(Date.now() - (input.audience.days ?? 7) * 86400000) };
+  if (input.audience.mode === "VERIFIED") where.emailVerified = true;
+  if (input.audience.mode === "UNVERIFIED") where.emailVerified = false;
+  if (input.audience.mode === "VENDORS") where.role = "VENDOR";
+  if (input.audience.mode === "CUSTOMERS") where.role = "CUSTOMER";
+
+  const users = await prisma.user.findMany({ where, select: { id: true, email: true, firstName: true } });
+  const id = randomBytes(16).toString("hex");
+  await prisma.$executeRawUnsafe(`INSERT INTO ttfl_broadcasts (id, title, message, email_subject, send_popup, send_email, audience, recipient_count, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)`, id, input.title, input.message, input.emailSubject ?? null, input.sendPopup, input.sendEmail, JSON.stringify(input.audience), users.length, req.user!.sub);
+
+  if (input.sendEmail) {
+    for (const user of users) {
+      const html = renderEmailLayout({ heading: input.title, previewText: input.message.slice(0, 140), bodyHtml: `<p>Hi ${escapeHtml(user.firstName || "there")},</p><p>${escapeHtml(input.message).replace(/\n/g, "<br />")}</p>` });
+      void sendEmail({ to: user.email, subject: input.emailSubject!, html, event: "admin_broadcast" });
+    }
+  }
+
+  res.status(201).json({ id, recipientCount: users.length });
+}));
