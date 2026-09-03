@@ -27,6 +27,7 @@ import { addressesRouter } from "@/modules/addresses/addresses.routes";
 import { affiliatesRouter } from "@/modules/affiliates/affiliates.routes";
 import storeProfileRouter from "@/modules/store-profile/store-profile.routes";
 import { broadcastRouter } from "@/modules/broadcast/broadcast.routes";
+import { adminRouter } from "@/modules/admin/admin.routes";
 
 export function createApp() {
   const app = express();
@@ -63,6 +64,7 @@ export function createApp() {
   app.use("/api/addresses", addressesRouter);
   app.use("/api/affiliates", affiliatesRouter);
   app.use("/api/broadcast", broadcastRouter);
+  app.use("/api/admin", adminRouter);
   app.use(notFoundHandler);
   app.use(errorHandler);
   return app;
