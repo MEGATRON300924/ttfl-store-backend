@@ -16,10 +16,7 @@ function checkpointToStatus(checkpoint: number) {
 }
 
 export async function trackPublic(orderNumber: string, productId: string) {
-  const order = await prisma.order.findUnique({
-    where: { orderNumber },
-    include: { vendorOrders: { include: { items: { where: { product: { publicProductId: productId } }, include: { product: true } }, vendor: { select: { id: true, storeName: true, storeSlug: true, verified: true } }, trackingEvents: { orderBy: { checkpoint: "asc" } } } } },
-  });
+  const order = await prisma.order.findUnique({ where: { orderNumber }, include: { vendorOrders: { include: { items: { where: { product: { publicProductId: productId } }, include: { product: true } }, vendor: { select: { id: true, storeName: true, storeSlug: true, verified: true } }, trackingEvents: { orderBy: { checkpoint: "asc" } } } } } });
   if (!order) throw AppError.notFound("Order not found");
   const vendorOrders = order.vendorOrders.filter((vo) => vo.items.length > 0);
   if (!vendorOrders.length) throw AppError.notFound("That product is not part of this order");
@@ -27,10 +24,7 @@ export async function trackPublic(orderNumber: string, productId: string) {
 }
 
 export async function trackAuthenticated(orderNumber: string, userId: string) {
-  const order = await prisma.order.findUnique({
-    where: { orderNumber },
-    include: { vendorOrders: { include: { items: { include: { product: true } }, vendor: { select: { id: true, storeName: true, storeSlug: true, verified: true } }, trackingEvents: { orderBy: { checkpoint: "asc" } } } } },
-  });
+  const order = await prisma.order.findUnique({ where: { orderNumber }, include: { vendorOrders: { include: { items: { include: { product: true } }, vendor: { select: { id: true, storeName: true, storeSlug: true, verified: true } }, trackingEvents: { orderBy: { checkpoint: "asc" } } } } } });
   if (!order) throw AppError.notFound("Order not found");
   if (order.customerId !== userId) throw AppError.forbidden("You don't have access to this order");
   return { orderNumber: order.orderNumber, createdAt: order.createdAt, paymentStatus: order.paymentStatus, vendorOrders: order.vendorOrders.map(serializeVendorOrder) };
@@ -44,7 +38,7 @@ function serializeVendorOrder(vo: any) {
     status: vo.status,
     estimatedDeliveryAt: vo.estimatedDeliveryAt,
     vendor: vo.vendor,
-    items: vo.items.map((item: any) => ({ id: item.id, productId: item.productId, publicProductId: item.product.publicProductId, productName: item.productName, quantity: item.quantity })),
+    items: vo.items.map((item: any) => ({ id: item.id, productId: item.productId, publicProductId: item.product.publicProductId, productName: item.productName, quantity: item.quantity, estimatedDeliveryDays: item.product.estimatedDeliveryDays })),
     currentCheckpoint,
     checkpoints: CHECKPOINTS.map((definition) => ({ ...definition, event: vo.trackingEvents.find((event: any) => event.checkpoint === definition.checkpoint) ?? null })),
   };
