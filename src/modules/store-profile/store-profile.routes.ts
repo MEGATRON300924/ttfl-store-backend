@@ -18,7 +18,7 @@ storeProfileRouter.get("/public/directory", asyncHandler(async (req, res) => {
   const offset = (page - 1) * limit;
   const search = typeof req.query.q === "string" ? req.query.q.trim() : "";
   const rows = await prisma.$queryRawUnsafe<any[]>(
-    `SELECT vp.id, vp.store_name AS "name", vp.store_slug AS "slug", vp.logo_url AS "logoUrl", vp.location, vp.verified, vp.tier, COUNT(DISTINCT p.id)::int AS "productCount", COALESCE(AVG(p.avg_rating), 0)::float AS rating FROM vendor_profiles vp LEFT JOIN products p ON p.vendor_id = vp.id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL WHERE vp.status = 'APPROVED' AND ($1 = '' OR vp.store_name ILIKE '%' || $1 || '%' OR vp.location ILIKE '%' || $1 || '%') GROUP BY vp.id ORDER BY vp.store_name ASC LIMIT $2 OFFSET $3`,
+    `SELECT vp.id, vp.store_name AS "name", vp.store_slug AS "slug", vp.logo_url AS "logoUrl", vp.location, vp.verified, vp.tier, spp.custom_url AS "customUrl", COUNT(DISTINCT p.id)::int AS "productCount", COALESCE(AVG(p.avg_rating), 0)::float AS rating FROM vendor_profiles vp LEFT JOIN store_public_profiles spp ON spp.vendor_id = vp.id LEFT JOIN products p ON p.vendor_id = vp.id AND p.status = 'ACTIVE' AND p.deleted_at IS NULL WHERE vp.status = 'APPROVED' AND ($1 = '' OR vp.store_name ILIKE '%' || $1 || '%' OR vp.location ILIKE '%' || $1 || '%') GROUP BY vp.id, spp.custom_url ORDER BY vp.store_name ASC LIMIT $2 OFFSET $3`,
     search,
     limit,
     offset
