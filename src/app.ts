@@ -10,6 +10,7 @@ import { authRouter } from "@/modules/auth/auth.routes";
 import { vendorsRouter } from "@/modules/vendors/vendors.routes";
 import { categoriesRouter } from "@/modules/categories/categories.routes";
 import { productsRouter } from "@/modules/products/products.routes";
+import { productDeliveryRouter } from "@/modules/products/delivery.routes";
 import { ordersRouter } from "@/modules/orders/orders.routes";
 import { paystackWebhook } from "@/modules/orders/orders.controller";
 import { vendorPlansRouter } from "@/modules/vendor-plans/vendor-plans.routes";
@@ -49,6 +50,7 @@ export function createApp() {
   app.use("/api/vendors", vendorsRouter);
   app.use("/api/store-profile", storeProfileRouter);
   app.use("/api/categories", categoriesRouter);
+  app.use("/api/products", productDeliveryRouter);
   app.use("/api/products", productsRouter);
   app.use("/api/orders", ordersRouter);
   app.use("/api/tracking", trackingRouter);
