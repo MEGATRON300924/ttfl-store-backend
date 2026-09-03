@@ -4,22 +4,25 @@ const path = require("node:path");
 const schemaPath = path.join(process.cwd(), "prisma", "schema.prisma");
 let schema = fs.readFileSync(schemaPath, "utf8");
 
-if (schema.includes("model Affiliate {")) {
-  process.stdout.write("Affiliate Prisma models already present.\n");
-  process.exit(0);
-}
-
 const userRelation = /^(\s*)supportMessages\s+SupportMessage\[\]\s*$/m;
 const orderRelation = /^(\s*)couponRedemption\s+CouponRedemption\?\s*$/m;
 
-if (!userRelation.test(schema) || !orderRelation.test(schema)) {
-  throw new Error("Could not find the User/Order relation markers in prisma/schema.prisma");
+if (!schema.includes("affiliates                Affiliate[]")) {
+  if (!userRelation.test(schema)) {
+    throw new Error("Could not find the User relation marker in prisma/schema.prisma");
+  }
+  schema = schema.replace(userRelation, (line, indent) => `${line}\n${indent}affiliates                Affiliate[]`);
 }
 
-schema = schema.replace(userRelation, (line, indent) => `${line}\n${indent}affiliates                Affiliate[]`);
-schema = schema.replace(orderRelation, (line, indent) => `${line}\n${indent}affiliateAttributions    AffiliateAttribution[]\n${indent}affiliateCommissions     AffiliateCommission[]`);
+if (!schema.includes("affiliateAttributions    AffiliateAttribution[]")) {
+  if (!orderRelation.test(schema)) {
+    throw new Error("Could not find the Order relation marker in prisma/schema.prisma");
+  }
+  schema = schema.replace(orderRelation, (line, indent) => `${line}\n${indent}affiliateAttributions    AffiliateAttribution[]\n${indent}affiliateCommissions     AffiliateCommission[]`);
+}
 
-schema += `
+if (!schema.includes("model Affiliate {")) {
+  schema += `
 
 // ---------------------------------------------------------------------------
 // Affiliate program
@@ -85,6 +88,62 @@ model AffiliateCommission {
   @@map("affiliate_commissions")
 }
 `;
+}
+
+if (!schema.includes("model StorePublicProfile {")) {
+  schema += `
+
+// ---------------------------------------------------------------------------
+// Store public profile and presentation tables
+// ---------------------------------------------------------------------------
+
+model StorePublicProfile {
+  id          String        @id
+  vendorId    String        @unique @map("vendor_id")
+  vendor      VendorProfile @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  headline    String?
+  description String?
+  theme       String        @default("CLASSIC")
+  accentColor String        @default("#E8622C") @map("accent_color")
+  layout      String        @default("STANDARD")
+  customUrl   String?       @unique @map("custom_url")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @default(now()) @map("updated_at")
+  @@map("store_public_profiles")
+}
+
+model StoreBadge {
+  id        String        @id
+  vendorId  String        @map("vendor_id")
+  vendor    VendorProfile @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  badge     String
+  createdAt DateTime      @default(now()) @map("created_at")
+  @@unique([vendorId, badge])
+  @@index([vendorId], map: "store_badges_vendor_idx")
+  @@map("store_badges")
+}
+
+model StoreGalleryImage {
+  id        String        @id
+  vendorId  String        @map("vendor_id")
+  vendor    VendorProfile @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  url       String
+  publicId  String        @map("public_id")
+  position  Int           @default(0)
+  createdAt DateTime      @default(now()) @map("created_at")
+  @@index([vendorId, position], map: "store_gallery_vendor_idx")
+  @@map("store_gallery_images")
+}
+`;
+}
+
+if (!schema.includes("storePublicProfile StorePublicProfile?")) {
+  const vendorRelation = /^(\s*)payouts\s+Payout\[\]\s*$/m;
+  if (!vendorRelation.test(schema)) {
+    throw new Error("Could not find the VendorProfile relation marker in prisma/schema.prisma");
+  }
+  schema = schema.replace(vendorRelation, (line, indent) => `${line}\n${indent}storePublicProfile StorePublicProfile?\n${indent}storeBadges        StoreBadge[]\n${indent}storeGalleryImages StoreGalleryImage[]`);
+}
 
 fs.writeFileSync(schemaPath, schema);
-process.stdout.write("Affiliate Prisma models prepared without deleting existing affiliate data.\n");
+process.stdout.write("Prisma schema prepared without dropping existing affiliate or store-profile data.\n");
