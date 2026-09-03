@@ -7,7 +7,7 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
     "start": "node dist/server.js",
-    "postinstall": "node scripts/ensure-affiliate-prisma-schema.cjs",
+    "postinstall": "node scripts/ensure-affiliate-prisma-schema.cjs && node scripts/ensure-tracking-schema.cjs",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
