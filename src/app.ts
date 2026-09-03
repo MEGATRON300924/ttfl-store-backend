@@ -26,29 +26,23 @@ import { settingsRouter } from "@/modules/settings/settings.routes";
 import { addressesRouter } from "@/modules/addresses/addresses.routes";
 import { affiliatesRouter } from "@/modules/affiliates/affiliates.routes";
 import storeProfileRouter from "@/modules/store-profile/store-profile.routes";
+import { broadcastRouter } from "@/modules/broadcast/broadcast.routes";
 
 export function createApp() {
   const app = express();
   app.set("trust proxy", 1);
   app.use(helmet());
   app.use(cors({ origin: env.corsOrigin, credentials: true }));
-  app.post(
-    "/api/payments/webhook",
-    express.raw({ type: "application/json" }),
-    (req, _res, next) => {
-      (req as typeof req & { rawBody: Buffer }).rawBody = req.body;
-      req.body = JSON.parse(req.body.toString("utf8"));
-      next();
-    },
-    paystackWebhook
-  );
+  app.post("/api/payments/webhook", express.raw({ type: "application/json" }), (req, _res, next) => {
+    (req as typeof req & { rawBody: Buffer }).rawBody = req.body;
+    req.body = JSON.parse(req.body.toString("utf8"));
+    next();
+  }, paystackWebhook);
   app.use(express.json({ limit: "1mb" }));
   app.use(cookieParser());
   app.use(generalRateLimiter);
   app.use(attachUser);
-  app.get("/health", (_req, res) => {
-    res.json({ status: "ok", service: "ttfl-store-backend", time: new Date().toISOString() });
-  });
+  app.get("/health", (_req, res) => res.json({ status: "ok", service: "ttfl-store-backend", time: new Date().toISOString() }));
   app.use("/api/auth", authRouter);
   app.use("/api/vendors", vendorsRouter);
   app.use("/api/store-profile", storeProfileRouter);
@@ -68,6 +62,7 @@ export function createApp() {
   app.use("/api/settings", settingsRouter);
   app.use("/api/addresses", addressesRouter);
   app.use("/api/affiliates", affiliatesRouter);
+  app.use("/api/broadcast", broadcastRouter);
   app.use(notFoundHandler);
   app.use(errorHandler);
   return app;
