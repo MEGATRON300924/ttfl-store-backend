@@ -28,6 +28,7 @@ import { affiliatesRouter } from "@/modules/affiliates/affiliates.routes";
 import storeProfileRouter from "@/modules/store-profile/store-profile.routes";
 import { broadcastRouter } from "@/modules/broadcast/broadcast.routes";
 import { adminRouter } from "@/modules/admin/admin.routes";
+import { trackingRouter } from "@/modules/tracking/tracking.routes";
 
 export function createApp() {
   const app = express();
@@ -50,6 +51,7 @@ export function createApp() {
   app.use("/api/categories", categoriesRouter);
   app.use("/api/products", productsRouter);
   app.use("/api/orders", ordersRouter);
+  app.use("/api/tracking", trackingRouter);
   app.use("/api/vendor-plans", vendorPlansRouter);
   app.use("/api/reviews", reviewsRouter);
   app.use("/api/wishlist", wishlistRouter);
