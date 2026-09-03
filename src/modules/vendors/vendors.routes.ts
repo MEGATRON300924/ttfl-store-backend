@@ -6,10 +6,6 @@ import * as vendorsService from "./vendors.service";
 
 export const vendorsRouter = Router();
 
-// ---------------------------------------------------------------------------
-// Public
-// ---------------------------------------------------------------------------
-
 vendorsRouter.get(
   "/stores",
   asyncHandler(async (req, res) => {
@@ -29,10 +25,6 @@ vendorsRouter.get(
   })
 );
 
-// ---------------------------------------------------------------------------
-// Vendor self-service
-// ---------------------------------------------------------------------------
-
 vendorsRouter.get(
   "/me/store",
   requireAuth,
@@ -45,6 +37,7 @@ vendorsRouter.get(
 
 const updateStoreSchema = z.object({
   storeName: z.string().trim().min(2).max(100),
+  storeSlug: z.string().trim().min(2).max(80).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
   bio: z.string().trim().max(1000).nullable().optional(),
   location: z.string().trim().max(200).nullable().optional(),
   whatsappNumber: z.string().trim().max(30).nullable().optional(),
@@ -60,10 +53,6 @@ vendorsRouter.patch(
     res.json({ vendorProfile: profile });
   })
 );
-
-// ---------------------------------------------------------------------------
-// Admin
-// ---------------------------------------------------------------------------
 
 const statusQuerySchema = z.object({
   status: z.enum(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"]).optional(),
@@ -138,3 +127,5 @@ vendorsRouter.post(
     res.json({ vendorProfile: profile });
   })
 );
+
+export default vendorsRouter;
