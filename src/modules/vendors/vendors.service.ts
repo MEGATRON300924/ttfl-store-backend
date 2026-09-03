@@ -8,9 +8,15 @@ import {
 } from "@/lib/email";
 import { logger } from "@/lib/logger";
 
-// ---------------------------------------------------------------------------
-// Vendor self-service
-// ---------------------------------------------------------------------------
+function normalizeStoreSlug(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
 
 export async function getMyVendorProfile(userId: string) {
   const profile = await prisma.vendorProfile.findUnique({ where: { userId } });
@@ -22,6 +28,7 @@ export async function updateMyVendorProfile(
   userId: string,
   data: {
     storeName: string;
+    storeSlug: string;
     bio?: string | null;
     location?: string | null;
     whatsappNumber?: string | null;
@@ -31,10 +38,20 @@ export async function updateMyVendorProfile(
   const existing = await prisma.vendorProfile.findUnique({ where: { userId } });
   if (!existing) throw AppError.notFound("Vendor profile not found");
 
+  const storeSlug = normalizeStoreSlug(data.storeSlug);
+  if (!storeSlug) throw AppError.badRequest("A valid store URL is required", "INVALID_STORE_SLUG");
+
+  const conflict = await prisma.vendorProfile.findFirst({
+    where: { storeSlug, NOT: { id: existing.id } },
+    select: { id: true },
+  });
+  if (conflict) throw AppError.conflict("That store URL is already in use");
+
   const profile = await prisma.vendorProfile.update({
     where: { userId },
     data: {
       storeName: data.storeName,
+      storeSlug,
       bio: data.bio ?? null,
       location: data.location ?? null,
       whatsappNumber: data.whatsappNumber ?? null,
@@ -47,7 +64,7 @@ export async function updateMyVendorProfile(
     targetType: "VendorProfile",
     targetId: profile.id,
     ipAddress,
-    metadata: { fields: ["storeName", "bio", "location", "whatsappNumber"] },
+    metadata: { fields: ["storeName", "storeSlug", "bio", "location", "whatsappNumber"] },
   });
 
   return profile;
@@ -87,7 +104,6 @@ export async function getPublicVendorBySlug(slug: string) {
   return profile;
 }
 
-/** Public directory of approved TTFL Store vendors. */
 export async function listPublicVendors(params: {
   page: number;
   limit: number;
@@ -112,6 +128,7 @@ export async function listPublicVendors(params: {
         logoUrl: true,
         bannerUrl: true,
         verified: true,
+        tier: true,
         createdAt: true,
         _count: {
           select: {
@@ -127,6 +144,14 @@ export async function listPublicVendors(params: {
   ]);
 
   return {
+    stores: items.map((item) => ({
+      ...item,
+      name: item.storeName,
+      slug: item.storeSlug,
+      productCount: item._count.products,
+      rating: 0,
+      badges: item.verified ? ["VERIFIED"] : [],
+    })),
     items,
     pagination: {
       page: params.page,
@@ -136,10 +161,6 @@ export async function listPublicVendors(params: {
     },
   };
 }
-
-// ---------------------------------------------------------------------------
-// Admin
-// ---------------------------------------------------------------------------
 
 export async function listVendorApplications(
   status?: "PENDING" | "APPROVED" | "REJECTED" | "SUSPENDED"
