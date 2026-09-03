@@ -1,5 +1,6 @@
 import { v2 as cloudinary } from "cloudinary";
 
+import { prisma } from "@/lib/prisma";
 import { AppError } from "@/utils/app-error";
 import { logger } from "@/lib/logger";
 
@@ -150,7 +151,12 @@ export async function uploadStoreGalleryImage(
   mimetype: string
 ): Promise<{ url: string; publicId: string }> {
   ensureConfigured();
-  const vendor = await import("@/lib/prisma").then(({ prisma }) => prisma.vendorProfile.findUnique({ where: { userId }, select: { id: true } }));
+
+  const vendor = await prisma.vendorProfile.findUnique({
+    where: { userId },
+    select: { id: true },
+  });
+
   if (!vendor) throw AppError.notFound("Vendor profile not found");
 
   return new Promise((resolve, reject) => {
