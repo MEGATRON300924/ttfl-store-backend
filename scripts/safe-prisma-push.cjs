@@ -4,6 +4,7 @@ const path = require("node:path");
 
 const prismaCommand = process.platform === "win32" ? "npx.cmd" : "npx";
 const schemaPath = path.join(process.cwd(), "prisma", "schema.prisma");
+const temporarySchemaPath = path.join(process.cwd(), ".prisma-safe-push.schema.prisma");
 
 if (!process.env.DATABASE_URL) {
   console.error("DATABASE_URL is required for the Prisma schema safety check.");
@@ -22,9 +23,7 @@ function run(args, inherit = false) {
     shell: false,
   });
 
-  if (result.error) {
-    throw result.error;
-  }
+  if (result.error) throw result.error;
 
   if (result.status !== 0) {
     const output = `${result.stdout || ""}\n${result.stderr || ""}`.trim();
@@ -32,6 +31,36 @@ function run(args, inherit = false) {
   }
 
   return `${result.stdout || ""}\n${result.stderr || ""}`;
+}
+
+function runNodeScript(scriptPath) {
+  const result = spawnSync(process.execPath, [scriptPath], {
+    stdio: "inherit",
+    shell: false,
+  });
+
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(`${scriptPath} exited with code ${result.status}`);
+  }
+}
+
+function hasUniqueProductIdIndex() {
+  const result = spawnSync(prismaCommand, [
+    "prisma",
+    "db",
+    "execute",
+    "--stdin",
+    "--schema",
+    schemaPath,
+  ], {
+    input: 'SELECT 1;',
+    stdio: ["pipe", "pipe", "pipe"],
+    encoding: "utf8",
+    shell: false,
+  });
+
+  return result.status === 0;
 }
 
 console.log("Checking Prisma schema changes for destructive database operations...");
@@ -60,6 +89,7 @@ const destructivePatterns = [
   /\bDELETE\s+FROM\b/i,
   /\bDROP\s+SCHEMA\b/i,
   /\bDROP\s+DATABASE\b/i,
+  /\bDROP\s+INDEX\b/i,
 ];
 
 const destructiveOperations = destructivePatterns.filter((pattern) => pattern.test(diff));
@@ -68,28 +98,125 @@ if (destructiveOperations.length > 0) {
   console.error("\nPrisma detected a potentially destructive schema change.");
   console.error("Deployment was stopped. Existing TTFL Store data will not be deleted automatically.\n");
   console.error("Detected operation types:");
-  for (const pattern of destructiveOperations) {
-    console.error(`- ${pattern}`);
-  }
+  for (const pattern of destructiveOperations) console.error(`- ${pattern}`);
   console.error("\nCreate and review an intentional Prisma migration before deploying this schema change.");
   process.exit(1);
 }
 
 console.log("No destructive SQL detected. Applying the schema without accepting data loss...");
 
-const result = spawnSync(prismaCommand, ["prisma", "db", "push", "--skip-generate"], {
-  stdio: "inherit",
-  shell: false,
-});
+const schema = fs.readFileSync(schemaPath, "utf8");
+const productIdPattern = /(publicProductId\s+String\?)\s+@unique/;
+const hasProductIdUniqueField = productIdPattern.test(schema);
 
-if (result.error) {
-  console.error(`Prisma schema deployment could not start: ${result.error.message}`);
-  process.exit(1);
+let databaseHasUniqueProductIdIndex = false;
+try {
+  const { PrismaClient } = require("@prisma/client");
+  const prisma = new PrismaClient();
+  const indexes = prisma.$queryRawUnsafe(`
+    SELECT indexname, indexdef
+    FROM pg_indexes
+    WHERE schemaname = 'public'
+      AND tablename = 'products'
+      AND indexdef ILIKE '%publicProductId%'
+      AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
+  `);
+  databaseHasUniqueProductIdIndex = require("node:child_process").spawnSync(process.execPath, [
+    "-e",
+    "",
+  ]).status === 0;
+  prisma.$disconnect();
+} catch (_) {
+  databaseHasUniqueProductIdIndex = false;
 }
 
-if (result.status !== 0) {
-  console.error("Prisma schema deployment failed. No --accept-data-loss flag was used, so existing data remains protected.");
-  process.exit(result.status ?? 1);
+async function databaseHasUniqueIndex() {
+  const { PrismaClient } = require("@prisma/client");
+  const prisma = new PrismaClient();
+  try {
+    const rows = await prisma.$queryRawUnsafe(`
+      SELECT indexname
+      FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND tablename = 'products'
+        AND indexdef ILIKE '%publicProductId%'
+        AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
+      LIMIT 1
+    `);
+    return rows.length > 0;
+  } finally {
+    await prisma.$disconnect();
+  }
 }
 
-console.log("Prisma schema deployment completed without allowing destructive data loss.");
+async function finalizeProductIdConstraint() {
+  const { PrismaClient } = require("@prisma/client");
+  const prisma = new PrismaClient();
+  try {
+    const duplicateRows = await prisma.$queryRawUnsafe(`
+      SELECT "publicProductId", COUNT(*)::int AS count
+      FROM "products"
+      WHERE "publicProductId" IS NOT NULL
+      GROUP BY "publicProductId"
+      HAVING COUNT(*) > 1
+      LIMIT 1
+    `);
+
+    if (duplicateRows.length > 0) {
+      throw new Error(`Duplicate publicProductId value detected: ${duplicateRows[0].publicProductId}`);
+    }
+
+    const indexes = await prisma.$queryRawUnsafe(`
+      SELECT indexname
+      FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND tablename = 'products'
+        AND indexdef ILIKE '%publicProductId%'
+        AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
+      LIMIT 1
+    `);
+
+    if (indexes.length === 0) {
+      await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "products_publicProductId_key" ON "products" ("publicProductId")');
+      console.log("Product ID unique index created safely after existing products were populated.");
+    } else {
+      console.log(`Product ID unique index already exists: ${indexes[0].indexname}`);
+    }
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+async function main() {
+  const uniqueIndexExists = await databaseHasUniqueIndex();
+
+  if (hasProductIdUniqueField && !uniqueIndexExists) {
+    const temporarySchema = schema.replace(productIdPattern, "$1");
+    fs.writeFileSync(temporarySchemaPath, temporarySchema);
+
+    try {
+      run(["db", "push", "--skip-generate", "--schema", temporarySchemaPath], true);
+    } finally {
+      if (fs.existsSync(temporarySchemaPath)) fs.unlinkSync(temporarySchemaPath);
+    }
+
+    runNodeScript(path.join(process.cwd(), "scripts", "backfill-product-ids.cjs"));
+    await finalizeProductIdConstraint();
+    return;
+  }
+
+  run(["db", "push", "--skip-generate"], true);
+
+  if (hasProductIdUniqueField) {
+    runNodeScript(path.join(process.cwd(), "scripts", "backfill-product-ids.cjs"));
+    await finalizeProductIdConstraint();
+  }
+}
+
+main()
+  .then(() => console.log("Prisma schema deployment completed without allowing destructive data loss."))
+  .catch((error) => {
+    console.error("Prisma schema deployment failed. No --accept-data-loss flag was used, so existing data remains protected.");
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
