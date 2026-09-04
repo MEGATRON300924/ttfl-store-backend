@@ -14,7 +14,8 @@
     "prisma:safe-push": "node scripts/safe-prisma-push.cjs",
     "prisma:studio": "prisma studio",
     "seed:admin": "tsx prisma/seed.ts",
-    "bootstrap:admin": "tsx src/scripts/bootstrap-admin.ts",
+    "backfill:product-ids": "node scripts/backfill-product-ids.cjs",
+    "bootstrap:admin": "npm run backfill:product-ids && tsx src/scripts/bootstrap-admin.ts",
     "test:email": "tsx scripts/test-email.ts"
   },
   "prisma": {
