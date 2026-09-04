@@ -1,21 +1,6 @@
 import { enqueueEmail } from "@/lib/email-queue";
 import { renderEmailLayout, escapeHtml } from "@/lib/email-layout";
 
-/**
- * Every email in the app goes through here -> the queue (email-queue.ts)
- * -> the adapter (email-adapter.ts, Resend in production). Callers never
- * touch the adapter or queue directly, and never await delivery —
- * enqueueEmail returns as soon as the EmailLog row is written, so a
- * slow/down email provider can never block an order, checkout, or auth
- * request (spec §18).
- *
- * Every template function below builds its bodyHtml with escapeHtml()
- * around any value that ultimately traces back to something a user typed
- * (their own name, a store name, a rejection reason) — see email-layout.ts
- * for why. System-generated values (order numbers, amounts) are escaped
- * too, cheaply, as defense in depth even though they can't realistically
- * carry markup.
- */
 export async function sendEmail(opts: { to: string; subject: string; html: string; event?: string }) {
   return enqueueEmail({
     to: opts.to,
@@ -128,6 +113,24 @@ export function adminNewOrderEmail(orderNumber: string, totalAmount: number) {
       bodyHtml: `<p>A new order (<strong>${escapeHtml(orderNumber)}</strong>) was placed for ₦${totalAmount.toLocaleString()}.</p>`,
     }),
     event: "admin_new_order",
+  };
+}
+
+export function adminAccessGrantedEmail(name: string, email: string, adminUrl: string) {
+  const displayName = name.trim() || "there";
+  const safeEmail = escapeHtml(email);
+  const safeAdminUrl = escapeHtml(adminUrl);
+
+  return {
+    subject: "You now have admin access to TTFL Store",
+    html: renderEmailLayout({
+      heading: "You're now a TTFL Store administrator",
+      previewText: "Your TTFL Store account has been granted administrator access.",
+      bodyHtml: `<p>Hi ${escapeHtml(displayName)},</p><p>Your existing TTFL Store account (<strong>${safeEmail}</strong>) has been granted <strong>Administrator</strong> access.</p><p><strong>Quick guide</strong></p><ol><li>Open the Admin Portal using the button below.</li><li>Sign in with your existing TTFL Store account.</li><li>Use the dashboard to manage vendors, products, orders, payouts, coupons, featured listings, support, broadcasts, analytics, and audit logs.</li><li>Only perform actions you are authorized to make, and always protect your account credentials.</li></ol><p>If you did not expect this change, contact the TTFL Store owner or platform administrator immediately.</p><p style="font-size:12px;color:#5B6472;word-break:break-all;">Admin Portal: ${safeAdminUrl}</p>`,
+      ctaText: "Open Admin Portal",
+      ctaUrl: adminUrl,
+    }),
+    event: "admin_access_granted",
   };
 }
 
