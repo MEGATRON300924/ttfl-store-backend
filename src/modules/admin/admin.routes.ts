@@ -32,8 +32,8 @@ adminRouter.post(
   requireAuth,
   requireRole("ADMIN"),
   asyncHandler(async (req, res) => {
-    const { email } = addAdminSchema.parse(req.body);
-    const normalizedEmail = email.toLowerCase();
+    const { email: requestedEmail } = addAdminSchema.parse(req.body);
+    const normalizedEmail = requestedEmail.toLowerCase();
     const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
 
     if (!user) {
@@ -56,7 +56,7 @@ adminRouter.post(
     });
 
     const adminUrl = `${env.appUrl.replace(/\/$/, "")}/admin`;
-    const email = adminAccessGrantedEmail(
+    const notification = adminAccessGrantedEmail(
       [updated.firstName, updated.lastName].filter(Boolean).join(" "),
       updated.email,
       adminUrl
@@ -64,9 +64,9 @@ adminRouter.post(
 
     void sendEmail({
       to: updated.email,
-      subject: email.subject,
-      html: email.html,
-      event: email.event,
+      subject: notification.subject,
+      html: notification.html,
+      event: notification.event,
     }).catch((error) => {
       console.error("Failed to queue admin access notification:", error);
     });
