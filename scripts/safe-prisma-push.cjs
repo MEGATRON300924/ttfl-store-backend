@@ -40,27 +40,66 @@ function runNodeScript(scriptPath) {
   });
 
   if (result.error) throw result.error;
-  if (result.status !== 0) {
-    throw new Error(`${scriptPath} exited with code ${result.status}`);
+  if (result.status !== 0) throw new Error(`${scriptPath} exited with code ${result.status}`);
+}
+
+async function databaseHasUniqueProductIdIndex() {
+  const { PrismaClient } = require("@prisma/client");
+  const prisma = new PrismaClient();
+  try {
+    const rows = await prisma.$queryRawUnsafe(`
+      SELECT indexname
+      FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND tablename = 'products'
+        AND indexdef ILIKE '%publicProductId%'
+        AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
+      LIMIT 1
+    `);
+    return rows.length > 0;
+  } finally {
+    await prisma.$disconnect();
   }
 }
 
-function hasUniqueProductIdIndex() {
-  const result = spawnSync(prismaCommand, [
-    "prisma",
-    "db",
-    "execute",
-    "--stdin",
-    "--schema",
-    schemaPath,
-  ], {
-    input: 'SELECT 1;',
-    stdio: ["pipe", "pipe", "pipe"],
-    encoding: "utf8",
-    shell: false,
-  });
+async function finalizeProductIdConstraint() {
+  const { PrismaClient } = require("@prisma/client");
+  const prisma = new PrismaClient();
+  try {
+    const duplicateRows = await prisma.$queryRawUnsafe(`
+      SELECT "publicProductId", COUNT(*)::int AS count
+      FROM "products"
+      WHERE "publicProductId" IS NOT NULL
+      GROUP BY "publicProductId"
+      HAVING COUNT(*) > 1
+      LIMIT 1
+    `);
 
-  return result.status === 0;
+    if (duplicateRows.length > 0) {
+      throw new Error(`Duplicate publicProductId value detected: ${duplicateRows[0].publicProductId}`);
+    }
+
+    const indexes = await prisma.$queryRawUnsafe(`
+      SELECT indexname
+      FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND tablename = 'products'
+        AND indexdef ILIKE '%publicProductId%'
+        AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
+      LIMIT 1
+    `);
+
+    if (indexes.length === 0) {
+      await prisma.$executeRawUnsafe(
+        'CREATE UNIQUE INDEX IF NOT EXISTS "products_publicProductId_key" ON "products" ("publicProductId")'
+      );
+      console.log("Product ID unique index created safely after existing products were populated.");
+    } else {
+      console.log(`Product ID unique index already exists: ${indexes[0].indexname}`);
+    }
+  } finally {
+    await prisma.$disconnect();
+  }
 }
 
 console.log("Checking Prisma schema changes for destructive database operations...");
@@ -109,86 +148,8 @@ const schema = fs.readFileSync(schemaPath, "utf8");
 const productIdPattern = /(publicProductId\s+String\?)\s+@unique/;
 const hasProductIdUniqueField = productIdPattern.test(schema);
 
-let databaseHasUniqueProductIdIndex = false;
-try {
-  const { PrismaClient } = require("@prisma/client");
-  const prisma = new PrismaClient();
-  const indexes = prisma.$queryRawUnsafe(`
-    SELECT indexname, indexdef
-    FROM pg_indexes
-    WHERE schemaname = 'public'
-      AND tablename = 'products'
-      AND indexdef ILIKE '%publicProductId%'
-      AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
-  `);
-  databaseHasUniqueProductIdIndex = require("node:child_process").spawnSync(process.execPath, [
-    "-e",
-    "",
-  ]).status === 0;
-  prisma.$disconnect();
-} catch (_) {
-  databaseHasUniqueProductIdIndex = false;
-}
-
-async function databaseHasUniqueIndex() {
-  const { PrismaClient } = require("@prisma/client");
-  const prisma = new PrismaClient();
-  try {
-    const rows = await prisma.$queryRawUnsafe(`
-      SELECT indexname
-      FROM pg_indexes
-      WHERE schemaname = 'public'
-        AND tablename = 'products'
-        AND indexdef ILIKE '%publicProductId%'
-        AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
-      LIMIT 1
-    `);
-    return rows.length > 0;
-  } finally {
-    await prisma.$disconnect();
-  }
-}
-
-async function finalizeProductIdConstraint() {
-  const { PrismaClient } = require("@prisma/client");
-  const prisma = new PrismaClient();
-  try {
-    const duplicateRows = await prisma.$queryRawUnsafe(`
-      SELECT "publicProductId", COUNT(*)::int AS count
-      FROM "products"
-      WHERE "publicProductId" IS NOT NULL
-      GROUP BY "publicProductId"
-      HAVING COUNT(*) > 1
-      LIMIT 1
-    `);
-
-    if (duplicateRows.length > 0) {
-      throw new Error(`Duplicate publicProductId value detected: ${duplicateRows[0].publicProductId}`);
-    }
-
-    const indexes = await prisma.$queryRawUnsafe(`
-      SELECT indexname
-      FROM pg_indexes
-      WHERE schemaname = 'public'
-        AND tablename = 'products'
-        AND indexdef ILIKE '%publicProductId%'
-        AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
-      LIMIT 1
-    `);
-
-    if (indexes.length === 0) {
-      await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "products_publicProductId_key" ON "products" ("publicProductId")');
-      console.log("Product ID unique index created safely after existing products were populated.");
-    } else {
-      console.log(`Product ID unique index already exists: ${indexes[0].indexname}`);
-    }
-  } finally {
-    await prisma.$disconnect();
-  }
-}
-
 async function main() {
-  const uniqueIndexExists = await databaseHasUniqueIndex();
+  const uniqueIndexExists = await databaseHasUniqueProductIdIndex();
 
   if (hasProductIdUniqueField && !uniqueIndexExists) {
     const temporarySchema = schema.replace(productIdPattern, "$1");
