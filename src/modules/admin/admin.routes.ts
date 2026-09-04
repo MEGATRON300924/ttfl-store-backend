@@ -4,6 +4,8 @@ import { asyncHandler } from "@/middleware/error-handler";
 import { requireAuth, requireRole } from "@/middleware/auth";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/utils/app-error";
+import { env } from "@/config/env";
+import { adminAccessGrantedEmail, sendEmail } from "@/lib/email";
 
 export const adminRouter = Router();
 
@@ -51,6 +53,22 @@ adminRouter.post(
       where: { id: user.id },
       data: { role: "ADMIN" },
       select: { id: true, email: true, firstName: true, lastName: true, role: true, status: true, emailVerified: true, createdAt: true, lastLoginAt: true },
+    });
+
+    const adminUrl = `${env.appUrl.replace(/\/$/, "")}/admin`;
+    const email = adminAccessGrantedEmail(
+      [updated.firstName, updated.lastName].filter(Boolean).join(" "),
+      updated.email,
+      adminUrl
+    );
+
+    void sendEmail({
+      to: updated.email,
+      subject: email.subject,
+      html: email.html,
+      event: email.event,
+    }).catch((error) => {
+      console.error("Failed to queue admin access notification:", error);
     });
 
     res.status(201).json({ admin: updated });
