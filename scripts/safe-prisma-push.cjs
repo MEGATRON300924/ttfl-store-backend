@@ -43,19 +43,22 @@ function runNodeScript(scriptPath) {
   if (result.status !== 0) throw new Error(`${scriptPath} exited with code ${result.status}`);
 }
 
-async function databaseHasUniqueProductIdIndex() {
+async function databaseHasUsableProductIdUniqueIndex() {
   const { PrismaClient } = require("@prisma/client");
   const prisma = new PrismaClient();
+
   try {
     const rows = await prisma.$queryRawUnsafe(`
-      SELECT indexname
+      SELECT indexname, indexdef
       FROM pg_indexes
       WHERE schemaname = 'public'
         AND tablename = 'products'
-        AND indexdef ILIKE '%publicProductId%'
         AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
+        AND indexdef ILIKE '%("publicProductId")%'
+        AND indexdef NOT ILIKE '% WHERE %'
       LIMIT 1
     `);
+
     return rows.length > 0;
   } finally {
     await prisma.$disconnect();
@@ -65,6 +68,7 @@ async function databaseHasUniqueProductIdIndex() {
 async function finalizeProductIdConstraint() {
   const { PrismaClient } = require("@prisma/client");
   const prisma = new PrismaClient();
+
   try {
     const duplicateRows = await prisma.$queryRawUnsafe(`
       SELECT "publicProductId", COUNT(*)::int AS count
@@ -80,12 +84,13 @@ async function finalizeProductIdConstraint() {
     }
 
     const indexes = await prisma.$queryRawUnsafe(`
-      SELECT indexname
+      SELECT indexname, indexdef
       FROM pg_indexes
       WHERE schemaname = 'public'
         AND tablename = 'products'
-        AND indexdef ILIKE '%publicProductId%'
         AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
+        AND indexdef ILIKE '%("publicProductId")%'
+        AND indexdef NOT ILIKE '% WHERE %'
       LIMIT 1
     `);
 
@@ -149,9 +154,11 @@ const productIdPattern = /(publicProductId\s+String\?)\s+@unique/;
 const hasProductIdUniqueField = productIdPattern.test(schema);
 
 async function main() {
-  const uniqueIndexExists = await databaseHasUniqueProductIdIndex();
+  const uniqueIndexExists = await databaseHasUsableProductIdUniqueIndex();
 
   if (hasProductIdUniqueField && !uniqueIndexExists) {
+    console.log("Product ID unique index is not yet safely established. Applying Product ID column without the unique constraint first...");
+
     const temporarySchema = schema.replace(productIdPattern, "$1");
     fs.writeFileSync(temporarySchemaPath, temporarySchema);
 
