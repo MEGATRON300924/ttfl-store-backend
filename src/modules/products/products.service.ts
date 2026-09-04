@@ -11,15 +11,7 @@ import type { Prisma } from "@prisma/client";
 const PUBLIC_PRODUCT_INCLUDE = {
   images: { orderBy: { position: "asc" as const } },
   category: true,
-  vendor: {
-    select: {
-      id: true,
-      storeName: true,
-      storeSlug: true,
-      verified: true,
-      location: true,
-    },
-  },
+  vendor: { select: { id: true, storeName: true, storeSlug: true, verified: true, location: true } },
 } satisfies Prisma.ProductInclude;
 
 async function getVendorProfileOrThrow(userId: string) {
@@ -49,7 +41,24 @@ export async function createProduct(userId: string, input: CreateProductInput) {
   const categoryId = await resolveCategoryId(input.categorySlug);
   const slug = await uniqueProductSlug(input.name);
   return prisma.product.create({
-    data: { vendorId: vendor.id, categoryId, name: input.name, slug, description: input.description, price: input.price, previousPrice: input.previousPrice, condition: input.condition, stock: input.stock, location: input.location, specifications: input.specifications, sellingMethod: input.sellingMethod, externalUrl: "externalUrl" in input ? input.externalUrl : undefined, whatsappNumber: "whatsappNumber" in input ? input.whatsappNumber : undefined, images: { create: input.images.map((url, i) => ({ url, position: i, isPrimary: i === 0 })) } },
+    data: {
+      vendorId: vendor.id,
+      categoryId,
+      name: input.name,
+      slug,
+      description: input.description,
+      price: input.price,
+      previousPrice: input.previousPrice,
+      condition: input.condition,
+      stock: input.stock,
+      location: input.location,
+      specifications: input.specifications,
+      estimatedDeliveryDays: input.estimatedDeliveryDays,
+      sellingMethod: input.sellingMethod,
+      externalUrl: "externalUrl" in input ? input.externalUrl : undefined,
+      whatsappNumber: "whatsappNumber" in input ? input.whatsappNumber : undefined,
+      images: { create: input.images.map((url, i) => ({ url, position: i, isPrimary: i === 0 })) },
+    },
     include: PUBLIC_PRODUCT_INCLUDE,
   });
 }
@@ -62,7 +71,23 @@ export async function updateProduct(userId: string, productId: string, input: Pa
   const categoryId = input.categorySlug ? await resolveCategoryId(input.categorySlug) : undefined;
   return prisma.product.update({
     where: { id: productId },
-    data: { name: input.name, categoryId, description: input.description, price: input.price, previousPrice: input.previousPrice, condition: input.condition, stock: input.stock, location: input.location, specifications: input.specifications, status: input.status, sellingMethod: (input as any).sellingMethod, externalUrl: (input as any).externalUrl, whatsappNumber: (input as any).whatsappNumber, ...(input.images ? { images: { deleteMany: {}, create: input.images.map((url, i) => ({ url, position: i, isPrimary: i === 0 })) } } : {}) },
+    data: {
+      name: input.name,
+      categoryId,
+      description: input.description,
+      price: input.price,
+      previousPrice: input.previousPrice,
+      condition: input.condition,
+      stock: input.stock,
+      location: input.location,
+      specifications: input.specifications,
+      estimatedDeliveryDays: input.estimatedDeliveryDays,
+      status: input.status,
+      sellingMethod: (input as any).sellingMethod,
+      externalUrl: (input as any).externalUrl,
+      whatsappNumber: (input as any).whatsappNumber,
+      ...(input.images ? { images: { deleteMany: {}, create: input.images.map((url, i) => ({ url, position: i, isPrimary: i === 0 })) } } : {}),
+    },
     include: PUBLIC_PRODUCT_INCLUDE,
   });
 }
@@ -99,7 +124,6 @@ function buildOrderBy(sort: ProductSearchInput["sort"]): Prisma.ProductOrderByWi
 
 export async function searchProducts(params: ProductSearchInput) {
   const where: Prisma.ProductWhereInput = { deletedAt: null, status: "ACTIVE" };
-
   if (params.q) {
     const tokens = Array.from(new Set(params.q.toLowerCase().split(/\s+/).map((token) => token.trim()).filter((token) => token.length >= 1))).slice(0, 8);
     const tokenFilters: Prisma.ProductWhereInput[] = tokens.flatMap((token) => [
@@ -121,7 +145,6 @@ export async function searchProducts(params: ProductSearchInput) {
     where.vendor = { is: vendorFilter };
   }
   if (params.minPrice || params.maxPrice) where.price = { ...(params.minPrice ? { gte: params.minPrice } : {}), ...(params.maxPrice ? { lte: params.maxPrice } : {}) };
-
   const [items, total] = await prisma.$transaction([
     prisma.product.findMany({ where, include: PUBLIC_PRODUCT_INCLUDE, orderBy: buildOrderBy(params.sort), skip: (params.page - 1) * params.limit, take: params.limit }),
     prisma.product.count({ where }),
