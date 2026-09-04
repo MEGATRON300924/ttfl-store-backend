@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/config/env";
 import { AppError } from "@/utils/app-error";
@@ -14,6 +15,10 @@ const PUBLIC_PRODUCT_INCLUDE = {
   vendor: { select: { id: true, storeName: true, storeSlug: true, verified: true, location: true } },
 } satisfies Prisma.ProductInclude;
 
+function createPublicProductId() {
+  return `TTFL-${randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase()}`;
+}
+
 async function getVendorProfileOrThrow(userId: string) {
   const vendor = await prisma.vendorProfile.findUnique({ where: { userId } });
   if (!vendor) throw AppError.notFound("Vendor profile not found");
@@ -29,6 +34,14 @@ async function uniqueProductSlug(name: string) {
   return slug;
 }
 
+async function uniquePublicProductId() {
+  let productId = createPublicProductId();
+  while (await prisma.product.findUnique({ where: { publicProductId: productId } })) {
+    productId = createPublicProductId();
+  }
+  return productId;
+}
+
 async function resolveCategoryId(categorySlug: string) {
   const category = await prisma.category.findUnique({ where: { slug: categorySlug } });
   if (!category) throw AppError.badRequest("Unknown category", "INVALID_CATEGORY");
@@ -40,6 +53,7 @@ export async function createProduct(userId: string, input: CreateProductInput) {
   await assertProductLimitNotExceeded(vendor.id, vendor.tier);
   const categoryId = await resolveCategoryId(input.categorySlug);
   const slug = await uniqueProductSlug(input.name);
+  const publicProductId = await uniquePublicProductId();
   return prisma.product.create({
     data: {
       vendorId: vendor.id,
@@ -54,6 +68,7 @@ export async function createProduct(userId: string, input: CreateProductInput) {
       location: input.location,
       specifications: input.specifications,
       estimatedDeliveryDays: input.estimatedDeliveryDays,
+      publicProductId,
       sellingMethod: input.sellingMethod,
       externalUrl: "externalUrl" in input ? input.externalUrl : undefined,
       whatsappNumber: "whatsappNumber" in input ? input.whatsappNumber : undefined,
