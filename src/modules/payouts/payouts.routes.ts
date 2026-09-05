@@ -7,83 +7,66 @@ import * as payoutsService from "./payouts.service";
 
 export const payoutsRouter = Router();
 
-payoutsRouter.get(
-  "/me/balance",
-  requireAuth,
-  requireRole("VENDOR"),
-  asyncHandler(async (req, res) => {
-    const vendor = await prisma.vendorProfile.findUniqueOrThrow({ where: { userId: req.user!.sub } });
-    const balance = await payoutsService.getVendorBalance(vendor.id);
-    res.json({ balance });
-  })
-);
+payoutsRouter.get("/me/balance", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => {
+  const vendor = await prisma.vendorProfile.findUniqueOrThrow({ where: { userId: req.user!.sub } });
+  const balance = await payoutsService.getVendorBalance(vendor.id);
+  res.json({ balance });
+}));
 
-payoutsRouter.get(
-  "/me",
-  requireAuth,
-  requireRole("VENDOR"),
-  asyncHandler(async (req, res) => {
-    const vendor = await prisma.vendorProfile.findUniqueOrThrow({ where: { userId: req.user!.sub } });
-    const payouts = await payoutsService.getMyPayouts(vendor.id);
-    res.json({ payouts });
-  })
-);
+payoutsRouter.get("/me", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => {
+  const vendor = await prisma.vendorProfile.findUniqueOrThrow({ where: { userId: req.user!.sub } });
+  const payouts = await payoutsService.getMyPayouts(vendor.id);
+  res.json({ payouts });
+}));
 
-payoutsRouter.post(
-  "/me/request",
-  requireAuth,
-  requireRole("VENDOR"),
-  asyncHandler(async (req, res) => {
-    const vendor = await prisma.vendorProfile.findUniqueOrThrow({ where: { userId: req.user!.sub } });
-    const payout = await payoutsService.requestPayout(vendor.id);
-    res.status(201).json({ payout });
-  })
-);
+payoutsRouter.get("/me/account", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => {
+  const account = await payoutsService.getPaystackAccount(req.user!.sub);
+  res.json({ account });
+}));
 
-const statusQuerySchema = z.object({
-  status: z.enum(["PENDING", "APPROVED", "REJECTED", "PAID"]).optional(),
+const accountSchema = z.object({
+  bankCode: z.string().min(2).max(20),
+  accountNumber: z.string().regex(/^\d{6,20}$/),
 });
 
-payoutsRouter.get(
-  "/admin",
-  requireAuth,
-  requireRole("ADMIN"),
-  asyncHandler(async (req, res) => {
-    const { status } = statusQuerySchema.parse(req.query);
-    const payouts = await payoutsService.adminListPayouts(status);
-    res.json({ payouts });
-  })
-);
+payoutsRouter.get("/banks", requireAuth, requireRole("VENDOR"), asyncHandler(async (_req, res) => {
+  res.json({ banks: await payoutsService.getBanks() });
+}));
 
-payoutsRouter.post(
-  "/admin/:id/approve",
-  requireAuth,
-  requireRole("ADMIN"),
-  asyncHandler(async (req, res) => {
-    const payout = await payoutsService.adminApprovePayout(req.params.id, req.user!.sub);
-    res.json({ payout });
-  })
-);
+payoutsRouter.put("/me/account", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => {
+  const input = accountSchema.parse(req.body);
+  const account = await payoutsService.savePaystackAccount(req.user!.sub, input);
+  res.json({ account });
+}));
+
+payoutsRouter.post("/me/request", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => {
+  const vendor = await prisma.vendorProfile.findUniqueOrThrow({ where: { userId: req.user!.sub } });
+  const payout = await payoutsService.requestPayout(vendor.id);
+  res.status(201).json({ payout });
+}));
+
+const statusQuerySchema = z.object({ status: z.enum(["PENDING", "APPROVED", "REJECTED", "PAID"]).optional() });
+
+payoutsRouter.get("/admin", requireAuth, requireRole("ADMIN"), asyncHandler(async (req, res) => {
+  const { status } = statusQuerySchema.parse(req.query);
+  const payouts = await payoutsService.adminListPayouts(status);
+  res.json({ payouts });
+}));
+
+payoutsRouter.post("/admin/:id/approve", requireAuth, requireRole("ADMIN"), asyncHandler(async (req, res) => {
+  const payout = await payoutsService.adminApprovePayout(req.params.id, req.user!.sub);
+  res.json({ payout });
+}));
 
 const rejectSchema = z.object({ note: z.string().min(3).max(500) });
 
-payoutsRouter.post(
-  "/admin/:id/reject",
-  requireAuth,
-  requireRole("ADMIN"),
-  asyncHandler(async (req, res) => {
-    const { note } = rejectSchema.parse(req.body);
-    const payout = await payoutsService.adminRejectPayout(req.params.id, req.user!.sub, note);
-    res.json({ payout });
-  })
-);
+payoutsRouter.post("/admin/:id/reject", requireAuth, requireRole("ADMIN"), asyncHandler(async (req, res) => {
+  const { note } = rejectSchema.parse(req.body);
+  const payout = await payoutsService.adminRejectPayout(req.params.id, req.user!.sub, note);
+  res.json({ payout });
+}));
 
-payoutsRouter.post(
-  "/admin/:id/mark-paid",
-  requireAuth,
-  requireRole("ADMIN"),
-  asyncHandler(async (req, res) => {
-    const payout = await payoutsService.adminMarkPayoutPaid(req.params.id, req.user!.sub);
-    res.json({ payout });
-  })
-);
+payoutsRouter.post("/admin/:id/mark-paid", requireAuth, requireRole("ADMIN"), asyncHandler(async (req, res) => {
+  const payout = await payoutsService.adminMarkPayoutPaid(req.params.id, req.user!.sub);
+  res.json({ payout });
+}));
