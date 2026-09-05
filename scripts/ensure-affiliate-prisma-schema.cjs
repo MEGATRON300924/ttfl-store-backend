@@ -24,10 +24,6 @@ if (!schema.includes("affiliateAttributions    AffiliateAttribution[]")) {
 if (!schema.includes("model Affiliate {")) {
   schema += `
 
-// ---------------------------------------------------------------------------
-// Affiliate program
-// ---------------------------------------------------------------------------
-
 model Affiliate {
   id              String   @id
   userId          String   @unique @map("user_id")
@@ -93,10 +89,6 @@ model AffiliateCommission {
 if (!schema.includes("model StorePublicProfile {")) {
   schema += `
 
-// ---------------------------------------------------------------------------
-// Store public profile and presentation tables
-// ---------------------------------------------------------------------------
-
 model StorePublicProfile {
   id          String        @id
   vendorId    String        @unique @map("vendor_id")
@@ -145,12 +137,16 @@ if (!schema.includes("storePublicProfile StorePublicProfile?")) {
   schema = schema.replace(vendorRelation, (line, indent) => `${line}\n${indent}storePublicProfile StorePublicProfile?\n${indent}storeBadges        StoreBadge[]\n${indent}storeGalleryImages StoreGalleryImage[]`);
 }
 
+if (!schema.includes("paystackSubaccountCode String?")) {
+  const vendorMarker = /^(\s*)commissionRateOverride Decimal\? @db\.Decimal\(5, 2\)\s*$/m;
+  if (!vendorMarker.test(schema)) {
+    throw new Error("Could not find VendorProfile commission field in prisma/schema.prisma");
+  }
+  schema = schema.replace(vendorMarker, (line, indent) => `${line}\n${indent}paystackSubaccountCode String? @unique\n${indent}paystackBankCode String?\n${indent}paystackAccountLast4 String?\n${indent}paystackAccountName String?\n${indent}paystackBankName String?\n${indent}paystackSubaccountActive Boolean @default(false)\n${indent}paystackSubaccountVerified Boolean @default(false)`);
+}
+
 if (!schema.includes("model Broadcast {")) {
   schema += `
-
-// ---------------------------------------------------------------------------
-// Admin broadcasts
-// ---------------------------------------------------------------------------
 
 model Broadcast {
   id              String   @id
@@ -163,11 +159,10 @@ model Broadcast {
   recipientCount Int      @default(0) @map("recipient_count")
   createdBy       String   @map("created_by")
   createdAt       DateTime @default(now()) @map("created_at")
-
   @@map("ttfl_broadcasts")
 }
 `;
 }
 
 fs.writeFileSync(schemaPath, schema);
-process.stdout.write("Prisma schema prepared without dropping existing affiliate, store-profile, or broadcast data.\n");
+process.stdout.write("Prisma schema prepared without dropping existing affiliate, store-profile, broadcast, or Paystack settlement data.\n");
