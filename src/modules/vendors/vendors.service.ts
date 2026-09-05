@@ -1,230 +1,28 @@
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/utils/app-error";
 import { recordAudit } from "@/lib/audit";
-import {
-  sendEmail,
-  vendorApprovedEmail,
-  vendorRejectedEmail,
-} from "@/lib/email";
+import { sendEmail, vendorApprovedEmail, vendorRejectedEmail } from "@/lib/email";
 import { logger } from "@/lib/logger";
+import { getVendorProfileForUser } from "@/lib/vendor-access";
 
-function normalizeStoreSlug(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
+function normalizeStoreSlug(value: string) { return value.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, ""); }
+
+export async function getMyVendorProfile(userId: string) { return getVendorProfileForUser(userId); }
+
+export async function updateMyVendorProfile(userId: string, data: { storeName: string; storeSlug: string; bio?: string | null; location?: string | null; whatsappNumber?: string | null }, ipAddress?: string) {
+  const existing = await getVendorProfileForUser(userId); const storeSlug = normalizeStoreSlug(data.storeSlug); if (!storeSlug) throw AppError.badRequest("A valid store URL is required", "INVALID_STORE_SLUG");
+  const conflict = await prisma.vendorProfile.findFirst({ where: { storeSlug, NOT: { id: existing.id } }, select: { id: true } }); if (conflict) throw AppError.conflict("That store URL is already in use");
+  const profile = await prisma.vendorProfile.update({ where: { id: existing.id }, data: { storeName: data.storeName, storeSlug, bio: data.bio ?? null, location: data.location ?? null, whatsappNumber: data.whatsappNumber ?? null } });
+  await recordAudit({ actorId: userId, action: "VENDOR_PROFILE_UPDATED", targetType: "VendorProfile", targetId: profile.id, ipAddress, metadata: { fields: ["storeName", "storeSlug", "bio", "location", "whatsappNumber"] } }); return profile;
 }
 
-export async function getMyVendorProfile(userId: string) {
-  const profile = await prisma.vendorProfile.findUnique({ where: { userId } });
-  if (!profile) throw AppError.notFound("Vendor profile not found");
-  return profile;
-}
+export async function getPublicVendorBySlug(slug: string) { const profile = await prisma.vendorProfile.findUnique({ where: { storeSlug: slug }, select: { id: true, storeName: true, storeSlug: true, bio: true, location: true, whatsappNumber: true, logoUrl: true, bannerUrl: true, verified: true, status: true, createdAt: true, _count: { select: { products: { where: { status: "ACTIVE", deletedAt: null } } } } } }); if (!profile || profile.status !== "APPROVED") throw AppError.notFound("Store not found"); prisma.vendorProfile.update({ where: { id: profile.id }, data: { viewCount: { increment: 1 } } }).catch((err: unknown) => logger.error("Failed to increment store view count (non-fatal)", { err })); return profile; }
 
-export async function updateMyVendorProfile(
-  userId: string,
-  data: {
-    storeName: string;
-    storeSlug: string;
-    bio?: string | null;
-    location?: string | null;
-    whatsappNumber?: string | null;
-  },
-  ipAddress?: string
-) {
-  const existing = await prisma.vendorProfile.findUnique({ where: { userId } });
-  if (!existing) throw AppError.notFound("Vendor profile not found");
+export async function listPublicVendors(params: { page: number; limit: number; q?: string }) { const where = { status: "APPROVED" as const, ...(params.q ? { storeName: { contains: params.q, mode: "insensitive" as const } } : {}) }; const [items, total] = await prisma.$transaction([prisma.vendorProfile.findMany({ where, select: { id: true, storeName: true, storeSlug: true, bio: true, location: true, logoUrl: true, bannerUrl: true, verified: true, tier: true, createdAt: true, _count: { select: { products: { where: { status: "ACTIVE", deletedAt: null } } } } }, orderBy: { createdAt: "desc" }, skip: (params.page - 1) * params.limit, take: params.limit }), prisma.vendorProfile.count({ where })]); return { stores: items.map((item) => ({ ...item, name: item.storeName, slug: item.storeSlug, productCount: item._count.products, rating: 0, badges: item.verified ? ["VERIFIED"] : [] })), items, pagination: { page: params.page, limit: params.limit, total, totalPages: Math.max(1, Math.ceil(total / params.limit)) } }; }
 
-  const storeSlug = normalizeStoreSlug(data.storeSlug);
-  if (!storeSlug) throw AppError.badRequest("A valid store URL is required", "INVALID_STORE_SLUG");
-
-  const conflict = await prisma.vendorProfile.findFirst({
-    where: { storeSlug, NOT: { id: existing.id } },
-    select: { id: true },
-  });
-  if (conflict) throw AppError.conflict("That store URL is already in use");
-
-  const profile = await prisma.vendorProfile.update({
-    where: { userId },
-    data: {
-      storeName: data.storeName,
-      storeSlug,
-      bio: data.bio ?? null,
-      location: data.location ?? null,
-      whatsappNumber: data.whatsappNumber ?? null,
-    },
-  });
-
-  await recordAudit({
-    actorId: userId,
-    action: "VENDOR_PROFILE_UPDATED",
-    targetType: "VendorProfile",
-    targetId: profile.id,
-    ipAddress,
-    metadata: { fields: ["storeName", "storeSlug", "bio", "location", "whatsappNumber"] },
-  });
-
-  return profile;
-}
-
-export async function getPublicVendorBySlug(slug: string) {
-  const profile = await prisma.vendorProfile.findUnique({
-    where: { storeSlug: slug },
-    select: {
-      id: true,
-      storeName: true,
-      storeSlug: true,
-      bio: true,
-      location: true,
-      whatsappNumber: true,
-      logoUrl: true,
-      bannerUrl: true,
-      verified: true,
-      status: true,
-      createdAt: true,
-      _count: {
-        select: {
-          products: { where: { status: "ACTIVE", deletedAt: null } },
-        },
-      },
-    },
-  });
-
-  if (!profile || profile.status !== "APPROVED") {
-    throw AppError.notFound("Store not found");
-  }
-
-  prisma.vendorProfile
-    .update({ where: { id: profile.id }, data: { viewCount: { increment: 1 } } })
-    .catch((err: unknown) => logger.error("Failed to increment store view count (non-fatal)", { err }));
-
-  return profile;
-}
-
-export async function listPublicVendors(params: {
-  page: number;
-  limit: number;
-  q?: string;
-}) {
-  const where = {
-    status: "APPROVED" as const,
-    ...(params.q
-      ? { storeName: { contains: params.q, mode: "insensitive" as const } }
-      : {}),
-  };
-
-  const [items, total] = await prisma.$transaction([
-    prisma.vendorProfile.findMany({
-      where,
-      select: {
-        id: true,
-        storeName: true,
-        storeSlug: true,
-        bio: true,
-        location: true,
-        logoUrl: true,
-        bannerUrl: true,
-        verified: true,
-        tier: true,
-        createdAt: true,
-        _count: {
-          select: {
-            products: { where: { status: "ACTIVE", deletedAt: null } },
-          },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-      skip: (params.page - 1) * params.limit,
-      take: params.limit,
-    }),
-    prisma.vendorProfile.count({ where }),
-  ]);
-
-  return {
-    stores: items.map((item) => ({
-      ...item,
-      name: item.storeName,
-      slug: item.storeSlug,
-      productCount: item._count.products,
-      rating: 0,
-      badges: item.verified ? ["VERIFIED"] : [],
-    })),
-    items,
-    pagination: {
-      page: params.page,
-      limit: params.limit,
-      total,
-      totalPages: Math.max(1, Math.ceil(total / params.limit)),
-    },
-  };
-}
-
-export async function listVendorApplications(
-  status?: "PENDING" | "APPROVED" | "REJECTED" | "SUSPENDED"
-) {
-  return prisma.vendorProfile.findMany({
-    where: status ? { status } : undefined,
-    include: {
-      user: { select: { id: true, firstName: true, lastName: true, email: true } },
-    },
-    orderBy: { appliedAt: "desc" },
-  });
-}
-
-export async function approveVendor(vendorProfileId: string, adminId: string, ipAddress?: string) {
-  const profile = await prisma.vendorProfile.update({
-    where: { id: vendorProfileId },
-    data: { status: "APPROVED", verified: true, approvedAt: new Date() },
-    include: { user: true },
-  });
-
-  await recordAudit({ actorId: adminId, action: "VENDOR_APPROVED", targetType: "VendorProfile", targetId: profile.id, ipAddress });
-  void sendEmail({ to: profile.user.email, ...vendorApprovedEmail(profile.storeName) });
-  return profile;
-}
-
-export async function rejectVendor(vendorProfileId: string, adminId: string, reason: string, ipAddress?: string) {
-  const profile = await prisma.vendorProfile.update({
-    where: { id: vendorProfileId },
-    data: { status: "REJECTED", rejectedAt: new Date(), rejectionReason: reason },
-    include: { user: true },
-  });
-
-  await recordAudit({ actorId: adminId, action: "VENDOR_REJECTED", targetType: "VendorProfile", targetId: profile.id, metadata: { reason }, ipAddress });
-  void sendEmail({ to: profile.user.email, ...vendorRejectedEmail(profile.storeName, reason) });
-  return profile;
-}
-
-export async function suspendVendor(vendorProfileId: string, adminId: string, ipAddress?: string) {
-  const profile = await prisma.vendorProfile.update({ where: { id: vendorProfileId }, data: { status: "SUSPENDED" } });
-  await recordAudit({ actorId: adminId, action: "VENDOR_SUSPENDED", targetType: "VendorProfile", targetId: profile.id, ipAddress });
-  return profile;
-}
-
-export async function changeVendorTier(
-  vendorProfileId: string,
-  tier: "FREE" | "PRO" | "BUSINESS" | "ENTERPRISE",
-  adminId: string,
-  ipAddress?: string
-) {
-  const profile = await prisma.vendorProfile.update({ where: { id: vendorProfileId }, data: { tier } });
-  await recordAudit({ actorId: adminId, action: "VENDOR_TIER_CHANGED", targetType: "VendorProfile", targetId: profile.id, metadata: { newTier: tier }, ipAddress });
-  return profile;
-}
-
-export async function setCommissionOverride(
-  vendorProfileId: string,
-  ratePercent: number | null,
-  adminId: string,
-  ipAddress?: string
-) {
-  const profile = await prisma.vendorProfile.update({
-    where: { id: vendorProfileId },
-    data: { commissionRateOverride: ratePercent },
-  });
-  await recordAudit({ actorId: adminId, action: "VENDOR_TIER_CHANGED", targetType: "VendorProfile", targetId: profile.id, metadata: { commissionRateOverride: ratePercent }, ipAddress });
-  return profile;
-}
+export async function listVendorApplications(status?: "PENDING" | "APPROVED" | "REJECTED" | "SUSPENDED") { return prisma.vendorProfile.findMany({ where: status ? { status } : undefined, include: { user: { select: { id: true, firstName: true, lastName: true, email: true } } }, orderBy: { appliedAt: "desc" } }); }
+export async function approveVendor(vendorProfileId: string, adminId: string, ipAddress?: string) { const profile = await prisma.vendorProfile.update({ where: { id: vendorProfileId }, data: { status: "APPROVED", verified: true, approvedAt: new Date() }, include: { user: true } }); await recordAudit({ actorId: adminId, action: "VENDOR_APPROVED", targetType: "VendorProfile", targetId: profile.id, ipAddress }); void sendEmail({ to: profile.user.email, ...vendorApprovedEmail(profile.storeName) }); return profile; }
+export async function rejectVendor(vendorProfileId: string, adminId: string, reason: string, ipAddress?: string) { const profile = await prisma.vendorProfile.update({ where: { id: vendorProfileId }, data: { status: "REJECTED", rejectedAt: new Date(), rejectionReason: reason }, include: { user: true } }); await recordAudit({ actorId: adminId, action: "VENDOR_REJECTED", targetType: "VendorProfile", targetId: profile.id, metadata: { reason }, ipAddress }); void sendEmail({ to: profile.user.email, ...vendorRejectedEmail(profile.storeName, reason) }); return profile; }
+export async function suspendVendor(vendorProfileId: string, adminId: string, ipAddress?: string) { const profile = await prisma.vendorProfile.update({ where: { id: vendorProfileId }, data: { status: "SUSPENDED" } }); await recordAudit({ actorId: adminId, action: "VENDOR_SUSPENDED", targetType: "VendorProfile", targetId: profile.id, ipAddress }); return profile; }
+export async function changeVendorTier(vendorProfileId: string, tier: "FREE" | "PRO" | "BUSINESS" | "ENTERPRISE", adminId: string, ipAddress?: string) { const profile = await prisma.vendorProfile.update({ where: { id: vendorProfileId }, data: { tier } }); await recordAudit({ actorId: adminId, action: "VENDOR_TIER_CHANGED", targetType: "VendorProfile", targetId: profile.id, metadata: { newTier: tier }, ipAddress }); return profile; }
+export async function setCommissionOverride(vendorProfileId: string, ratePercent: number | null, adminId: string, ipAddress?: string) { const profile = await prisma.vendorProfile.update({ where: { id: vendorProfileId }, data: { commissionRateOverride: ratePercent } }); await recordAudit({ actorId: adminId, action: "VENDOR_TIER_CHANGED", targetType: "VendorProfile", targetId: profile.id, metadata: { commissionRateOverride: ratePercent }, ipAddress }); return profile; }
