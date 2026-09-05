@@ -134,6 +134,20 @@ export function adminAccessGrantedEmail(name: string, email: string, adminUrl: s
   };
 }
 
+export function vendorStaffInvitationEmail(storeName: string, role: string, inviteUrl: string) {
+  return {
+    subject: `You're invited to help manage ${storeName} on TTFL Store`,
+    html: renderEmailLayout({
+      heading: "You're invited to join a TTFL Store team",
+      previewText: `You've been invited to manage ${storeName} as ${role}.`,
+      bodyHtml: `<p>You've been invited to help manage <strong>${escapeHtml(storeName)}</strong> on TTFL Store.</p><p>Your team role is <strong>${escapeHtml(role)}</strong>. Your access is limited to the permissions assigned to this role.</p><p>The invitation expires in 7 days. If you weren't expecting this invitation, you can ignore it.</p>`,
+      ctaText: "Accept invitation",
+      ctaUrl: inviteUrl,
+    }),
+    event: "vendor_staff_invitation",
+  };
+}
+
 export function payoutApprovedEmail(amount: number) {
   return {
     subject: "Your payout request was approved",
