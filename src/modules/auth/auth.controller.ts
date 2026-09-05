@@ -4,9 +4,7 @@ import { setAuthCookies, clearAuthCookies, REFRESH_COOKIE } from "@/lib/cookies"
 import { AppError } from "@/utils/app-error";
 import * as authService from "./auth.service";
 import * as authStaffService from "./auth-staff.service";
-import { checkoutSchema } from "./auth.validators";
 import { registerCustomerSchema, registerVendorSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema, changePasswordSchema, verifyEmailSchema, updateProfileSchema, avatarSchema } from "./auth.validators";
-
 function requestMeta(req: Request) { return { userAgent: req.headers["user-agent"], ipAddress: req.ip }; }
 export const registerCustomer = asyncHandler(async (req: Request, res: Response) => { const input = registerCustomerSchema.parse(req.body); const { user, accessToken, refreshToken } = await authService.registerCustomer(input, requestMeta(req)); setAuthCookies(res, accessToken, refreshToken); res.status(201).json({ user }); });
 export const registerVendor = asyncHandler(async (req: Request, res: Response) => { const input = registerVendorSchema.parse(req.body); const { user, accessToken, refreshToken } = await authService.registerVendor(input, requestMeta(req)); setAuthCookies(res, accessToken, refreshToken); res.status(201).json({ user, message: "Account created. Your vendor application is pending review." }); });
