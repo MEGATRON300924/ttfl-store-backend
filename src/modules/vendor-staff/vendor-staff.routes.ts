@@ -2,7 +2,6 @@ import { Router } from "express";
 import { z } from "zod";
 import { asyncHandler } from "@/middleware/error-handler";
 import { requireAuth } from "@/middleware/auth";
-import { setAuthCookies } from "@/lib/cookies";
 import * as service from "./vendor-staff.service";
 
 const inviteSchema = z.object({
@@ -49,8 +48,5 @@ vendorStaffRouter.get("/invitations/:token", asyncHandler(async (req, res) => {
 vendorStaffRouter.post("/invitations/:token/accept", asyncHandler(async (req, res) => {
   const input = acceptSchema.parse(req.body);
   const result = await service.acceptInvitation(req.params.token, input, req.user?.sub);
-  if (result.accessToken) {
-    setAuthCookies(res, result.accessToken, "");
-  }
-  res.status(200).json({ user: result.user, staff: result.staff });
+  res.status(200).json({ user: result.user, staff: result.staff, requiresLogin: !req.user });
 }));
