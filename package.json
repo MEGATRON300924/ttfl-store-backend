@@ -18,9 +18,7 @@
     "bootstrap:admin": "npm run backfill:product-ids && tsx src/scripts/bootstrap-admin.ts",
     "test:email": "tsx scripts/test-email.ts"
   },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
-  },
+  "prisma": { "seed": "tsx prisma/seed.ts" },
   "dependencies": {
     "@prisma/client": "^5.19.1",
     "argon2": "^0.40.3",
@@ -37,8 +35,7 @@
     "resend": "^6.22.1",
     "uuid": "^9.0.1",
     "winston": "^3.14.2",
-    "zod": "^3.23.8",
-    "@types/uuid": "^9.0.8"
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.7",
