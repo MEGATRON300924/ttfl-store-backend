@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { prisma } from "@/lib/prisma";
 import { AppError } from "@/utils/app-error";
 
 const PAYSTACK_BASE_URL = "https://api.paystack.co";
@@ -54,6 +55,43 @@ async function paystackRequest<T>(path: string, init: RequestInit): Promise<T> {
   return json;
 }
 
+async function splitForOrder(orderId: string): Promise<PaystackSplit> {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: { vendorOrders: true },
+  });
+  if (!order) throw AppError.notFound("Order not found");
+
+  const vendorIds = order.vendorOrders.map((item) => item.vendorId);
+  const vendors = await prisma.vendorProfile.findMany({
+    where: { id: { in: vendorIds } },
+    select: { id: true, storeName: true, paystackSubaccountCode: true },
+  });
+  const byVendorId = new Map(vendors.map((vendor) => [vendor.id, vendor]));
+  const missing = order.vendorOrders.find((item) => !byVendorId.get(item.vendorId)?.paystackSubaccountCode);
+  if (missing) {
+    const vendor = byVendorId.get(missing.vendorId);
+    throw AppError.badRequest(
+      `Payment cannot start because ${vendor?.storeName ?? "a vendor"} has not configured a payout account`,
+      "VENDOR_PAYOUT_NOT_CONFIGURED"
+    );
+  }
+
+  const subaccounts = order.vendorOrders
+    .map((item) => ({
+      subaccount: byVendorId.get(item.vendorId)!.paystackSubaccountCode!,
+      share: Math.round(Number(item.vendorEarnings) * 100),
+    }))
+    .filter((item) => item.share > 0);
+
+  return {
+    type: "flat",
+    bearer_type: "account",
+    subaccounts,
+    reference: `ttfl_split_${order.orderNumber}`,
+  };
+}
+
 export async function initializeTransaction(params: {
   email: string;
   amountNaira: number;
@@ -69,7 +107,13 @@ export async function initializeTransaction(params: {
     callback_url: params.callbackUrl,
     metadata: params.metadata,
   };
-  if (params.split?.subaccounts.length) payload.split = params.split;
+
+  const orderId = typeof params.metadata?.orderId === "string" ? params.metadata.orderId : null;
+  if (params.split?.subaccounts.length) {
+    payload.split = params.split;
+  } else if (orderId) {
+    payload.split = await splitForOrder(orderId);
+  }
 
   const json = await paystackRequest<PaystackInitResponse>("/transaction/initialize", {
     method: "POST",
