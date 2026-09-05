@@ -107,6 +107,70 @@ async function finalizeProductIdConstraint() {
   }
 }
 
+async function databaseHasPaystackSubaccountUniqueIndex() {
+  const { PrismaClient } = require("@prisma/client");
+  const prisma = new PrismaClient();
+
+  try {
+    const rows = await prisma.$queryRawUnsafe(`
+      SELECT indexname, indexdef
+      FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND tablename = 'vendor_profiles'
+        AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
+        AND indexdef ILIKE '%("paystack_subaccount_code")%'
+      LIMIT 1
+    `);
+
+    return rows.length > 0;
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+async function finalizePaystackSubaccountConstraint() {
+  const { PrismaClient } = require("@prisma/client");
+  const prisma = new PrismaClient();
+
+  try {
+    const duplicateRows = await prisma.$queryRawUnsafe(`
+      SELECT "paystack_subaccount_code", COUNT(*)::int AS count
+      FROM "vendor_profiles"
+      WHERE "paystack_subaccount_code" IS NOT NULL
+      GROUP BY "paystack_subaccount_code"
+      HAVING COUNT(*) > 1
+      LIMIT 1
+    `);
+
+    if (duplicateRows.length > 0) {
+      throw new Error(
+        `Duplicate Paystack subaccount code detected: ${duplicateRows[0].paystack_subaccount_code}. The unique constraint was not created.`
+      );
+    }
+
+    const indexes = await prisma.$queryRawUnsafe(`
+      SELECT indexname, indexdef
+      FROM pg_indexes
+      WHERE schemaname = 'public'
+        AND tablename = 'vendor_profiles'
+        AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
+        AND indexdef ILIKE '%("paystack_subaccount_code")%'
+      LIMIT 1
+    `);
+
+    if (indexes.length === 0) {
+      await prisma.$executeRawUnsafe(
+        'CREATE UNIQUE INDEX IF NOT EXISTS "vendor_profiles_paystack_subaccount_code_key" ON "vendor_profiles" ("paystack_subaccount_code")'
+      );
+      console.log("Paystack subaccount unique index created safely after checking existing values.");
+    } else {
+      console.log(`Paystack subaccount unique index already exists: ${indexes[0].indexname}`);
+    }
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
 console.log("Checking Prisma schema changes for destructive database operations...");
 
 let diff;
@@ -151,15 +215,30 @@ console.log("No destructive SQL detected. Applying the schema without accepting 
 
 const schema = fs.readFileSync(schemaPath, "utf8");
 const productIdPattern = /(publicProductId\s+String\?)\s+@unique/;
+const paystackSubaccountPattern = /(paystackSubaccountCode\s+String\?)\s+@unique/;
 const hasProductIdUniqueField = productIdPattern.test(schema);
+const hasPaystackSubaccountUniqueField = paystackSubaccountPattern.test(schema);
 
 async function main() {
-  const uniqueIndexExists = await databaseHasUsableProductIdUniqueIndex();
+  const uniqueProductIndexExists = await databaseHasUsableProductIdUniqueIndex();
+  const uniquePaystackIndexExists = await databaseHasPaystackSubaccountUniqueIndex();
 
-  if (hasProductIdUniqueField && !uniqueIndexExists) {
-    console.log("Product ID unique index is not yet safely established. Applying Product ID column without the unique constraint first...");
+  const needsProductConstraintRollout = hasProductIdUniqueField && !uniqueProductIndexExists;
+  const needsPaystackConstraintRollout = hasPaystackSubaccountUniqueField && !uniquePaystackIndexExists;
 
-    const temporarySchema = schema.replace(productIdPattern, "$1");
+  if (needsProductConstraintRollout || needsPaystackConstraintRollout) {
+    let temporarySchema = schema;
+
+    if (needsProductConstraintRollout) {
+      console.log("Product ID unique index is not yet safely established. Applying Product ID column without the unique constraint first...");
+      temporarySchema = temporarySchema.replace(productIdPattern, "$1");
+    }
+
+    if (needsPaystackConstraintRollout) {
+      console.log("Paystack subaccount unique index is not yet safely established. Applying the field without the unique constraint first...");
+      temporarySchema = temporarySchema.replace(paystackSubaccountPattern, "$1");
+    }
+
     fs.writeFileSync(temporarySchemaPath, temporarySchema);
 
     try {
@@ -168,8 +247,15 @@ async function main() {
       if (fs.existsSync(temporarySchemaPath)) fs.unlinkSync(temporarySchemaPath);
     }
 
-    runNodeScript(path.join(process.cwd(), "scripts", "backfill-product-ids.cjs"));
-    await finalizeProductIdConstraint();
+    if (needsProductConstraintRollout) {
+      runNodeScript(path.join(process.cwd(), "scripts", "backfill-product-ids.cjs"));
+      await finalizeProductIdConstraint();
+    }
+
+    if (needsPaystackConstraintRollout) {
+      await finalizePaystackSubaccountConstraint();
+    }
+
     return;
   }
 
@@ -178,6 +264,10 @@ async function main() {
   if (hasProductIdUniqueField) {
     runNodeScript(path.join(process.cwd(), "scripts", "backfill-product-ids.cjs"));
     await finalizeProductIdConstraint();
+  }
+
+  if (hasPaystackSubaccountUniqueField) {
+    await finalizePaystackSubaccountConstraint();
   }
 }
 
