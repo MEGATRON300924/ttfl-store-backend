@@ -3,12 +3,11 @@ import multer from "multer";
 import { asyncHandler } from "@/middleware/error-handler";
 import { requireAuth, requireRole } from "@/middleware/auth";
 import { AppError } from "@/utils/app-error";
+import { prisma } from "@/lib/prisma";
 import { getVendorProfileForUser } from "@/lib/vendor-access";
 import { validateUploadFile, uploadProductImage, deleteProductImage, uploadAvatar, uploadStoreBranding, deleteStoreBranding } from "./uploads.service";
-
 export const uploadsRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
-
 uploadsRouter.post("/product-image", requireAuth, requireRole("VENDOR"), upload.single("image"), asyncHandler(async (req, res) => { if (!req.file) throw AppError.badRequest("No image file provided", "NO_FILE"); validateUploadFile({ mimetype: req.file.mimetype, size: req.file.size }); const vendor = await getVendorProfileForUser(req.user!.sub); res.status(201).json(await uploadProductImage(vendor.id, req.file.buffer, req.file.mimetype)); }));
 uploadsRouter.delete("/product-image/:publicId", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => { await deleteProductImage(decodeURIComponent(req.params.publicId)); res.status(204).send(); }));
 uploadsRouter.post("/avatar", requireAuth, upload.single("image"), asyncHandler(async (req, res) => { if (!req.file) throw AppError.badRequest("No image file provided", "NO_FILE"); validateUploadFile({ mimetype: req.file.mimetype, size: req.file.size }); res.status(201).json(await uploadAvatar(req.user!.sub, req.file.buffer, req.file.mimetype)); }));
