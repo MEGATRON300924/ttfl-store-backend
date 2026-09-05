@@ -118,7 +118,7 @@ async function databaseHasPaystackSubaccountUniqueIndex() {
       WHERE schemaname = 'public'
         AND tablename = 'vendor_profiles'
         AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
-        AND indexdef ILIKE '%("paystack_subaccount_code")%'
+        AND indexdef ILIKE '%("paystackSubaccountCode")%'
       LIMIT 1
     `);
 
@@ -134,17 +134,17 @@ async function finalizePaystackSubaccountConstraint() {
 
   try {
     const duplicateRows = await prisma.$queryRawUnsafe(`
-      SELECT "paystack_subaccount_code", COUNT(*)::int AS count
+      SELECT "paystackSubaccountCode", COUNT(*)::int AS count
       FROM "vendor_profiles"
-      WHERE "paystack_subaccount_code" IS NOT NULL
-      GROUP BY "paystack_subaccount_code"
+      WHERE "paystackSubaccountCode" IS NOT NULL
+      GROUP BY "paystackSubaccountCode"
       HAVING COUNT(*) > 1
       LIMIT 1
     `);
 
     if (duplicateRows.length > 0) {
       throw new Error(
-        `Duplicate Paystack subaccount code detected: ${duplicateRows[0].paystack_subaccount_code}. The unique constraint was not created.`
+        `Duplicate Paystack subaccount code detected: ${duplicateRows[0].paystackSubaccountCode}. The unique constraint was not created.`
       );
     }
 
@@ -154,13 +154,13 @@ async function finalizePaystackSubaccountConstraint() {
       WHERE schemaname = 'public'
         AND tablename = 'vendor_profiles'
         AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
-        AND indexdef ILIKE '%("paystack_subaccount_code")%'
+        AND indexdef ILIKE '%("paystackSubaccountCode")%'
       LIMIT 1
     `);
 
     if (indexes.length === 0) {
       await prisma.$executeRawUnsafe(
-        'CREATE UNIQUE INDEX IF NOT EXISTS "vendor_profiles_paystack_subaccount_code_key" ON "vendor_profiles" ("paystack_subaccount_code")'
+        'CREATE UNIQUE INDEX IF NOT EXISTS "vendor_profiles_paystackSubaccount_code_key" ON "vendor_profiles" ("paystackSubaccountCode")'
       );
       console.log("Paystack subaccount unique index created safely after checking existing values.");
     } else {
