@@ -22,10 +22,10 @@ if (enumEnd === -1) {
 }
 
 const enumBlock = schema.slice(enumStart, enumEnd);
-const missing = actions.filter((action) => !enumBlock.includes(`  ${action}`));
+const missing = actions.filter((action) => !new RegExp(`^\\s*${action}\\s*$`, "m").test(enumBlock));
 
 if (missing.length > 0) {
-  schema = schema.slice(0, enumEnd) + missing.map((action) => `  ${action}`).join("\n") + "\n" + schema.slice(enumEnd);
+  schema = schema.slice(0, enumEnd) + "\n" + missing.map((action) => `  ${action}`).join("\n") + schema.slice(enumEnd);
 }
 
 fs.writeFileSync(schemaPath, schema);
