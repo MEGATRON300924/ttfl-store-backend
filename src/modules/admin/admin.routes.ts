@@ -5,7 +5,8 @@ import { requireAuth, requireRole } from "@/middleware/auth";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/utils/app-error";
 import { env } from "@/config/env";
-import { adminAccessGrantedEmail, sendEmail } from "@/lib/email";
+import { adminAccessGrantedEmail, sendEmail, verificationEmail } from "@/lib/email";
+import { generateOpaqueToken } from "@/lib/tokens";
 
 export const adminRouter = Router();
 
@@ -20,6 +21,89 @@ adminRouter.get(
       orderBy: { createdAt: "asc" },
     });
     res.json({ admins });
+  })
+);
+
+adminRouter.get(
+  "/users",
+  requireAuth,
+  requireRole("ADMIN"),
+  asyncHandler(async (_req, res) => {
+    const users = await prisma.user.findMany({
+      where: { status: { not: "DELETED" } },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        status: true,
+        emailVerified: true,
+        createdAt: true,
+        lastLoginAt: true,
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const verified = users.filter((user) => user.emailVerified).length;
+
+    res.json({
+      stats: {
+        total: users.length,
+        verified,
+        unverified: users.length - verified,
+      },
+      users,
+    });
+  })
+);
+
+adminRouter.post(
+  "/users/:id/resend-verification",
+  requireAuth,
+  requireRole("ADMIN"),
+  asyncHandler(async (req, res) => {
+    const user = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, email: true, firstName: true, emailVerified: true, status: true },
+    });
+
+    if (!user || user.status === "DELETED") {
+      throw AppError.notFound("User not found", "ADMIN_USER_NOT_FOUND");
+    }
+    if (user.emailVerified) {
+      throw AppError.badRequest("This user's email is already verified", "EMAIL_ALREADY_VERIFIED");
+    }
+    if (user.status === "SUSPENDED") {
+      throw AppError.badRequest("A suspended account cannot receive a verification link", "ADMIN_USER_SUSPENDED");
+    }
+
+    const { raw, hash } = generateOpaqueToken();
+
+    await prisma.$transaction([
+      prisma.emailVerificationToken.updateMany({
+        where: { userId: user.id, usedAt: null },
+        data: { usedAt: new Date() },
+      }),
+      prisma.emailVerificationToken.create({
+        data: {
+          userId: user.id,
+          tokenHash: hash,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
+      }),
+    ]);
+
+    const verifyUrl = `${env.appUrl.replace(/\/$/, "")}/verify-email?token=${raw}`;
+    const notification = verificationEmail(user.firstName, verifyUrl);
+    await sendEmail({
+      to: user.email,
+      subject: notification.subject,
+      html: notification.html,
+      event: "admin_resend_email_verification",
+    });
+
+    res.json({ message: `A new verification link was sent to ${user.email}.` });
   })
 );
 
