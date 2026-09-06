@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { generateOpaqueToken, hashOpaqueToken } from "@/lib/tokens";
 import { sendEmail, vendorStaffInvitationEmail } from "@/lib/email";
@@ -108,10 +109,11 @@ export async function acceptInvitation(rawToken: string, input: { firstName?: st
     user = await prisma.user.create({ data: { email: invitation.email, passwordHash: await hashPassword(input.password), role: "CUSTOMER", firstName: input.firstName.trim(), lastName: input.lastName.trim(), emailVerified: true } });
   }
 
+  const permissions = invitation.permissions as Prisma.InputJsonValue;
   const existingMembership = await prisma.vendorStaff.findUnique({ where: { vendorId_userId: { vendorId: invitation.vendorId, userId: user.id } } });
   const staff = existingMembership
-    ? await prisma.vendorStaff.update({ where: { id: existingMembership.id }, data: { role: invitation.role, permissions: invitation.permissions, active: true, acceptedAt: new Date() } })
-    : await prisma.vendorStaff.create({ data: { id: randomUUID(), vendorId: invitation.vendorId, userId: user.id, role: invitation.role, permissions: invitation.permissions, active: true, acceptedAt: new Date(), invitedAt: invitation.createdAt } });
+    ? await prisma.vendorStaff.update({ where: { id: existingMembership.id }, data: { role: invitation.role, permissions, active: true, acceptedAt: new Date() } })
+    : await prisma.vendorStaff.create({ data: { id: randomUUID(), vendorId: invitation.vendorId, userId: user.id, role: invitation.role, permissions, active: true, acceptedAt: new Date(), invitedAt: invitation.createdAt } });
   await prisma.vendorStaffInvitation.update({ where: { id: invitation.id }, data: { acceptedAt: new Date() } });
   await recordAudit({ actorId: user.id, action: "VENDOR_STAFF_ACCEPTED", targetType: "VendorStaff", targetId: staff.id, metadata: { vendorId: invitation.vendorId, role: invitation.role } });
   return { user: { id: user.id, email: user.email, role: user.role, status: user.status, firstName: user.firstName, lastName: user.lastName, phone: user.phone, avatarUrl: user.avatarUrl, emailVerified: user.emailVerified }, staff };
