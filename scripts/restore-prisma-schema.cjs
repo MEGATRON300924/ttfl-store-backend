@@ -1,24 +1,39 @@
-const { spawnSync } = require("node:child_process");
+const https = require("node:https");
+const fs = require("node:fs");
+const path = require("node:path");
 
-if (!process.env.DATABASE_URL) {
-  console.error("DATABASE_URL is required to restore the Prisma schema from the live database.");
-  process.exit(1);
+const schemaPath = path.join(process.cwd(), "prisma", "schema.prisma");
+const sourceUrl = "https://raw.githubusercontent.com/MEGATRON300924/ttfl-store-backend/756491e9fd5c12c24e611509626ced3c8b818365/prisma/schema.prisma";
+
+function download(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, (response) => {
+      if (response.statusCode !== 200) {
+        response.resume();
+        reject(new Error(`Schema source returned HTTP ${response.statusCode}`));
+        return;
+      }
+
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => {
+        body += chunk;
+      });
+      response.on("end", () => resolve(body));
+    }).on("error", reject);
+  });
 }
 
-const prismaCommand = process.platform === "win32" ? "npx.cmd" : "npx";
-const result = spawnSync(prismaCommand, ["prisma", "db", "pull", "--force"], {
-  stdio: "inherit",
-  shell: false,
+(async () => {
+  const schema = await download(sourceUrl);
+
+  if (!schema.includes("model User {") || !schema.includes("model Order {") || !schema.includes("model VendorProfile {")) {
+    throw new Error("Downloaded Prisma schema failed validation.");
+  }
+
+  fs.writeFileSync(schemaPath, schema);
+  console.log("Canonical Prisma schema restored before local schema extensions were applied.");
+})().catch((error) => {
+  console.error("Prisma schema restoration failed:", error);
+  process.exit(1);
 });
-
-if (result.error) {
-  console.error("Prisma schema restoration failed:", result.error);
-  process.exit(1);
-}
-
-if (result.status !== 0) {
-  console.error(`Prisma schema restoration failed with exit code ${result.status}.`);
-  process.exit(result.status ?? 1);
-}
-
-console.log("Prisma schema restored from the live database before local schema extensions were applied.");
