@@ -7,7 +7,7 @@ export const env = {
   corsOrigin: process.env.CORS_ORIGIN ?? "http://localhost:3000",
   email: { from: process.env.EMAIL_FROM ?? "TTFL Store no-reply@thetronforge.com", provider: process.env.EMAIL_PROVIDER ?? "console" },
   adminNotificationEmail: process.env.ADMIN_NOTIFICATION_EMAIL,
-  whatsapp: { apiToken: process.env.WHATSAPP_API_TOKEN, phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID, adminNumber: process.env.WHATSAPP_ADMIN_NUMBER, botpressWebhookUrl: process.env.BOTPRESS_WHATSAPP_WEBHOOK_URL, botpressWebhookSecret: process.env.BOTPRESS_WHATSAPP_WEBHOOK_SECRET },
+  whatsapp: { apiToken: process.env.WHATSAPP_API_TOKEN, phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID, adminNumber: process.env.WHATSAPP_ADMIN_NUMBER ?? "__DATABASE_ADMIN_NUMBERS__", botpressWebhookUrl: process.env.BOTPRESS_WHATSAPP_WEBHOOK_URL, botpressWebhookSecret: process.env.BOTPRESS_WHATSAPP_WEBHOOK_SECRET },
   authRateLimit: { max: Number(process.env.AUTH_RATE_LIMIT_MAX ?? 10), windowMin: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MIN ?? 15) },
   paystackSecretKey: process.env.PAYSTACK_SECRET_KEY,
 };
