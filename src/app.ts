@@ -31,6 +31,7 @@ import { broadcastRouter } from "@/modules/broadcast/broadcast.routes";
 import { adminRouter } from "@/modules/admin/admin.routes";
 import { trackingRouter } from "@/modules/tracking/tracking.routes";
 import { vendorStaffRouter } from "@/modules/vendor-staff/vendor-staff.routes";
+import { flashDealsRouter } from "@/modules/flash-deals/flash-deals.routes";
 
 export function createApp() {
   const app = express();
@@ -71,6 +72,8 @@ export function createApp() {
   app.use("/api/affiliates", affiliatesRouter);
   app.use("/api/broadcast", broadcastRouter);
   app.use("/api/admin", adminRouter);
+  app.use("/api/tracking", trackingRouter);
+  app.use("/api/flash-deals", flashDealsRouter);
   app.use(notFoundHandler);
   app.use(errorHandler);
   return app;
