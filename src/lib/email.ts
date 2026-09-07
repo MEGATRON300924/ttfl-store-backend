@@ -6,13 +6,14 @@ import { sendWhatsAppNotification, customerOrderWhatsAppMessage } from "@/lib/wh
 export async function sendEmail(opts: { to: string; subject: string; html: string; event?: string }) {
   const result = await enqueueEmail({ to: opts.to, subject: opts.subject, html: opts.html, event: opts.event ?? "generic" });
   if (opts.event === "order_confirmation") {
-    void prisma.user.findUnique({ where: { email: opts.to }, select: { phone: true } }).then((user) => {
-      if (user?.phone) {
-        const match = opts.subject.match(/^Order (.+) confirmed$/);
-        if (match) return sendWhatsAppNotification({ to: user.phone, message: customerOrderWhatsAppMessage(match[1], 0), event: "customer_order_confirmed" });
-      }
-      return undefined;
-    }).catch(() => undefined);
+    void (async () => {
+      const user = await prisma.user.findUnique({ where: { email: opts.to }, select: { phone: true } });
+      const match = opts.subject.match(/^Order (.+) confirmed$/);
+      if (!user?.phone || !match) return;
+      const order = await prisma.order.findUnique({ where: { orderNumber: match[1] }, select: { totalAmount: true } });
+      if (!order) return;
+      await sendWhatsAppNotification({ to: user.phone, message: customerOrderWhatsAppMessage(match[1], Number(order.totalAmount)), event: "customer_order_confirmed" });
+    })().catch(() => undefined);
   }
   return result;
 }
