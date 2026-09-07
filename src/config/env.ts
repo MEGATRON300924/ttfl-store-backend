@@ -1,7 +1,7 @@
 import "dotenv/config";
 function required(name: string): string { const value = process.env[name]; if (!value) throw new Error(`Missing required environment variable: ${name}`); return value; }
 export const env = {
-  nodeEnv: process.env.NODE_ENV ?? "development", isProd: process.env.NODE_ENV === "production", port: Number(process.env.PORT ?? 4000), appUrl: process.env.APP_URL ?? "http://localhost:3000", databaseUrl: required("DATABASE_URL"),
+  nodeEnv: process.env.NODE_ENV ?? "development", isProd: process.env.NODE_ENV === "production", port: Number(process.env.PORT ?? 4000), appUrl: process.env.APP_URL ?? (process.env.NODE_ENV === "production" ? "https://www.ttflstore.name.ng" : "http://localhost:3000"), databaseUrl: required("DATABASE_URL"),
   jwt: { accessSecret: required("JWT_ACCESS_SECRET"), refreshSecret: required("JWT_REFRESH_SECRET"), accessTtl: process.env.JWT_ACCESS_TTL ?? "1d", refreshTtlDays: Number(process.env.JWT_REFRESH_TTL_DAYS ?? 30) },
   cookies: { domain: process.env.COOKIE_DOMAIN || undefined, crossSite: process.env.COOKIE_CROSS_SITE === "true" },
   corsOrigin: process.env.CORS_ORIGIN ?? "http://localhost:3000",
