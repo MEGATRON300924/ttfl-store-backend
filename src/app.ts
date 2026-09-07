@@ -72,7 +72,6 @@ export function createApp() {
   app.use("/api/affiliates", affiliatesRouter);
   app.use("/api/broadcast", broadcastRouter);
   app.use("/api/admin", adminRouter);
-  app.use("/api/tracking", trackingRouter);
   app.use("/api/flash-deals", flashDealsRouter);
   app.use(notFoundHandler);
   app.use(errorHandler);
