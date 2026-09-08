@@ -40,8 +40,103 @@ export async function getProductBySlug(slug: string) { const product = await pri
 
 function buildOrderBy(sort: ProductSearchInput["sort"]): Prisma.ProductOrderByWithRelationInput { switch (sort) { case "price_asc": return { price: "asc" }; case "price_desc": return { price: "desc" }; case "newest": return { createdAt: "desc" }; case "rating": return { viewCount: "desc" }; default: return { viewCount: "desc" }; } }
 
+function parseMoney(value: string) {
+  const normalized = value.toLowerCase().replace(/₦|,/g, "").trim();
+  const multiplier = normalized.endsWith("m") ? 1_000_000 : normalized.endsWith("k") ? 1_000 : 1;
+  const numeric = Number(normalized.replace(/[km]$/, ""));
+  return Number.isFinite(numeric) ? numeric * multiplier : undefined;
+}
+
+function parseNaturalSearch(query?: string) {
+  let text = query?.trim() ?? "";
+  let minPrice: number | undefined;
+  let maxPrice: number | undefined;
+  let location: string | undefined;
+
+  const between = text.match(/\bbetween\s+(₦?[\d,.]+\s*[km]?)\s+and\s+(₦?[\d,.]+\s*[km]?)/i);
+  const range = text.match(/(₦?[\d,.]+\s*[km]?)\s*(?:-|–|—|to)\s*(₦?[\d,.]+\s*[km]?)/i);
+  const under = text.match(/\b(?:under|below|less than|up to|max(?:imum)?(?: price)?|at most)\s+(₦?[\d,.]+\s*[km]?)/i);
+  const over = text.match(/\b(?:over|above|more than|from|starting at|minimum(?: price)?)\s+(₦?[\d,.]+\s*[km]?)/i);
+
+  if (between) {
+    minPrice = parseMoney(between[1]);
+    maxPrice = parseMoney(between[2]);
+    text = text.replace(between[0], " ");
+  } else if (range) {
+    minPrice = parseMoney(range[1]);
+    maxPrice = parseMoney(range[2]);
+    text = text.replace(range[0], " ");
+  } else if (under) {
+    maxPrice = parseMoney(under[1]);
+    text = text.replace(under[0], " ");
+  } else if (over) {
+    minPrice = parseMoney(over[1]);
+    text = text.replace(over[0], " ");
+  }
+
+  const locationMatch = text.match(/\b(?:in|near)\s+([a-z][a-z\s-]{1,50}?)(?=\s+(?:for\s+sale|under|below|above|over|between|from|starting|with|price|₦|\d)|$)/i);
+  if (locationMatch) {
+    location = locationMatch[1].trim().replace(/\s+/g, " ");
+    text = text.replace(locationMatch[0], " ");
+  }
+
+  text = text
+    .replace(/\bfor\s+sale\b/gi, " ")
+    .replace(/\b(?:buy|purchase|available|looking\s+for|show\s+me|find|cheap|best|deals?|prices?)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return { text, location, minPrice, maxPrice };
+}
+
 export async function searchProducts(params: ProductSearchInput) {
-  const where: Prisma.ProductWhereInput = { deletedAt: null, status: "ACTIVE" }; if (params.q) { const tokens = Array.from(new Set(params.q.toLowerCase().split(/\s+/).map((token) => token.trim()).filter(Boolean))).slice(0, 8); const tokenFilters: Prisma.ProductWhereInput[] = tokens.flatMap((token) => [{ name: { contains: token, mode: "insensitive" } }, { description: { contains: token, mode: "insensitive" } }, { vendor: { storeName: { contains: token, mode: "insensitive" } } }, { vendor: { storeSlug: { contains: token, mode: "insensitive" } } }]); if (tokenFilters.length) where.OR = tokenFilters; } if (params.category) where.category = { slug: params.category }; if (params.condition) where.condition = params.condition; if (params.sellingMethod) where.sellingMethod = params.sellingMethod; if (params.location) where.location = { contains: params.location, mode: "insensitive" }; if (params.vendor || params.verifiedOnly) { const vendorFilter: Prisma.VendorProfileWhereInput = {}; if (params.vendor) vendorFilter.storeSlug = params.vendor; if (params.verifiedOnly) vendorFilter.verified = true; where.vendor = { is: vendorFilter }; } if (params.minPrice || params.maxPrice) where.price = { ...(params.minPrice ? { gte: params.minPrice } : {}), ...(params.maxPrice ? { lte: params.maxPrice } : {}) }; const [items, total] = await prisma.$transaction([prisma.product.findMany({ where, include: PUBLIC_PRODUCT_INCLUDE, orderBy: buildOrderBy(params.sort), skip: (params.page - 1) * params.limit, take: params.limit }), prisma.product.count({ where })]); return { items, pagination: { page: params.page, limit: params.limit, total, totalPages: Math.max(1, Math.ceil(total / params.limit)) } };
+  const parsed = parseNaturalSearch(params.q);
+  const location = params.location?.trim() || parsed.location;
+  const minPrice = params.minPrice ?? parsed.minPrice;
+  const maxPrice = params.maxPrice ?? parsed.maxPrice;
+  const where: Prisma.ProductWhereInput = { deletedAt: null, status: "ACTIVE" };
+
+  if (parsed.text) {
+    const tokens = Array.from(new Set(parsed.text.toLowerCase().split(/\s+/).map((token) => token.trim()).filter(Boolean))).slice(0, 8);
+    const tokenFilters: Prisma.ProductWhereInput[] = tokens.flatMap((token) => [
+      { name: { contains: token, mode: "insensitive" } },
+      { description: { contains: token, mode: "insensitive" } },
+      { vendor: { storeName: { contains: token, mode: "insensitive" } } },
+      { vendor: { storeSlug: { contains: token, mode: "insensitive" } } },
+    ]);
+    if (tokenFilters.length) where.OR = tokenFilters;
+  }
+
+  if (params.category) where.category = { slug: params.category };
+  if (params.condition) where.condition = params.condition;
+  if (params.sellingMethod) where.sellingMethod = params.sellingMethod;
+
+  if (location) {
+    const locationFilter: Prisma.ProductWhereInput = {
+      OR: [
+        { location: { contains: location, mode: "insensitive" } },
+        { vendor: { location: { contains: location, mode: "insensitive" } } },
+      ],
+    };
+    where.AND = [...(where.AND as Prisma.ProductWhereInput[] | undefined ?? []), locationFilter];
+  }
+
+  if (params.vendor || params.verifiedOnly) {
+    const vendorFilter: Prisma.VendorProfileWhereInput = {};
+    if (params.vendor) vendorFilter.storeSlug = params.vendor;
+    if (params.verifiedOnly) vendorFilter.verified = true;
+    where.vendor = { is: vendorFilter };
+  }
+
+  if (minPrice !== undefined || maxPrice !== undefined) {
+    where.price = { ...(minPrice !== undefined ? { gte: minPrice } : {}), ...(maxPrice !== undefined ? { lte: maxPrice } : {}) };
+  }
+
+  const [items, total] = await prisma.$transaction([
+    prisma.product.findMany({ where, include: PUBLIC_PRODUCT_INCLUDE, orderBy: buildOrderBy(params.sort), skip: (params.page - 1) * params.limit, take: params.limit }),
+    prisma.product.count({ where }),
+  ]);
+  return { items, pagination: { page: params.page, limit: params.limit, total, totalPages: Math.max(1, Math.ceil(total / params.limit)) } };
 }
 
 export async function recordReferralAndGetDestination(productId: string, meta: { sessionId?: string; source?: string; userAgent?: string; ipAddress?: string; deviceType?: string; campaign?: string }) { const product = await prisma.product.findUnique({ where: { id: productId }, include: { vendor: true } }); if (!product || product.deletedAt) throw AppError.notFound("Product not found"); let destination: string; let type: "EXTERNAL_CLICK" | "WHATSAPP_CLICK"; if (product.sellingMethod === "EXTERNAL_LINK") { if (!product.externalUrl) throw AppError.internal("Product is missing its external URL"); destination = product.externalUrl; type = "EXTERNAL_CLICK"; } else if (product.sellingMethod === "WHATSAPP") { const number = product.whatsappNumber ?? product.vendor.whatsappNumber; if (!number) throw AppError.internal("Product is missing a WhatsApp number"); const message = encodeURIComponent(`Hi, I'm interested in "${product.name}" (${env.appUrl}/products/${product.slug})`); destination = `https://wa.me/${number.replace(/\D/g, "")}?text=${message}`; type = "WHATSAPP_CLICK"; } else throw AppError.badRequest("This product uses TTFL Store checkout, not an external referral"); await prisma.referralEvent.create({ data: { vendorId: product.vendorId, productId: product.id, type, sessionId: meta.sessionId, source: meta.source, destination, userAgent: meta.userAgent, deviceType: meta.deviceType, campaign: meta.campaign, ipAddress: meta.ipAddress } }); return { destination }; }
