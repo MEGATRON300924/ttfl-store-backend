@@ -8,7 +8,7 @@ import * as ordersService from "./orders.service";
 import * as vendorStaffOrderAccess from "@/modules/vendor-staff/vendor-staff-access.service";
 import { checkoutSchema, updateVendorOrderStatusSchema } from "./orders.validators";
 import { sendWhatsAppTemplate } from "@/lib/whatsapp-notifications";
-import { createPublicTrackingToken } from "@/modules/tracking/tracking.service";
+import { createPublicTrackingToken, trackByPublicToken } from "@/modules/tracking/tracking.service";
 import { env } from "@/config/env";
 
 async function notifyCustomerWhatsAppIfNewlyPaid(reference: string, paymentWasAlreadyPaid: boolean) {
@@ -31,6 +31,7 @@ export const verifyPayment = asyncHandler(async (req: Request, res: Response) =>
 export const paystackWebhook = asyncHandler(async (req: Request, res: Response) => { const signature = req.headers["x-paystack-signature"] as string | undefined; const rawBody = (req as Request & { rawBody?: Buffer }).rawBody; if (!rawBody || !isValidPaystackSignature(rawBody, signature)) { logger.warn("Rejected Paystack webhook with invalid signature"); throw AppError.unauthorized("Invalid webhook signature", "INVALID_WEBHOOK_SIGNATURE"); } const event = req.body as { event: string; data: { reference: string } }; if (event.event === "charge.success") { try { const existing = await prisma.order.findUnique({ where: { paymentReference: event.data.reference }, select: { paymentStatus: true } }); await ordersService.verifyAndFinalizePayment(event.data.reference); await notifyCustomerWhatsAppIfNewlyPaid(event.data.reference, existing?.paymentStatus === "PAID"); } catch (err) { logger.error("Failed to finalize order from webhook", { err, reference: event.data.reference }); } } res.status(200).json({ received: true }); });
 export const myOrders = asyncHandler(async (req: Request, res: Response) => { res.json({ orders: await ordersService.getMyOrders(req.user!.sub) }); });
 export const getByNumber = asyncHandler(async (req: Request, res: Response) => { res.json({ order: await ordersService.getOrderByNumber(req.params.orderNumber, req.user!.sub, req.user!.role) }); });
+export const trackPublicLink = asyncHandler(async (req: Request, res: Response) => { res.json(await trackByPublicToken(req.params.token)); });
 export const myVendorOrders = asyncHandler(async (req: Request, res: Response) => { res.json({ vendorOrders: await vendorStaffOrderAccess.getVendorOrders(req.user!.sub) }); });
 export const updateVendorOrderStatus = asyncHandler(async (req: Request, res: Response) => { const { status } = updateVendorOrderStatusSchema.parse(req.body); res.json({ vendorOrder: await vendorStaffOrderAccess.updateVendorOrderStatus(req.user!.sub, req.params.id, status) }); });
 export const refundOrder = asyncHandler(async (req: Request, res: Response) => { res.json({ order: await ordersService.refundOrder(req.params.orderId, req.user!.sub) }); });
