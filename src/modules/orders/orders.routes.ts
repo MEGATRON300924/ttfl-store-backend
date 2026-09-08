@@ -10,6 +10,7 @@ export const ordersRouter = Router();
 
 ordersRouter.post("/checkout", requireAuth, requireRole("CUSTOMER"), ordersController.checkout);
 ordersRouter.get("/verify/:reference", requireAuth, ordersController.verifyPayment);
+ordersRouter.get("/track-link/:token", ordersController.trackPublicLink);
 ordersRouter.get("/me", requireAuth, requireRole("CUSTOMER"), ordersController.myOrders);
 ordersRouter.get("/vendor/me", requireAuth, requireRole("VENDOR"), ordersController.myVendorOrders);
 ordersRouter.patch(
