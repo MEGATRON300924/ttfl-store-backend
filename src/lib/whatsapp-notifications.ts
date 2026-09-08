@@ -40,11 +40,18 @@ async function sendMetaWhatsAppText(to: string, message: string): Promise<WhatsA
       return { ok: false, delivered: false, status: response.status, error };
     }
 
+    const messageId = parsed?.messages?.[0]?.id;
+    logger.info("MAX AI WhatsApp message accepted by Meta", {
+      recipient: to.replace(/^(\d{3})\d+(\d{3})$/, "$1******$2"),
+      status: response.status,
+      messageId,
+    });
+
     return {
       ok: true,
       delivered: true,
       status: response.status,
-      messageId: parsed?.messages?.[0]?.id,
+      messageId,
     };
   } catch (err) {
     logger.error("WhatsApp delivery threw", { err, recipient: to });
@@ -70,7 +77,13 @@ export async function sendWhatsAppNotification(params: { to: string; message: st
           headers,
           body: JSON.stringify({ userPhone: `+${to}`, message: params.message, event: params.event }),
         });
-        if (response.ok) return { ok: true, delivered: true, status: response.status };
+        if (response.ok) {
+          logger.info("MAX AI WhatsApp message accepted by Botpress", {
+            recipient: to.replace(/^(\d{3})\d+(\d{3})$/, "$1******$2"),
+            event: params.event,
+          });
+          return { ok: true, delivered: true, status: response.status };
+        }
         logger.error(`Botpress WhatsApp delivery failed: ${response.status} ${await response.text()}`);
       }
       lastResult = await sendMetaWhatsAppText(to, params.message);
@@ -98,7 +111,18 @@ export async function testWhatsAppForAdmins(message: string): Promise<WhatsAppSe
   return results[0] ?? { ok: false, delivered: false, error: "WhatsApp test failed." };
 }
 
-export function newOrderWhatsAppMessage(orderNumber: string, amount: number) { return `New TTFL Store order ${orderNumber} — ₦${amount.toLocaleString()}. Check your dashboard to fulfill it.`; }
-export function newVendorApplicationWhatsAppMessage(storeName: string) { return `New vendor application on TTFL Store: ${storeName}. Review it in the admin dashboard.`; }
-export function paymentAlertWhatsAppMessage(orderNumber: string) { return `Payment failed for order ${orderNumber} on TTFL Store.`; }
-export function customerOrderWhatsAppMessage(orderNumber: string, amount: number) { return `TTFL Store: Payment confirmed for order ${orderNumber}. Your order is now being processed. Total: ₦${amount.toLocaleString()}.`; }
+export function newOrderWhatsAppMessage(orderNumber: string, amount: number) {
+  return `🔔 New TTFL Store order\n\nOrder: ${orderNumber}\nAmount: ₦${amount.toLocaleString()}\n\nPlease check your TTFL Store admin dashboard to review and fulfill the order.\n\n— Max AI`;
+}
+
+export function newVendorApplicationWhatsAppMessage(storeName: string) {
+  return `🏪 New vendor application\n\nStore: ${storeName}\n\nA new vendor has applied to sell on TTFL Store. Please review the application in your admin dashboard.\n\n— Max AI`;
+}
+
+export function paymentAlertWhatsAppMessage(orderNumber: string) {
+  return `⚠️ Payment alert\n\nPayment failed for TTFL Store order ${orderNumber}.\n\nPlease review the order and payment status in your admin dashboard.\n\n— Max AI`;
+}
+
+export function customerOrderWhatsAppMessage(orderNumber: string, amount: number) {
+  return `Hey! 👋 Your order is confirmed\n\nYour TTFL Store order ${orderNumber} has been successfully paid for and is now being processed.\n\nTotal: ₦${amount.toLocaleString()}\n\nIf you need help with your order, just reply here and Max AI will assist you.\n\n— Max AI`;
+}
