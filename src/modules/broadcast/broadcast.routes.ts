@@ -5,7 +5,7 @@ import { asyncHandler } from "@/middleware/error-handler";
 import { requireAuth, requireRole } from "@/middleware/auth";
 import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/email";
-import { sendWhatsAppNotification, testWhatsAppForAdmins } from "@/lib/whatsapp-notifications";
+import { getWhatsAppAdminNumbers, sendWhatsAppNotification, sendWhatsAppTemplate, testWhatsAppForAdmins } from "@/lib/whatsapp-notifications";
 import { renderEmailLayout, escapeHtml } from "@/lib/email-layout";
 import { AppError } from "@/utils/app-error";
 
@@ -28,6 +28,16 @@ const schema = z.object({
     days: z.number().int().positive().max(3650).optional(),
     userIds: z.array(z.string().uuid()).max(500).optional(),
   }),
+});
+
+const whatsappSchema = z.object({
+  audience: z.enum(["ADMINS", "CUSTOMERS"]),
+  type: z.enum(["TEXT", "TEMPLATE"]),
+  message: z.string().trim().max(10000).optional(),
+  templateName: z.string().trim().min(1).max(100).optional(),
+  templateLanguage: z.string().trim().min(2).max(35).optional(),
+  bodyParameters: z.array(z.string().max(1024)).max(20).optional(),
+  buttonUrlParameters: z.array(z.string().max(2048)).max(10).optional(),
 });
 
 function matchesAudience(audience: any, user: { id: string; role: string; emailVerified: boolean; createdAt: Date }) {
@@ -65,6 +75,43 @@ broadcastRouter.post("/admin/test-whatsapp", requireAuth, requireRole("ADMIN"), 
   const result = await testWhatsAppForAdmins("TTFL Store WhatsApp test successful. Your Meta WhatsApp Cloud API connection is responding correctly.");
   if (!result.delivered) throw AppError.badRequest(result.error || "WhatsApp test failed");
   res.json({ ok: true, status: result.status, messageId: result.messageId });
+}));
+
+broadcastRouter.post("/admin/whatsapp", requireAuth, requireRole("ADMIN"), asyncHandler(async (req, res) => {
+  const input = whatsappSchema.parse(req.body);
+  if (input.type === "TEXT" && !input.message) throw AppError.badRequest("Message is required for normal text WhatsApp notifications");
+  if (input.type === "TEMPLATE" && !input.templateName) throw AppError.badRequest("Template name is required");
+
+  const adminNumbers = input.audience === "ADMINS" ? await getWhatsAppAdminNumbers() : [];
+  const customerRows = input.audience === "CUSTOMERS"
+    ? await prisma.user.findMany({ where: { status: "ACTIVE", role: "CUSTOMER" }, select: { phone: true } })
+    : [];
+  const rawRecipients = input.audience === "ADMINS" ? adminNumbers : customerRows.map(user => user.phone).filter(Boolean) as string[];
+  const recipients = Array.from(new Set(rawRecipients.map(number => number.replace(/\D/g, "")).filter(Boolean)));
+  const skipped = rawRecipients.length - recipients.length;
+
+  if (!recipients.length) {
+    return res.status(200).json({ ok: false, sent: 0, failed: 0, skipped, error: input.audience === "ADMINS" ? "No WhatsApp admin numbers are configured." : "No active customers with saved WhatsApp numbers were found." });
+  }
+
+  const results = await Promise.all(recipients.map(async (to) => {
+    if (input.type === "TEMPLATE") {
+      return sendWhatsAppTemplate({
+        to,
+        templateName: input.templateName!,
+        languageCode: input.templateLanguage,
+        bodyParameters: input.bodyParameters,
+        buttonUrlParameters: input.buttonUrlParameters,
+        event: `admin_whatsapp_${input.audience.toLowerCase()}_template`,
+      });
+    }
+    return sendWhatsAppNotification({ to, message: input.message!, event: `admin_whatsapp_${input.audience.toLowerCase()}_text` });
+  }));
+
+  const sent = results.filter(result => result.delivered).length;
+  const failed = results.length - sent;
+  const firstFailure = results.find(result => !result.delivered && result.error)?.error;
+  res.status(201).json({ ok: failed === 0, sent, failed, skipped, error: firstFailure });
 }));
 
 broadcastRouter.post("/admin", requireAuth, requireRole("ADMIN"), asyncHandler(async (req, res) => {
