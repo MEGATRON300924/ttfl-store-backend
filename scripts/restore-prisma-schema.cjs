@@ -57,6 +57,7 @@ function normalizeProductVendorColumn(schema) {
     "ensure-vendor-staff-schema.cjs",
     "ensure-audit-actions.cjs",
     "ensure-flash-deals-schema.cjs",
+    "ensure-sponsored-products-schema.cjs",
     "ensure-store-badges.cjs",
   ]) {
     execFileSync(process.execPath, [path.join(process.cwd(), "scripts", script)], { stdio: "inherit" });
