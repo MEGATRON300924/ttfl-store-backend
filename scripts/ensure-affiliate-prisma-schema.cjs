@@ -155,6 +155,7 @@ model Broadcast {
   emailSubject    String?  @map("email_subject")
   sendPopup       Boolean  @default(false) @map("send_popup")
   sendEmail       Boolean  @default(false) @map("send_email")
+  sendWhatsApp    Boolean  @default(false) @map("send_whatsapp")
   audience        Json
   recipientCount Int      @default(0) @map("recipient_count")
   createdBy       String   @map("created_by")
