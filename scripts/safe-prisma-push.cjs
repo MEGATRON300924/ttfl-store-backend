@@ -95,9 +95,7 @@ async function finalizeProductIdConstraint() {
     `);
 
     if (indexes.length === 0) {
-      await prisma.$executeRawUnsafe(
-        'CREATE UNIQUE INDEX IF NOT EXISTS "products_publicProductId_key" ON "products" ("publicProductId")'
-      );
+      await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "products_publicProductId_key" ON "products" ("publicProductId")');
       console.log("Product ID unique index created safely after existing products were populated.");
     } else {
       console.log(`Product ID unique index already exists: ${indexes[0].indexname}`);
@@ -143,9 +141,7 @@ async function finalizePaystackSubaccountConstraint() {
     `);
 
     if (duplicateRows.length > 0) {
-      throw new Error(
-        `Duplicate Paystack subaccount code detected: ${duplicateRows[0].paystackSubaccountCode}. The unique constraint was not created.`
-      );
+      throw new Error(`Duplicate Paystack subaccount code detected: ${duplicateRows[0].paystackSubaccountCode}. The unique constraint was not created.`);
     }
 
     const indexes = await prisma.$queryRawUnsafe(`
@@ -159,9 +155,7 @@ async function finalizePaystackSubaccountConstraint() {
     `);
 
     if (indexes.length === 0) {
-      await prisma.$executeRawUnsafe(
-        'CREATE UNIQUE INDEX IF NOT EXISTS "vendor_profiles_paystackSubaccount_code_key" ON "vendor_profiles" ("paystackSubaccountCode")'
-      );
+      await prisma.$executeRawUnsafe('CREATE UNIQUE INDEX IF NOT EXISTS "vendor_profiles_paystackSubaccount_code_key" ON "vendor_profiles" ("paystackSubaccountCode")');
       console.log("Paystack subaccount unique index created safely after checking existing values.");
     } else {
       console.log(`Paystack subaccount unique index already exists: ${indexes[0].indexname}`);
@@ -207,6 +201,17 @@ if (destructiveOperations.length > 0) {
   console.error("Deployment was stopped. Existing TTFL Store data will not be deleted automatically.\n");
   console.error("Detected operation types:");
   for (const pattern of destructiveOperations) console.error(`- ${pattern}`);
+
+  const dropLines = diff
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /\bDROP\s+(COLUMN|TABLE|INDEX|SCHEMA|DATABASE)\b/i.test(line));
+
+  if (dropLines.length > 0) {
+    console.error("\nExact destructive SQL detected:");
+    for (const line of dropLines) console.error(line);
+  }
+
   console.error("\nCreate and review an intentional Prisma migration before deploying this schema change.");
   process.exit(1);
 }
