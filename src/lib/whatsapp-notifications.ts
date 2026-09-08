@@ -10,6 +10,10 @@ export type WhatsAppSendResult = {
   error?: string;
 };
 
+function maskRecipient(to: string) {
+  return to.replace(/^(\d{3})\d+(\d{3})$/, "$1******$2");
+}
+
 async function sendMetaWhatsAppText(to: string, message: string): Promise<WhatsAppSendResult> {
   if (!env.whatsapp.apiToken || !env.whatsapp.phoneNumberId) {
     return { ok: false, delivered: false, error: "WhatsApp API token or phone number ID is not configured." };
@@ -36,26 +40,98 @@ async function sendMetaWhatsAppText(to: string, message: string): Promise<WhatsA
 
     if (!response.ok) {
       const error = parsed?.error?.message || body || `Meta WhatsApp API returned ${response.status}`;
-      logger.error(`WhatsApp delivery failed: ${response.status} ${error}`);
+      logger.error(`WhatsApp delivery failed: ${response.status} ${error}`, { code: parsed?.error?.code, recipient: maskRecipient(to) });
       return { ok: false, delivered: false, status: response.status, error };
     }
 
     const messageId = parsed?.messages?.[0]?.id;
     logger.info("MAX AI WhatsApp message accepted by Meta", {
-      recipient: to.replace(/^(\d{3})\d+(\d{3})$/, "$1******$2"),
+      recipient: maskRecipient(to),
       status: response.status,
       messageId,
+      type: "text",
     });
 
-    return {
-      ok: true,
-      delivered: true,
+    return { ok: true, delivered: true, status: response.status, messageId };
+  } catch (err) {
+    logger.error("WhatsApp delivery threw", { err, recipient: maskRecipient(to) });
+    return { ok: false, delivered: false, error: err instanceof Error ? err.message : "WhatsApp request failed" };
+  }
+}
+
+export async function sendWhatsAppTemplate(params: {
+  to: string;
+  templateName: string;
+  bodyParameters?: string[];
+  languageCode?: string;
+  event: string;
+}): Promise<WhatsAppSendResult> {
+  if (!env.whatsapp.apiToken || !env.whatsapp.phoneNumberId) {
+    return { ok: false, delivered: false, error: "WhatsApp API token or phone number ID is not configured." };
+  }
+
+  const to = params.to.replace(/\D/g, "");
+  if (!to) return { ok: false, delivered: false, error: "Invalid WhatsApp recipient number." };
+
+  try {
+    const components = params.bodyParameters?.length
+      ? [{
+          type: "body",
+          parameters: params.bodyParameters.map(text => ({ type: "text", text: String(text).replace(/[\r\n\t]+/g, " ").replace(/ {2,}/g, " ").trim() })),
+        }]
+      : undefined;
+
+    const response = await fetch(`https://graph.facebook.com/v19.0/${env.whatsapp.phoneNumberId}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.whatsapp.apiToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to,
+        type: "template",
+        template: {
+          name: params.templateName,
+          language: { code: params.languageCode ?? env.whatsapp.templateLanguage },
+          ...(components ? { components } : {}),
+        },
+      }),
+    });
+
+    const body = await response.text();
+    let parsed: any = null;
+    try { parsed = JSON.parse(body); } catch {}
+
+    if (!response.ok) {
+      const error = parsed?.error?.message || body || `Meta WhatsApp API returned ${response.status}`;
+      logger.error(`WhatsApp template delivery failed: ${response.status} ${error}`, {
+        code: parsed?.error?.code,
+        recipient: maskRecipient(to),
+        template: params.templateName,
+        event: params.event,
+      });
+      return { ok: false, delivered: false, status: response.status, error };
+    }
+
+    const messageId = parsed?.messages?.[0]?.id;
+    logger.info("MAX AI WhatsApp template accepted by Meta", {
+      recipient: maskRecipient(to),
       status: response.status,
       messageId,
-    };
+      template: params.templateName,
+      event: params.event,
+    });
+
+    return { ok: true, delivered: true, status: response.status, messageId };
   } catch (err) {
-    logger.error("WhatsApp delivery threw", { err, recipient: to });
-    return { ok: false, delivered: false, error: err instanceof Error ? err.message : "WhatsApp request failed" };
+    logger.error("WhatsApp template delivery threw", {
+      err,
+      recipient: maskRecipient(to),
+      template: params.templateName,
+      event: params.event,
+    });
+    return { ok: false, delivered: false, error: err instanceof Error ? err.message : "WhatsApp template request failed" };
   }
 }
 
@@ -78,10 +154,7 @@ export async function sendWhatsAppNotification(params: { to: string; message: st
           body: JSON.stringify({ userPhone: `+${to}`, message: params.message, event: params.event }),
         });
         if (response.ok) {
-          logger.info("MAX AI WhatsApp message accepted by Botpress", {
-            recipient: to.replace(/^(\d{3})\d+(\d{3})$/, "$1******$2"),
-            event: params.event,
-          });
+          logger.info("MAX AI WhatsApp message accepted by Botpress", { recipient: maskRecipient(to), event: params.event });
           return { ok: true, delivered: true, status: response.status };
         }
         logger.error(`Botpress WhatsApp delivery failed: ${response.status} ${await response.text()}`);
@@ -90,11 +163,37 @@ export async function sendWhatsAppNotification(params: { to: string; message: st
       if (lastResult.delivered) return lastResult;
     } catch (err) {
       lastResult = { ok: false, delivered: false, error: err instanceof Error ? err.message : "WhatsApp request failed" };
-      logger.error("WhatsApp delivery threw", { err, recipient: to, event: params.event });
+      logger.error("WhatsApp delivery threw", { err, recipient: maskRecipient(to), event: params.event });
     }
   }
 
   return lastResult;
+}
+
+export async function sendWhatsAppTemplateToRecipients(params: {
+  recipients: string[];
+  templateName: string;
+  bodyParameters?: string[];
+  languageCode?: string;
+  event: string;
+}): Promise<WhatsAppSendResult> {
+  const validRecipients = params.recipients.map(number => number.replace(/\D/g, "")).filter(Boolean);
+  if (!validRecipients.length) return { ok: false, delivered: false, error: "No WhatsApp recipient numbers are configured." };
+
+  let firstFailure: WhatsAppSendResult | null = null;
+  for (const to of validRecipients) {
+    const result = await sendWhatsAppTemplate({
+      to,
+      templateName: params.templateName,
+      bodyParameters: params.bodyParameters,
+      languageCode: params.languageCode,
+      event: params.event,
+    });
+    if (result.delivered) return result;
+    firstFailure ??= result;
+  }
+
+  return firstFailure ?? { ok: false, delivered: false, error: "WhatsApp template delivery failed." };
 }
 
 export async function testWhatsAppForAdmins(message: string): Promise<WhatsAppSendResult> {
