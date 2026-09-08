@@ -5,7 +5,8 @@ import { asyncHandler } from "@/middleware/error-handler";
 import { requireAuth, requireRole } from "@/middleware/auth";
 import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/email";
-import { getWhatsAppAdminNumbers, sendWhatsAppNotification, sendWhatsAppTemplate, testWhatsAppForAdmins } from "@/lib/whatsapp-notifications";
+import { sendWhatsAppNotification, sendWhatsAppTemplate, testWhatsAppForAdmins } from "@/lib/whatsapp-notifications";
+import { getWhatsAppAdminNumbers } from "@/modules/settings/settings.service";
 import { renderEmailLayout, escapeHtml } from "@/lib/email-layout";
 import { AppError } from "@/utils/app-error";
 
