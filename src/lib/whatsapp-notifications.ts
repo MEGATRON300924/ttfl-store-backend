@@ -135,6 +135,10 @@ export async function sendWhatsAppTemplate(params: {
   }
 }
 
+function shouldFallbackToTemplate(result: WhatsAppSendResult) {
+  return /131047|131026|131051|outside.*window|24.?hour|re-engagement|not.*allowed/i.test(result.error ?? "");
+}
+
 export async function sendWhatsAppNotification(params: { to: string; message: string; event: string }): Promise<WhatsAppSendResult> {
   let recipients = [params.to].filter(Boolean);
   if (params.to === "__DATABASE_ADMIN_NUMBERS__") recipients = await getWhatsAppAdminNumbers();
@@ -159,8 +163,20 @@ export async function sendWhatsAppNotification(params: { to: string; message: st
         }
         logger.error(`Botpress WhatsApp delivery failed: ${response.status} ${await response.text()}`);
       }
+
       lastResult = await sendMetaWhatsAppText(to, params.message);
       if (lastResult.delivered) return lastResult;
+
+      if (shouldFallbackToTemplate(lastResult)) {
+        const templateResult = await sendWhatsAppTemplate({
+          to,
+          templateName: env.whatsapp.templates.genericNotification,
+          bodyParameters: [params.message],
+          event: `${params.event}_template_fallback`,
+        });
+        if (templateResult.delivered) return templateResult;
+        lastResult = templateResult;
+      }
     } catch (err) {
       lastResult = { ok: false, delivered: false, error: err instanceof Error ? err.message : "WhatsApp request failed" };
       logger.error("WhatsApp delivery threw", { err, recipient: maskRecipient(to), event: params.event });
@@ -223,5 +239,5 @@ export function paymentAlertWhatsAppMessage(orderNumber: string) {
 }
 
 export function customerOrderWhatsAppMessage(orderNumber: string, amount: number) {
-  return `Hey! 👋 Your order is confirmed\n\nYour TTFL Store order ${orderNumber} has been successfully paid for and is now being processed.\n\nTotal: ₦${amount.toLocaleString()}\n\nIf you need help with your order, just reply here and Max AI will assist you.\n\n— Max AI`;
+  return `Hey! 👋 Your TTFL Store order ${orderNumber} has been successfully paid for and is now being processed. Total: ₦${amount.toLocaleString()}. If you need help with your order, just reply here and Max AI will assist you. — Max AI`;
 }
