@@ -15,6 +15,7 @@ export const env = {
     botpressWebhookUrl: process.env.BOTPRESS_WHATSAPP_WEBHOOK_URL,
     botpressWebhookSecret: process.env.BOTPRESS_WHATSAPP_WEBHOOK_SECRET,
     templateLanguage: process.env.WHATSAPP_TEMPLATE_LANGUAGE ?? "en_US",
+    trackingLinkTtlDays: Number(process.env.WHATSAPP_TRACKING_LINK_TTL_DAYS ?? 90),
     templates: {
       orderConfirmation: process.env.WHATSAPP_TEMPLATE_ORDER_CONFIRMATION ?? "ttfl_order_confirmation",
       adminNewOrder: process.env.WHATSAPP_TEMPLATE_ADMIN_NEW_ORDER ?? "ttfl_admin_order_alert",
