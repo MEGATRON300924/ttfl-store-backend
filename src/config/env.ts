@@ -20,6 +20,7 @@ export const env = {
       adminNewOrder: process.env.WHATSAPP_TEMPLATE_ADMIN_NEW_ORDER ?? "ttfl_admin_order_alert",
       vendorApplication: process.env.WHATSAPP_TEMPLATE_VENDOR_APPLICATION ?? "ttfl_vendor_application",
       paymentAlert: process.env.WHATSAPP_TEMPLATE_PAYMENT_ALERT ?? "ttfl_payment_alert",
+      genericNotification: process.env.WHATSAPP_TEMPLATE_GENERIC_NOTIFICATION ?? "ttfl_notification",
     },
   },
   authRateLimit: { max: Number(process.env.AUTH_RATE_LIMIT_MAX ?? 10), windowMin: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MIN ?? 15) },
