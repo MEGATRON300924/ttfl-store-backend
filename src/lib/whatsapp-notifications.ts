@@ -63,6 +63,7 @@ export async function sendWhatsAppTemplate(params: {
   to: string;
   templateName: string;
   bodyParameters?: string[];
+  buttonUrlParameters?: string[];
   languageCode?: string;
   event: string;
 }): Promise<WhatsAppSendResult> {
@@ -74,12 +75,26 @@ export async function sendWhatsAppTemplate(params: {
   if (!to) return { ok: false, delivered: false, error: "Invalid WhatsApp recipient number." };
 
   try {
-    const components = params.bodyParameters?.length
-      ? [{
-          type: "body",
-          parameters: params.bodyParameters.map(text => ({ type: "text", text: String(text).replace(/[\r\n\t]+/g, " ").replace(/ {2,}/g, " ").trim() })),
-        }]
-      : undefined;
+    const components: Array<Record<string, unknown>> = [];
+    if (params.bodyParameters?.length) {
+      components.push({
+        type: "body",
+        parameters: params.bodyParameters.map(text => ({
+          type: "text",
+          text: String(text).replace(/[\r\n\t]+/g, " ").replace(/ {2,}/g, " ").trim(),
+        })),
+      });
+    }
+    if (params.buttonUrlParameters?.length) {
+      params.buttonUrlParameters.forEach((text, index) => {
+        components.push({
+          type: "button",
+          sub_type: "url",
+          index: String(index),
+          parameters: [{ type: "text", text: String(text).trim() }],
+        });
+      });
+    }
 
     const response = await fetch(`https://graph.facebook.com/v19.0/${env.whatsapp.phoneNumberId}/messages`, {
       method: "POST",
@@ -94,7 +109,7 @@ export async function sendWhatsAppTemplate(params: {
         template: {
           name: params.templateName,
           language: { code: params.languageCode ?? env.whatsapp.templateLanguage },
-          ...(components ? { components } : {}),
+          ...(components.length ? { components } : {}),
         },
       }),
     });
@@ -190,6 +205,7 @@ export async function sendWhatsAppTemplateToRecipients(params: {
   recipients: string[];
   templateName: string;
   bodyParameters?: string[];
+  buttonUrlParameters?: string[];
   languageCode?: string;
   event: string;
 }): Promise<WhatsAppSendResult> {
@@ -202,6 +218,7 @@ export async function sendWhatsAppTemplateToRecipients(params: {
       to,
       templateName: params.templateName,
       bodyParameters: params.bodyParameters,
+      buttonUrlParameters: params.buttonUrlParameters,
       languageCode: params.languageCode,
       event: params.event,
     });
