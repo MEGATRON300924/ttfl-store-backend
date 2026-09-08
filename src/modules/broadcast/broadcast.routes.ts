@@ -5,7 +5,7 @@ import { asyncHandler } from "@/middleware/error-handler";
 import { requireAuth, requireRole } from "@/middleware/auth";
 import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/email";
-import { sendWhatsAppNotification } from "@/lib/whatsapp-notifications";
+import { sendWhatsAppNotification, testWhatsAppForAdmins } from "@/lib/whatsapp-notifications";
 import { renderEmailLayout, escapeHtml } from "@/lib/email-layout";
 import { AppError } from "@/utils/app-error";
 
@@ -59,6 +59,12 @@ broadcastRouter.get("/admin", requireAuth, requireRole("ADMIN"), asyncHandler(as
   await ensureTables();
   const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT id, title, message, email_subject AS "emailSubject", send_popup AS "sendPopup", send_email AS "sendEmail", send_whatsapp AS "sendWhatsApp", audience, recipient_count AS "recipientCount", created_at AS "createdAt" FROM ttfl_broadcasts ORDER BY created_at DESC LIMIT 100`);
   res.json({ items: rows });
+}));
+
+broadcastRouter.post("/admin/test-whatsapp", requireAuth, requireRole("ADMIN"), asyncHandler(async (_req, res) => {
+  const result = await testWhatsAppForAdmins("TTFL Store WhatsApp test successful. Your Meta WhatsApp Cloud API connection is responding correctly.");
+  if (!result.delivered) throw AppError.badRequest(result.error || "WhatsApp test failed");
+  res.json({ ok: true, status: result.status, messageId: result.messageId });
 }));
 
 broadcastRouter.post("/admin", requireAuth, requireRole("ADMIN"), asyncHandler(async (req, res) => {
