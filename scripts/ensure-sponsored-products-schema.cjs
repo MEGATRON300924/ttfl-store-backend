@@ -27,8 +27,6 @@ if (!refreshedBlock.includes("  tags ")) {
 }
 fs.writeFileSync(schemaPath, schema);
 
-// Keep validation and search in sync with the schema. This runs before Prisma
-// generate and the TypeScript build, so older deployments can be upgraded safely.
 const validatorsPath = path.join(process.cwd(), "src", "modules", "products", "products.validators.ts");
 if (fs.existsSync(validatorsPath)) {
   let validators = fs.readFileSync(validatorsPath, "utf8");
@@ -36,6 +34,12 @@ if (fs.existsSync(validatorsPath)) {
     validators = validators.replace(
       '  location: optionalString(z.string().max(120)),\n',
       '  location: optionalString(z.string().max(120)),\n  tags: z.array(z.string().min(1).max(40)).max(20).default([]),\n'
+    );
+  }
+  if (!validators.match(/updateProductSchema[\s\S]*tags:/)) {
+    validators = validators.replace(
+      '  location: optionalString(z.string().max(120)),\n  images: baseProductFields.images.optional(),',
+      '  location: optionalString(z.string().max(120)),\n  tags: z.array(z.string().min(1).max(40)).max(20).optional(),\n  images: baseProductFields.images.optional(),'
     );
   }
   fs.writeFileSync(validatorsPath, validators);
