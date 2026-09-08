@@ -12,7 +12,8 @@ import { AppError } from "@/utils/app-error";
 export const broadcastRouter = Router();
 
 async function ensureTables() {
-  await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS ttfl_broadcasts (id TEXT PRIMARY KEY, title TEXT NOT NULL, message TEXT NOT NULL, email_subject TEXT, send_popup BOOLEAN NOT NULL DEFAULT false, send_email BOOLEAN NOT NULL DEFAULT false, audience JSONB NOT NULL, recipient_count INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+  await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS ttfl_broadcasts (id TEXT PRIMARY KEY, title TEXT NOT NULL, message TEXT NOT NULL, email_subject TEXT, send_popup BOOLEAN NOT NULL DEFAULT false, send_email BOOLEAN NOT NULL DEFAULT false, send_whatsapp BOOLEAN NOT NULL DEFAULT false, audience JSONB NOT NULL, recipient_count INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE ttfl_broadcasts ADD COLUMN IF NOT EXISTS send_whatsapp BOOLEAN NOT NULL DEFAULT false`);
 }
 
 const schema = z.object({
@@ -56,7 +57,7 @@ broadcastRouter.get("/public-popup", asyncHandler(async (_req, res) => {
 
 broadcastRouter.get("/admin", requireAuth, requireRole("ADMIN"), asyncHandler(async (_req, res) => {
   await ensureTables();
-  const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT id, title, message, email_subject AS "emailSubject", send_popup AS "sendPopup", send_email AS "sendEmail", audience, recipient_count AS "recipientCount", created_at AS "createdAt" FROM ttfl_broadcasts ORDER BY created_at DESC LIMIT 100`);
+  const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT id, title, message, email_subject AS "emailSubject", send_popup AS "sendPopup", send_email AS "sendEmail", send_whatsapp AS "sendWhatsApp", audience, recipient_count AS "recipientCount", created_at AS "createdAt" FROM ttfl_broadcasts ORDER BY created_at DESC LIMIT 100`);
   res.json({ items: rows });
 }));
 
@@ -78,7 +79,7 @@ broadcastRouter.post("/admin", requireAuth, requireRole("ADMIN"), asyncHandler(a
 
   const users = await prisma.user.findMany({ where, select: { id: true, email: true, firstName: true, phone: true } });
   const id = randomBytes(16).toString("hex");
-  await prisma.$executeRawUnsafe(`INSERT INTO ttfl_broadcasts (id, title, message, email_subject, send_popup, send_email, audience, recipient_count, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9)`, id, input.title, input.message, input.emailSubject ?? null, input.sendPopup, input.sendEmail, JSON.stringify(input.audience), users.length, req.user!.sub);
+  await prisma.$executeRawUnsafe(`INSERT INTO ttfl_broadcasts (id, title, message, email_subject, send_popup, send_email, send_whatsapp, audience, recipient_count, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)`, id, input.title, input.message, input.emailSubject ?? null, input.sendPopup, input.sendEmail, input.sendWhatsApp, JSON.stringify(input.audience), users.length, req.user!.sub);
 
   if (input.sendEmail) {
     for (const user of users) {
