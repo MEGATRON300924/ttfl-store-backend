@@ -8,7 +8,20 @@ export const env = {
   corsOrigin: process.env.CORS_ORIGIN ?? (production ? "https://www.ttflstore.name.ng" : "http://localhost:3000"),
   email: { from: process.env.EMAIL_FROM ?? "TTFL Store no-reply@thetronforge.com", provider: process.env.EMAIL_PROVIDER ?? "console" },
   adminNotificationEmail: process.env.ADMIN_NOTIFICATION_EMAIL,
-  whatsapp: { apiToken: process.env.WHATSAPP_API_TOKEN, phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID, adminNumber: process.env.WHATSAPP_ADMIN_NUMBER ?? "__DATABASE_ADMIN_NUMBERS__", botpressWebhookUrl: process.env.BOTPRESS_WHATSAPP_WEBHOOK_URL, botpressWebhookSecret: process.env.BOTPRESS_WHATSAPP_WEBHOOK_SECRET },
+  whatsapp: {
+    apiToken: process.env.WHATSAPP_API_TOKEN,
+    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
+    adminNumber: process.env.WHATSAPP_ADMIN_NUMBER ?? "__DATABASE_ADMIN_NUMBERS__",
+    botpressWebhookUrl: process.env.BOTPRESS_WHATSAPP_WEBHOOK_URL,
+    botpressWebhookSecret: process.env.BOTPRESS_WHATSAPP_WEBHOOK_SECRET,
+    templateLanguage: process.env.WHATSAPP_TEMPLATE_LANGUAGE ?? "en_US",
+    templates: {
+      orderConfirmation: process.env.WHATSAPP_TEMPLATE_ORDER_CONFIRMATION ?? "ttfl_order_confirmation",
+      adminNewOrder: process.env.WHATSAPP_TEMPLATE_ADMIN_NEW_ORDER ?? "ttfl_admin_order_alert",
+      vendorApplication: process.env.WHATSAPP_TEMPLATE_VENDOR_APPLICATION ?? "ttfl_vendor_application",
+      paymentAlert: process.env.WHATSAPP_TEMPLATE_PAYMENT_ALERT ?? "ttfl_payment_alert",
+    },
+  },
   authRateLimit: { max: Number(process.env.AUTH_RATE_LIMIT_MAX ?? 10), windowMin: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MIN ?? 15) },
   paystackSecretKey: process.env.PAYSTACK_SECRET_KEY,
 };
