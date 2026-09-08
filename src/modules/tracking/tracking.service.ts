@@ -1,6 +1,8 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/utils/app-error";
 import { getVendorProfileForUser } from "@/lib/vendor-access";
+import { env } from "@/config/env";
 
 export const CHECKPOINTS = [
   { checkpoint: 1, title: "Order confirmed" },
@@ -12,6 +14,37 @@ export const CHECKPOINTS = [
 
 function checkpointToStatus(checkpoint: number) { if (checkpoint <= 2) return "PROCESSING" as const; if (checkpoint <= 4) return "SHIPPED" as const; return "OUT_FOR_DELIVERY" as const; }
 async function getProductsByIds(productIds: string[]) { if (!productIds.length) return new Map<string, any>(); const products = await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, publicProductId: true, estimatedDeliveryDays: true } }); return new Map(products.map((product) => [product.id, product])); }
+
+function base64Url(value: string) { return Buffer.from(value).toString("base64url"); }
+function fromBase64Url(value: string) { return Buffer.from(value, "base64url").toString("utf8"); }
+function signTrackingPayload(payload: string) { return createHmac("sha256", env.jwt.accessSecret).update(payload).digest("base64url"); }
+
+export function createPublicTrackingToken(orderNumber: string) {
+  const expiresAt = Math.floor(Date.now() / 1000) + Math.max(1, env.whatsapp.trackingLinkTtlDays) * 86400;
+  const payload = base64Url(JSON.stringify({ orderNumber, expiresAt }));
+  return `${payload}.${signTrackingPayload(payload)}`;
+}
+
+function verifyPublicTrackingToken(token: string) {
+  const [payload, signature] = token.split(".");
+  if (!payload || !signature) throw AppError.unauthorized("Invalid tracking link", "INVALID_TRACKING_LINK");
+  const expected = signTrackingPayload(payload);
+  const providedBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (providedBuffer.length !== expectedBuffer.length || !timingSafeEqual(providedBuffer, expectedBuffer)) throw AppError.unauthorized("Invalid tracking link", "INVALID_TRACKING_LINK");
+  let parsed: { orderNumber?: string; expiresAt?: number };
+  try { parsed = JSON.parse(fromBase64Url(payload)); } catch { throw AppError.unauthorized("Invalid tracking link", "INVALID_TRACKING_LINK"); }
+  if (!parsed.orderNumber || !parsed.expiresAt || parsed.expiresAt < Math.floor(Date.now() / 1000)) throw AppError.unauthorized("This tracking link has expired", "TRACKING_LINK_EXPIRED");
+  return parsed.orderNumber;
+}
+
+export async function trackByPublicToken(token: string) {
+  const orderNumber = verifyPublicTrackingToken(token);
+  const order = await prisma.order.findUnique({ where: { orderNumber }, include: { vendorOrders: { include: { items: true, vendor: { select: { id: true, storeName: true, storeSlug: true, verified: true } }, trackingEvents: { orderBy: { checkpoint: "asc" } } } } } });
+  if (!order) throw AppError.notFound("Order not found");
+  const products = await getProductsByIds(order.vendorOrders.flatMap((vo) => vo.items.map((item) => item.productId)));
+  return { orderNumber: order.orderNumber, createdAt: order.createdAt, paymentStatus: order.paymentStatus, vendorOrders: order.vendorOrders.map((vo) => serializeVendorOrder(vo, order.createdAt, products)) };
+}
 
 export async function trackPublic(orderNumber: string, productId: string) {
   const order = await prisma.order.findUnique({ where: { orderNumber }, include: { vendorOrders: { include: { items: true, vendor: { select: { id: true, storeName: true, storeSlug: true, verified: true } }, trackingEvents: { orderBy: { checkpoint: "asc" } } } } } });
