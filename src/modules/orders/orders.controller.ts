@@ -7,13 +7,20 @@ import { prisma } from "@/lib/prisma";
 import * as ordersService from "./orders.service";
 import * as vendorStaffOrderAccess from "@/modules/vendor-staff/vendor-staff-access.service";
 import { checkoutSchema, updateVendorOrderStatusSchema } from "./orders.validators";
-import { sendWhatsAppNotification, customerOrderWhatsAppMessage } from "@/lib/whatsapp-notifications";
+import { sendWhatsAppTemplate } from "@/lib/whatsapp-notifications";
+import { env } from "@/config/env";
 
 async function notifyCustomerWhatsAppIfNewlyPaid(reference: string, paymentWasAlreadyPaid: boolean) {
   if (paymentWasAlreadyPaid) return;
   const order = await prisma.order.findUnique({ where: { paymentReference: reference }, select: { paymentStatus: true, orderNumber: true, totalAmount: true, deliveryPhone: true } });
   if (!order || order.paymentStatus !== "PAID" || !order.deliveryPhone) return;
-  await sendWhatsAppNotification({ to: order.deliveryPhone, message: customerOrderWhatsAppMessage(order.orderNumber, Number(order.totalAmount)), event: "customer_order_paid" });
+  const result = await sendWhatsAppTemplate({
+    to: order.deliveryPhone,
+    templateName: env.whatsapp.templates.orderConfirmation,
+    bodyParameters: [order.orderNumber, `₦${Number(order.totalAmount).toLocaleString()}`],
+    event: "customer_order_paid",
+  });
+  if (!result.delivered) logger.error("Customer WhatsApp order confirmation template was not delivered", { reference, error: result.error, status: result.status });
 }
 
 export const checkout = asyncHandler(async (req: Request, res: Response) => { const input = checkoutSchema.parse(req.body); const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.sub } }); const { order, checkoutUrl } = await ordersService.checkout(req.user!.sub, user.email, input); res.status(201).json({ order, checkoutUrl }); });
