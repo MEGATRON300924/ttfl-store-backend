@@ -8,16 +8,19 @@ import * as ordersService from "./orders.service";
 import * as vendorStaffOrderAccess from "@/modules/vendor-staff/vendor-staff-access.service";
 import { checkoutSchema, updateVendorOrderStatusSchema } from "./orders.validators";
 import { sendWhatsAppTemplate } from "@/lib/whatsapp-notifications";
+import { createPublicTrackingToken } from "@/modules/tracking/tracking.service";
 import { env } from "@/config/env";
 
 async function notifyCustomerWhatsAppIfNewlyPaid(reference: string, paymentWasAlreadyPaid: boolean) {
   if (paymentWasAlreadyPaid) return;
   const order = await prisma.order.findUnique({ where: { paymentReference: reference }, select: { paymentStatus: true, orderNumber: true, totalAmount: true, deliveryPhone: true } });
   if (!order || order.paymentStatus !== "PAID" || !order.deliveryPhone) return;
+  const trackingToken = createPublicTrackingToken(order.orderNumber);
   const result = await sendWhatsAppTemplate({
     to: order.deliveryPhone,
     templateName: env.whatsapp.templates.orderConfirmation,
     bodyParameters: [order.orderNumber, `₦${Number(order.totalAmount).toLocaleString()}`],
+    buttonUrlParameters: [trackingToken],
     event: "customer_order_paid",
   });
   if (!result.delivered) logger.error("Customer WhatsApp order confirmation template was not delivered", { reference, error: result.error, status: result.status });
