@@ -87,11 +87,11 @@ broadcastRouter.post("/admin/whatsapp", requireAuth, requireRole("ADMIN"), async
     ? await prisma.user.findMany({ where: { status: "ACTIVE", role: "CUSTOMER" }, select: { phone: true } })
     : [];
   const rawRecipients = input.audience === "ADMINS" ? adminNumbers : customerRows.map(user => user.phone).filter(Boolean) as string[];
+  const missingNumbers = input.audience === "CUSTOMERS" ? customerRows.filter(user => !user.phone?.replace(/\D/g, "")).length : 0;
   const recipients = Array.from(new Set(rawRecipients.map(number => number.replace(/\D/g, "")).filter(Boolean)));
-  const skipped = rawRecipients.length - recipients.length;
 
   if (!recipients.length) {
-    return res.status(200).json({ ok: false, sent: 0, failed: 0, skipped, error: input.audience === "ADMINS" ? "No WhatsApp admin numbers are configured." : "No active customers with saved WhatsApp numbers were found." });
+    return res.status(200).json({ ok: false, sent: 0, failed: 0, skipped: missingNumbers, error: input.audience === "ADMINS" ? "No WhatsApp admin numbers are configured." : "No active customers with saved WhatsApp numbers were found." });
   }
 
   const results = await Promise.all(recipients.map(async (to) => {
@@ -111,7 +111,7 @@ broadcastRouter.post("/admin/whatsapp", requireAuth, requireRole("ADMIN"), async
   const sent = results.filter(result => result.delivered).length;
   const failed = results.length - sent;
   const firstFailure = results.find(result => !result.delivered && result.error)?.error;
-  res.status(201).json({ ok: failed === 0, sent, failed, skipped, error: firstFailure });
+  res.status(201).json({ ok: failed === 0, sent, failed, skipped: missingNumbers, error: firstFailure });
 }));
 
 broadcastRouter.post("/admin", requireAuth, requireRole("ADMIN"), asyncHandler(async (req, res) => {
