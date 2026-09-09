@@ -31,6 +31,7 @@ export const env = {
       orderOutForDelivery: process.env.WHATSAPP_TEMPLATE_ORDER_OUT_FOR_DELIVERY ?? "ttfl_order_out_for_delivery",
       orderDelivered: process.env.WHATSAPP_TEMPLATE_ORDER_DELIVERED ?? "ttfl_order_delivered",
       orderCancelled: process.env.WHATSAPP_TEMPLATE_ORDER_CANCELLED ?? "ttfl_order_cancelled",
+      productAvailable: process.env.WHATSAPP_TEMPLATE_PRODUCT_AVAILABLE ?? "ttfl_product_available",
     },
   },
   authRateLimit: { max: Number(process.env.AUTH_RATE_LIMIT_MAX ?? 10), windowMin: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MIN ?? 15) },
