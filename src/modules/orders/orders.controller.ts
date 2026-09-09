@@ -8,7 +8,7 @@ import * as ordersService from "./orders.service";
 import * as vendorStaffOrderAccess from "@/modules/vendor-staff/vendor-staff-access.service";
 import { checkoutSchema, updateVendorOrderStatusSchema } from "./orders.validators";
 import { sendWhatsAppTemplate } from "@/lib/whatsapp-notifications";
-import { createPublicTrackingToken, trackByPublicToken } from "@/modules/tracking/tracking.service";
+import { createPublicTrackingToken, trackByPublicToken, getDriverContactByToken } from "../tracking/tracking.service";
 import { env } from "@/config/env";
 
 async function notifyCustomerWhatsAppIfNewlyPaid(reference: string, paymentWasAlreadyPaid: boolean) {
@@ -26,7 +26,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response) 
 export const myOrders = asyncHandler(async (req: Request, res: Response) => { res.json({ orders: await ordersService.getMyOrders(req.user!.sub) }); });
 export const getByNumber = asyncHandler(async (req: Request, res: Response) => { res.json({ order: await ordersService.getOrderByNumber(req.params.orderNumber, req.user!.sub, req.user!.role) }); });
 export const trackPublicLink = asyncHandler(async (req: Request, res: Response) => { res.json(await trackByPublicToken(req.params.token)); });
-export const driverContact = asyncHandler(async (req: Request, res: Response) => { const { getDriverContactByToken } = await import("@/modules/tracking/tracking.service"); const contact = await getDriverContactByToken(req.params.token); res.json({ contact }); });
+export const driverContact = asyncHandler(async (req: Request, res: Response) => { const contact = await getDriverContactByToken(req.params.token); res.json({ contact }); });
 export const myVendorOrders = asyncHandler(async (req: Request, res: Response) => { res.json({ vendorOrders: await vendorStaffOrderAccess.getVendorOrders(req.user!.sub) }); });
 export const updateVendorOrderStatus = asyncHandler(async (req: Request, res: Response) => { const { status } = updateVendorOrderStatusSchema.parse(req.body); res.json({ vendorOrder: await vendorStaffOrderAccess.updateVendorOrderStatus(req.user!.sub, req.params.id, status) }); });
 export const refundOrder = asyncHandler(async (req: Request, res: Response) => { res.json({ order: await ordersService.refundOrder(req.params.orderId, req.user!.sub) }); });
