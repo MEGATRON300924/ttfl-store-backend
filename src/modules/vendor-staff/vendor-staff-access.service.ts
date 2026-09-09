@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { getVendorProfileForUser } from "@/lib/vendor-access";
 import { AppError } from "@/utils/app-error";
+import { env } from "@/config/env";
+import { sendWhatsAppTemplate } from "@/lib/whatsapp-notifications";
+import { createPublicTrackingToken } from "@/modules/tracking/tracking.service";
 import type { OrderStatus } from "@prisma/client";
 
 const FORWARD_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
@@ -16,11 +19,55 @@ export async function getVendorOrders(userId: string) {
   return prisma.vendorOrder.findMany({ where: { vendorId: vendor.id }, include: { items: true, order: true }, orderBy: { createdAt: "desc" } });
 }
 
+async function notifyCustomerOrderStatus(vendorOrderId: string, status: OrderStatus, storeName: string, storeSlug: string) {
+  if (!["PROCESSING", "SHIPPED", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"].includes(status)) return;
+
+  const vendorOrder = await prisma.vendorOrder.findUnique({
+    where: { id: vendorOrderId },
+    include: { order: { include: { customer: true } } },
+  });
+  if (!vendorOrder?.order.customer?.phone) return;
+
+  const customer = vendorOrder.order.customer;
+  const firstName = customer.firstName || "there";
+  const orderNumber = vendorOrder.order.orderNumber;
+  const trackingToken = createPublicTrackingToken(orderNumber);
+  const trackingTokenUrlParam = trackingToken;
+
+  const templateByStatus: Partial<Record<OrderStatus, string>> = {
+    PROCESSING: env.whatsapp.templates.orderProcessing,
+    SHIPPED: env.whatsapp.templates.orderShipped,
+    OUT_FOR_DELIVERY: env.whatsapp.templates.orderOutForDelivery,
+    DELIVERED: env.whatsapp.templates.orderDelivered,
+    CANCELLED: env.whatsapp.templates.orderCancelled,
+  };
+  const templateName = templateByStatus[status];
+  if (!templateName) return;
+
+  const bodyParameters = [firstName, orderNumber, storeName];
+  const buttonUrlParameters = status === "DELIVERED" ? [storeSlug] : [trackingTokenUrlParam];
+
+  await sendWhatsAppTemplate({
+    to: customer.phone,
+    templateName,
+    bodyParameters,
+    buttonUrlParameters,
+    event: `order_${status.toLowerCase()}`,
+  });
+}
+
 export async function updateVendorOrderStatus(userId: string, vendorOrderId: string, nextStatus: OrderStatus) {
   const vendor = await getVendorProfileForUser(userId);
   const vendorOrder = await prisma.vendorOrder.findUnique({ where: { id: vendorOrderId } });
   if (!vendorOrder || vendorOrder.vendorId !== vendor.id) throw AppError.notFound("Order not found");
   const allowed = FORWARD_TRANSITIONS[vendorOrder.status as OrderStatus];
   if (!allowed.includes(nextStatus)) throw AppError.badRequest(`Can't move an order from ${vendorOrder.status} to ${nextStatus}`, "INVALID_STATUS_TRANSITION");
-  return prisma.vendorOrder.update({ where: { id: vendorOrderId }, data: { status: nextStatus } });
+
+  const updated = await prisma.vendorOrder.update({ where: { id: vendorOrderId }, data: { status: nextStatus } });
+
+  // Transactional order notifications are sent by the TTFL backend itself.
+  // The customer gets a secure tracking link, or the store review page after delivery.
+  void notifyCustomerOrderStatus(vendorOrderId, nextStatus, vendor.storeName, vendor.storeSlug).catch(() => undefined);
+
+  return updated;
 }
