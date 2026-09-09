@@ -2,9 +2,11 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { env } from "@/config/env";
 import { logger } from "@/lib/logger";
+import type { Prisma } from "@prisma/client";
 
 export async function queueMaxEvent(event: string, payload: Record<string, unknown>) {
-  const row = await prisma.maxEventOutbox.create({ data: { id: randomUUID(), event, payload } });
+  const jsonPayload = JSON.parse(JSON.stringify(payload)) as Prisma.InputJsonValue;
+  const row = await prisma.maxEventOutbox.create({ data: { id: randomUUID(), event, payload: jsonPayload } });
   void flushMaxEventOutbox();
   return row.id;
 }
