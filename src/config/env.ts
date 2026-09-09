@@ -8,6 +8,10 @@ export const env = {
   corsOrigin: process.env.CORS_ORIGIN ?? (production ? "https://www.ttflstore.name.ng" : "http://localhost:3000"),
   email: { from: process.env.EMAIL_FROM ?? "TTFL Store no-reply@thetronforge.com", provider: process.env.EMAIL_PROVIDER ?? "console" },
   adminNotificationEmail: process.env.ADMIN_NOTIFICATION_EMAIL,
+  maxAi: {
+    eventWebhookUrl: process.env.MAX_AI_EVENT_WEBHOOK_URL,
+    eventWebhookSecret: process.env.MAX_AI_EVENT_WEBHOOK_SECRET,
+  },
   whatsapp: {
     apiToken: process.env.WHATSAPP_API_TOKEN,
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
