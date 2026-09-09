@@ -28,13 +28,9 @@ export async function grantVendorSubscription(vendorProfileId: string, tier: "FR
   await ensureStoreProfileTables();
   const result = await prisma.$transaction(async (tx) => {
     const profile = await tx.vendorProfile.update({ where: { id: vendorProfileId }, data: { tier, verified: true, status: "APPROVED" } });
-    const subscription = await tx.vendorSubscription.upsert({
-      where: { vendorId: vendorProfileId },
-      create: { vendorId: vendorProfileId, planId: plan.id, status: "ACTIVE", startDate: now, renewalDate, cancelledAt: null },
-      update: { planId: plan.id, status: "ACTIVE", startDate: now, renewalDate, cancelledAt: null },
-      include: { plan: true },
-    });
+    const subscription = await tx.vendorSubscription.upsert({ where: { vendorId: vendorProfileId }, create: { vendorId: vendorProfileId, planId: plan.id, status: "ACTIVE", startDate: now, renewalDate, cancelledAt: null }, update: { planId: plan.id, status: "ACTIVE", startDate: now, renewalDate, cancelledAt: null }, include: { plan: true } });
     await tx.$executeRawUnsafe(`INSERT INTO store_badges (id, vendor_id, badge) VALUES ($1, $2, 'VERIFIED') ON CONFLICT (vendor_id, badge) DO NOTHING`, randomUUID(), vendorProfileId);
+    if (tier === "ENTERPRISE") await tx.$executeRawUnsafe(`INSERT INTO store_badges (id, vendor_id, badge) VALUES ($1, $2, 'ENTERPRISE') ON CONFLICT (vendor_id, badge) DO NOTHING`, randomUUID(), vendorProfileId);
     return { profile, subscription };
   });
   await recordAudit({ actorId: adminId, action: "VENDOR_TIER_CHANGED", targetType: "VendorSubscription", targetId: result.subscription.id, ipAddress, metadata: { tier, lifetime, adminGranted: true, verified: true } });
