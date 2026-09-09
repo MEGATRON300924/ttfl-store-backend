@@ -17,15 +17,18 @@ storeProfileRouter.get("/public/directory", asyncHandler(async (req, res) => {
   const page = Math.max(Number(req.query.page ?? 1) || 1, 1);
   const offset = (page - 1) * limit;
   const search = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  const verifiedOnly = String(req.query.verified ?? "").toLowerCase() === "true";
   const rows = await prisma.$queryRawUnsafe<any[]>(
-    `SELECT vp.id, vp."storeName" AS "name", vp."storeSlug" AS "slug", vp."logoUrl" AS "logoUrl", vp.location, vp.verified, vp.tier, spp.custom_url AS "customUrl", COUNT(DISTINCT p.id)::int AS "productCount", COALESCE(AVG(p."avgRating"), 0)::float AS rating FROM vendor_profiles vp LEFT JOIN store_public_profiles spp ON spp.vendor_id = vp.id LEFT JOIN products p ON p.vendor_id = vp.id AND p.status = 'ACTIVE' AND p."deletedAt" IS NULL WHERE vp.status = 'APPROVED' AND ($1 = '' OR vp."storeName" ILIKE '%' || $1 || '%' OR vp.location ILIKE '%' || $1 || '%') GROUP BY vp.id, spp.custom_url ORDER BY vp."storeName" ASC LIMIT $2 OFFSET $3`,
+    `SELECT vp.id, vp."storeName" AS "name", vp."storeSlug" AS "slug", vp."logoUrl" AS "logoUrl", vp.location, vp.verified, vp.tier, spp.custom_url AS "customUrl", COUNT(DISTINCT p.id)::int AS "productCount", COALESCE(AVG(p."avgRating"), 0)::float AS rating FROM vendor_profiles vp LEFT JOIN store_public_profiles spp ON spp.vendor_id = vp.id LEFT JOIN products p ON p.vendor_id = vp.id AND p.status = 'ACTIVE' AND p."deletedAt" IS NULL WHERE vp.status = 'APPROVED' AND ($1 = '' OR vp."storeName" ILIKE '%' || $1 || '%' OR vp.location ILIKE '%' || $1 || '%') AND ($2 = false OR vp.verified = true) GROUP BY vp.id, spp.custom_url ORDER BY vp."storeName" ASC LIMIT $3 OFFSET $4`,
     search,
+    verifiedOnly,
     limit,
     offset
   );
   const countRows = await prisma.$queryRawUnsafe<Array<{ count: number }>>(
-    `SELECT COUNT(*)::int AS count FROM vendor_profiles vp WHERE vp.status = 'APPROVED' AND ($1 = '' OR vp."storeName" ILIKE '%' || $1 || '%' OR vp.location ILIKE '%' || $1 || '%')`,
-    search
+    `SELECT COUNT(*)::int AS count FROM vendor_profiles vp WHERE vp.status = 'APPROVED' AND ($1 = '' OR vp."storeName" ILIKE '%' || $1 || '%' OR vp.location ILIKE '%' || $1 || '%') AND ($2 = false OR vp.verified = true)`,
+    search,
+    verifiedOnly
   );
   const ids = rows.map((row) => row.id);
   const badges = ids.length
