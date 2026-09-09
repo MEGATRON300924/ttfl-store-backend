@@ -7,6 +7,7 @@ import { recordAudit } from "@/lib/audit";
 import { logger } from "@/lib/logger";
 import { assertProductLimitNotExceeded } from "@/modules/vendor-plans/vendor-plans.service";
 import { getVendorProfileForUser } from "@/lib/vendor-access";
+import { notifyProductAvailable } from "./product-availability.service";
 import type { CreateProductInput, ProductSearchInput } from "./products.validators";
 import type { Prisma } from "@prisma/client";
 
@@ -18,8 +19,46 @@ async function uniqueProductSlug(name: string) { const base = slugify(name); let
 async function uniquePublicProductId() { let productId = createPublicProductId(); while (await prisma.product.findUnique({ where: { publicProductId: productId } })) productId = createPublicProductId(); return productId; }
 async function resolveCategoryId(categorySlug: string) { const category = await prisma.category.findUnique({ where: { slug: categorySlug } }); if (!category) throw AppError.badRequest("Unknown category", "INVALID_CATEGORY"); return category.id; }
 
-export async function createProduct(userId: string, input: CreateProductInput) { const vendor = await getVendorProfileOrThrow(userId); await assertProductLimitNotExceeded(vendor.id, vendor.tier); const categoryId = await resolveCategoryId(input.categorySlug); const slug = await uniqueProductSlug(input.name); const publicProductId = await uniquePublicProductId(); return prisma.product.create({ data: { vendorId: vendor.id, categoryId, name: input.name, slug, description: input.description, price: input.price, previousPrice: input.previousPrice, condition: input.condition, stock: input.stock, location: input.location, specifications: input.specifications, estimatedDeliveryDays: input.estimatedDeliveryDays, publicProductId, sellingMethod: input.sellingMethod, externalUrl: "externalUrl" in input ? input.externalUrl : undefined, whatsappNumber: "whatsappNumber" in input ? input.whatsappNumber : undefined, images: { create: input.images.map((url, i) => ({ url, position: i, isPrimary: i === 0 })) } }, include: PUBLIC_PRODUCT_INCLUDE }); }
-export async function updateProduct(userId: string, productId: string, input: Partial<CreateProductInput> & { status?: "DRAFT" | "ACTIVE" | "OUT_OF_STOCK" }) { const vendor = await getVendorProfileOrThrow(userId); const existing = await prisma.product.findUnique({ where: { id: productId } }); if (!existing || existing.deletedAt) throw AppError.notFound("Product not found"); if (existing.vendorId !== vendor.id) throw AppError.forbidden("You can only edit your own products"); const categoryId = input.categorySlug ? await resolveCategoryId(input.categorySlug) : undefined; return prisma.product.update({ where: { id: productId }, data: { name: input.name, categoryId, description: input.description, price: input.price, previousPrice: input.previousPrice, condition: input.condition, stock: input.stock, location: input.location, specifications: input.specifications, estimatedDeliveryDays: input.estimatedDeliveryDays, status: input.status, sellingMethod: (input as any).sellingMethod, externalUrl: (input as any).externalUrl, whatsappNumber: (input as any).whatsappNumber, ...(input.images ? { images: { deleteMany: {}, create: input.images.map((url, i) => ({ url, position: i, isPrimary: i === 0 })) } } : {}) }, include: PUBLIC_PRODUCT_INCLUDE }); }
+export async function createProduct(userId: string, input: CreateProductInput) {
+  const vendor = await getVendorProfileOrThrow(userId);
+  await assertProductLimitNotExceeded(vendor.id, vendor.tier);
+  const categoryId = await resolveCategoryId(input.categorySlug);
+  const slug = await uniqueProductSlug(input.name);
+  const publicProductId = await uniquePublicProductId();
+  return prisma.product.create({
+    data: {
+      vendorId: vendor.id, categoryId, name: input.name, slug, description: input.description, price: input.price,
+      previousPrice: input.previousPrice, condition: input.condition, stock: input.stock, location: input.location,
+      specifications: input.specifications, estimatedDeliveryDays: input.estimatedDeliveryDays, publicProductId,
+      comingSoon: input.comingSoon, availableAt: input.availableAt ? new Date(input.availableAt) : undefined,
+      sellingMethod: input.sellingMethod, externalUrl: "externalUrl" in input ? input.externalUrl : undefined,
+      whatsappNumber: "whatsappNumber" in input ? input.whatsappNumber : undefined,
+      images: { create: input.images.map((url, i) => ({ url, position: i, isPrimary: i === 0 })) },
+    }, include: PUBLIC_PRODUCT_INCLUDE,
+  });
+}
+
+export async function updateProduct(userId: string, productId: string, input: Partial<CreateProductInput> & { status?: "DRAFT" | "ACTIVE" | "OUT_OF_STOCK" }) {
+  const vendor = await getVendorProfileOrThrow(userId);
+  const existing = await prisma.product.findUnique({ where: { id: productId } });
+  if (!existing || existing.deletedAt) throw AppError.notFound("Product not found");
+  if (existing.vendorId !== vendor.id) throw AppError.forbidden("You can only edit your own products");
+  const categoryId = input.categorySlug ? await resolveCategoryId(input.categorySlug) : undefined;
+  const wasComingSoon = existing.comingSoon;
+  const product = await prisma.product.update({
+    where: { id: productId },
+    data: {
+      name: input.name, categoryId, description: input.description, price: input.price, previousPrice: input.previousPrice,
+      condition: input.condition, stock: input.stock, location: input.location, specifications: input.specifications,
+      estimatedDeliveryDays: input.estimatedDeliveryDays, status: input.status, comingSoon: input.comingSoon,
+      availableAt: input.availableAt === undefined ? undefined : input.availableAt ? new Date(input.availableAt) : null,
+      sellingMethod: (input as any).sellingMethod, externalUrl: (input as any).externalUrl, whatsappNumber: (input as any).whatsappNumber,
+      ...(input.images ? { images: { deleteMany: {}, create: input.images.map((url, i) => ({ url, position: i, isPrimary: i === 0 })) } } : {}),
+    }, include: PUBLIC_PRODUCT_INCLUDE,
+  });
+  if (wasComingSoon && input.comingSoon === false && product.status === "ACTIVE") void notifyProductAvailable(product.id);
+  return product;
+}
 export async function deleteProduct(userId: string, productId: string) { const vendor = await getVendorProfileOrThrow(userId); const existing = await prisma.product.findUnique({ where: { id: productId } }); if (!existing || existing.deletedAt) throw AppError.notFound("Product not found"); if (existing.vendorId !== vendor.id) throw AppError.forbidden("You can only delete your own products"); await prisma.product.update({ where: { id: productId }, data: { deletedAt: new Date(), sponsored: false, sponsoredAt: null } }); }
 export async function listMyProducts(userId: string) { const vendor = await getVendorProfileOrThrow(userId); return prisma.product.findMany({ where: { vendorId: vendor.id, deletedAt: null }, include: PUBLIC_PRODUCT_INCLUDE, orderBy: { createdAt: "desc" } }); }
 export async function getProductBySlug(slug: string) { const product = await prisma.product.findUnique({ where: { slug }, include: PUBLIC_PRODUCT_INCLUDE }); if (!product || product.deletedAt || product.status === "SUSPENDED") throw AppError.notFound("Product not found"); void prisma.product.update({ where: { id: product.id }, data: { viewCount: { increment: 1 } } }); return product; }
