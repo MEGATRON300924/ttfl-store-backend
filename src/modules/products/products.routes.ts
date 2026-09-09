@@ -10,6 +10,7 @@ productsRouter.get("/me/list", requireAuth, requireRole("VENDOR"), productsContr
 productsRouter.get("/me/sponsored", requireAuth, requireRole("VENDOR"), productsController.listMySponsored);
 productsRouter.post("/", requireAuth, requireRole("VENDOR"), productsController.create);
 productsRouter.patch("/:id/sponsored", requireAuth, requireRole("VENDOR"), productsController.setSponsored);
+productsRouter.post("/:id/availability-notifications", productsController.notifyAvailability);
 productsRouter.get("/:slug", productsController.getBySlug);
 productsRouter.post("/by-id/:id/referral", productsController.referral);
 productsRouter.patch("/:id", requireAuth, requireRole("VENDOR"), productsController.update);
