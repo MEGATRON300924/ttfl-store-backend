@@ -3,7 +3,7 @@ import { getVendorProfileForUser } from "@/lib/vendor-access";
 import { AppError } from "@/utils/app-error";
 import { env } from "@/config/env";
 import { sendWhatsAppTemplate, emitMaxEvent } from "@/lib/whatsapp-notifications";
-import { createPublicTrackingToken, createDriverContactToken } from "@/modules/tracking/tracking.service";
+import { createPublicTrackingToken, createDriverContactToken } from "../tracking/tracking.service";
 import type { OrderStatus } from "@prisma/client";
 
 const FORWARD_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
