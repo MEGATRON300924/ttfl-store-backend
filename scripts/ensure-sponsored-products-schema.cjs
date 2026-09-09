@@ -4,27 +4,40 @@ const path = require("node:path");
 const schemaPath = path.join(process.cwd(), "prisma", "schema.prisma");
 let schema = fs.readFileSync(schemaPath, "utf8");
 
-const productStart = schema.indexOf("model Product {");
-const productEnd = schema.indexOf("\n}", productStart);
-if (productStart === -1 || productEnd === -1) throw new Error("Product model not found.");
-
-let block = schema.slice(productStart, productEnd);
-if (!block.includes("sponsored")) {
-  const insertion = '\n  sponsored     Boolean          @default(false)\n  sponsoredAt   DateTime?\n';
-  schema = schema.slice(0, productEnd) + insertion + schema.slice(productEnd);
+function productBounds(value) {
+  const start = value.indexOf("model Product {");
+  const end = value.indexOf("\n}", start);
+  if (start === -1 || end === -1) throw new Error("Product model not found.");
+  return { start, end };
 }
 
-schema = fs.readFileSync(schemaPath, "utf8").replace(
-  /(@@map\("products"\))\s+sponsored\s+Boolean\s+@default\(false\)/g,
+let { start, end } = productBounds(schema);
+let block = schema.slice(start, end);
+
+// Always repair/retain both sponsored fields in the Product model. Do not
+// re-read schema.prisma after inserting them: that used to discard the edit
+// and made Prisma think the existing sponsored columns should be dropped.
+if (!/\n\s*sponsored\s+Boolean\s+@default\(false\)/.test(block)) {
+  schema = schema.slice(0, end) +
+    '\n  sponsored     Boolean          @default(false)\n  sponsoredAt   DateTime?\n' +
+    schema.slice(end);
+}
+
+({ start, end } = productBounds(schema));
+block = schema.slice(start, end);
+
+if (!/\n\s*tags\s+String\[\]\s+@default\(\[\]\)/.test(block)) {
+  schema = schema.slice(0, end) +
+    '\n  tags           String[]         @default([])\n' +
+    schema.slice(end);
+}
+
+// Repair the malformed form produced by the previous script version.
+schema = schema.replace(
+  /(@@map\("products"\))\s+sponsored\s+Boolean\s+@default\(false)/g,
   '$1\n  sponsored     Boolean          @default(false)'
 );
 
-const refreshedProductStart = schema.indexOf("model Product {");
-const refreshedProductEnd = schema.indexOf("\n}", refreshedProductStart);
-const refreshedBlock = schema.slice(refreshedProductStart, refreshedProductEnd);
-if (!refreshedBlock.includes("  tags ")) {
-  schema = schema.slice(0, refreshedProductEnd) + '\n  tags           String[]         @default([])\n' + schema.slice(refreshedProductEnd);
-}
 fs.writeFileSync(schemaPath, schema);
 
 const validatorsPath = path.join(process.cwd(), "src", "modules", "products", "products.validators.ts");
