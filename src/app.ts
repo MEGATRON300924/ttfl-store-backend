@@ -11,6 +11,7 @@ import { vendorsRouter } from "@/modules/vendors/vendors.routes";
 import { categoriesRouter } from "@/modules/categories/categories.routes";
 import { productsRouter } from "@/modules/products/products.routes";
 import { productDeliveryRouter } from "@/modules/products/delivery.routes";
+import { productAlertsRouter } from "@/modules/products/product-alerts.routes";
 import { ordersRouter } from "@/modules/orders/orders.routes";
 import { paystackWebhook } from "@/modules/orders/orders.controller";
 import { vendorPlansRouter } from "@/modules/vendor-plans/vendor-plans.routes";
@@ -38,11 +39,7 @@ export function createApp() {
   app.set("trust proxy", 1);
   app.use(helmet());
   app.use(cors({ origin: env.corsOrigin, credentials: true }));
-  app.post("/api/payments/webhook", express.raw({ type: "application/json" }), (req, _res, next) => {
-    (req as typeof req & { rawBody: Buffer }).rawBody = req.body;
-    req.body = JSON.parse(req.body.toString("utf8"));
-    next();
-  }, paystackWebhook);
+  app.post("/api/payments/webhook", express.raw({ type: "application/json" }), (req, _res, next) => { (req as typeof req & { rawBody: Buffer }).rawBody = req.body; req.body = JSON.parse(req.body.toString("utf8")); next(); }, paystackWebhook);
   app.use(express.json({ limit: "1mb" }));
   app.use(cookieParser());
   app.use(generalRateLimiter);
@@ -53,6 +50,7 @@ export function createApp() {
   app.use("/api/store-profile", storeProfileRouter);
   app.use("/api/categories", categoriesRouter);
   app.use("/api/products", productDeliveryRouter);
+  app.use("/api/products/alerts", productAlertsRouter);
   app.use("/api/products", productsRouter);
   app.use("/api/orders", ordersRouter);
   app.use("/api/tracking", trackingRouter);
