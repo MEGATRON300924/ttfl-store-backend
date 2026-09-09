@@ -4,6 +4,7 @@ import { logger } from "@/lib/logger";
 import { startEmailWorker } from "@/lib/email-queue";
 import { startMaxEventOutboxWorker } from "@/lib/max-event-outbox";
 import { startProductAlertWorker } from "@/modules/products/product-alert-worker";
+import { startLaunchCampaignWorker } from "@/modules/launch-campaigns/launch-campaign-worker";
 
 const app = createApp();
 
@@ -12,4 +13,5 @@ app.listen(env.port, () => {
   startEmailWorker();
   startMaxEventOutboxWorker();
   startProductAlertWorker();
+  startLaunchCampaignWorker();
 });
