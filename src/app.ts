@@ -12,6 +12,7 @@ import { categoriesRouter } from "@/modules/categories/categories.routes";
 import { productsRouter } from "@/modules/products/products.routes";
 import { productDeliveryRouter } from "@/modules/products/delivery.routes";
 import { productAlertsRouter } from "@/modules/products/product-alerts.routes";
+import { vendorNotificationPreferencesRouter } from "@/modules/vendors/vendor-notification-preferences.routes";
 import { ordersRouter } from "@/modules/orders/orders.routes";
 import { paystackWebhook } from "@/modules/orders/orders.controller";
 import { vendorPlansRouter } from "@/modules/vendor-plans/vendor-plans.routes";
@@ -47,6 +48,7 @@ export function createApp() {
   app.get("/health", (_req, res) => res.json({ status: "ok", service: "ttfl-store-backend", time: new Date().toISOString() }));
   app.use("/api/auth", authRouter);
   app.use("/api/vendors", vendorsRouter);
+  app.use("/api/vendors/notification-preferences", vendorNotificationPreferencesRouter);
   app.use("/api/store-profile", storeProfileRouter);
   app.use("/api/categories", categoriesRouter);
   app.use("/api/products", productDeliveryRouter);
