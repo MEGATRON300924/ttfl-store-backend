@@ -3,7 +3,7 @@ import { z } from "zod";
 const passwordSchema = z
   .string()
   .min(8, "Password must be at least 8 characters")
-  .max(72, "Password is too long") // argon2/bcrypt-safe upper bound
+  .max(72, "Password is too long")
   .regex(/[a-z]/, "Password needs a lowercase letter")
   .regex(/[A-Z]/, "Password needs an uppercase letter")
   .regex(/[0-9]/, "Password needs a number");
@@ -12,7 +12,7 @@ export const registerCustomerSchema = z.object({
   firstName: z.string().min(1).max(80),
   lastName: z.string().min(1).max(80),
   email: z.string().email().toLowerCase(),
-  phone: z.string().min(7).max(20).optional(),
+  phone: z.string().min(7, "A valid phone number is required").max(20),
   password: passwordSchema,
 });
 
