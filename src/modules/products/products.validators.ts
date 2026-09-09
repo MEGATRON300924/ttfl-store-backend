@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const optionalString = (schema: z.ZodString) => z.preprocess((value) => (value === "" || value === undefined ? undefined : value), schema.optional());
-const optionalNumber = (schema: z.ZodNumber) => z.preprocess((value) => (value === "" || value === undefined ? undefined : value), schema.optional());
+const optionalNumber = (schema: z.ZodNumber) => z.preprocess((value) => (value === "" || value === undefined || value === null ? undefined : value), schema.optional());
 
 const baseProductFields = {
   name: z.string().min(3).max(160),
@@ -15,6 +15,8 @@ const baseProductFields = {
   images: z.array(z.string().url()).min(1, "At least one product image is required").max(10),
   specifications: z.record(z.string()).optional(),
   estimatedDeliveryDays: z.number().int().min(1).max(90).default(7),
+  comingSoon: z.boolean().default(false),
+  availableAt: z.preprocess((value) => (value === "" || value === undefined || value === null ? undefined : value), z.string().datetime().optional()),
 };
 
 const sellingMethodFields = z.discriminatedUnion("sellingMethod", [
@@ -37,6 +39,8 @@ export const updateProductSchema = z.object({
   images: baseProductFields.images.optional(),
   specifications: baseProductFields.specifications,
   estimatedDeliveryDays: z.number().int().min(1).max(90).optional(),
+  comingSoon: z.boolean().optional(),
+  availableAt: z.preprocess((value) => (value === "" || value === undefined || value === null ? undefined : value), z.string().datetime().optional()),
   status: z.enum(["DRAFT", "ACTIVE", "OUT_OF_STOCK"]).optional(),
   sellingMethod: z.enum(["CHECKOUT", "EXTERNAL_LINK", "WHATSAPP"]).optional(),
   externalUrl: optionalString(z.string().url("A valid external purchase URL is required")),
@@ -50,6 +54,13 @@ export const productSearchSchema = z.object({
   location: z.string().optional(), verifiedOnly: z.coerce.boolean().optional(),
   sort: z.enum(["relevance", "price_asc", "price_desc", "newest", "rating"]).default("relevance"),
   page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(48).default(24),
+});
+
+export const availabilityNotificationSchema = z.object({
+  email: optionalString(z.string().email()),
+  whatsapp: optionalString(z.string().min(7).max(20)),
+  notifyEmail: z.boolean().default(false),
+  notifyWhatsApp: z.boolean().default(false),
 });
 
 export const referralEventSchema = z.object({ sessionId: z.string().max(120).optional(), source: z.string().max(80).optional(), campaign: z.string().max(80).optional() });
