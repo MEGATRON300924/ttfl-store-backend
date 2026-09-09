@@ -14,7 +14,6 @@ export const CHECKPOINTS = [
 
 function checkpointToStatus(checkpoint: number) { if (checkpoint <= 2) return "PROCESSING" as const; if (checkpoint <= 4) return "SHIPPED" as const; return "OUT_FOR_DELIVERY" as const; }
 async function getProductsByIds(productIds: string[]) { if (!productIds.length) return new Map<string, any>(); const products = await prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, publicProductId: true, estimatedDeliveryDays: true } }); return new Map(products.map((product) => [product.id, product])); }
-
 function base64Url(value: string) { return Buffer.from(value).toString("base64url"); }
 function fromBase64Url(value: string) { return Buffer.from(value, "base64url").toString("utf8"); }
 function signTrackingPayload(payload: string) { return createHmac("sha256", env.jwt.accessSecret).update(payload).digest("base64url"); }
@@ -25,17 +24,43 @@ export function createPublicTrackingToken(orderNumber: string) {
   return `${payload}.${signTrackingPayload(payload)}`;
 }
 
-function verifyPublicTrackingToken(token: string) {
+export function createDriverContactToken(vendorOrderId: string) {
+  const expiresAt = Math.floor(Date.now() / 1000) + Math.max(1, env.whatsapp.trackingLinkTtlDays) * 86400;
+  const payload = base64Url(JSON.stringify({ vendorOrderId, expiresAt, purpose: "driver-contact" }));
+  return `${payload}.${signTrackingPayload(payload)}`;
+}
+
+function verifySignedToken(token: string) {
   const [payload, signature] = token.split(".");
-  if (!payload || !signature) throw AppError.unauthorized("Invalid tracking link", "INVALID_TRACKING_LINK");
+  if (!payload || !signature) throw AppError.unauthorized("Invalid secure link", "INVALID_SECURE_LINK");
   const expected = signTrackingPayload(payload);
   const providedBuffer = Buffer.from(signature);
   const expectedBuffer = Buffer.from(expected);
-  if (providedBuffer.length !== expectedBuffer.length || !timingSafeEqual(providedBuffer, expectedBuffer)) throw AppError.unauthorized("Invalid tracking link", "INVALID_TRACKING_LINK");
-  let parsed: { orderNumber?: string; expiresAt?: number };
-  try { parsed = JSON.parse(fromBase64Url(payload)); } catch { throw AppError.unauthorized("Invalid tracking link", "INVALID_TRACKING_LINK"); }
-  if (!parsed.orderNumber || !parsed.expiresAt || parsed.expiresAt < Math.floor(Date.now() / 1000)) throw AppError.unauthorized("This tracking link has expired", "TRACKING_LINK_EXPIRED");
-  return parsed.orderNumber;
+  if (providedBuffer.length !== expectedBuffer.length || !timingSafeEqual(providedBuffer, expectedBuffer)) throw AppError.unauthorized("Invalid secure link", "INVALID_SECURE_LINK");
+  let parsed: any;
+  try { parsed = JSON.parse(fromBase64Url(payload)); } catch { throw AppError.unauthorized("Invalid secure link", "INVALID_SECURE_LINK"); }
+  if (!parsed.expiresAt || parsed.expiresAt < Math.floor(Date.now() / 1000)) throw AppError.unauthorized("This secure link has expired", "SECURE_LINK_EXPIRED");
+  return parsed;
+}
+
+function verifyPublicTrackingToken(token: string) {
+  const parsed = verifySignedToken(token);
+  if (!parsed.orderNumber) throw AppError.unauthorized("Invalid tracking link", "INVALID_TRACKING_LINK");
+  return parsed.orderNumber as string;
+}
+
+export async function getDriverContactByToken(token: string) {
+  const parsed = verifySignedToken(token);
+  if (parsed.purpose !== "driver-contact" || !parsed.vendorOrderId) throw AppError.unauthorized("Invalid driver contact link", "INVALID_DRIVER_LINK");
+  const vendorOrder = await prisma.vendorOrder.findUnique({
+    where: { id: parsed.vendorOrderId },
+    include: { trackingEvents: { where: { checkpoint: 5 }, take: 1 }, vendor: { select: { storeName: true, storeSlug: true } } },
+  });
+  if (!vendorOrder) throw AppError.notFound("Delivery order not found");
+  if (!["OUT_FOR_DELIVERY", "DELIVERED"].includes(vendorOrder.status)) throw AppError.badRequest("The delivery driver is not currently assigned to this order", "DRIVER_NOT_AVAILABLE");
+  const event = vendorOrder.trackingEvents[0];
+  if (!event?.riderPhone) throw AppError.notFound("A delivery driver contact number has not been assigned yet", "DRIVER_CONTACT_NOT_AVAILABLE");
+  return { storeName: vendorOrder.vendor.storeName, storeSlug: vendorOrder.vendor.storeSlug, riderName: event.riderName ?? "Delivery driver", riderPhone: event.riderPhone.replace(/\D/g, "") };
 }
 
 export async function trackByPublicToken(token: string) {
@@ -73,7 +98,7 @@ function serializeVendorOrder(vo: any, createdAt: Date, products: Map<string, an
 export async function updateCheckpoint(userId: string, vendorOrderId: string, checkpoint: number, description?: string, avatar?: string, trackingUrl?: string, riderName?: string, riderPhone?: string) {
   const definition = CHECKPOINTS.find((item) => item.checkpoint === checkpoint); if (!definition) throw AppError.badRequest("Checkpoint must be between 1 and 5", "INVALID_CHECKPOINT"); const vendor = await getVendorProfileForUser(userId);
   const order = await prisma.vendorOrder.findUnique({ where: { id: vendorOrderId }, include: { trackingEvents: true } }); if (!order || order.vendorId !== vendor.id) throw AppError.notFound("Order not found"); if (order.status === "CANCELLED" || order.status === "DELIVERED") throw AppError.badRequest("A cancelled or delivered order cannot have its tracking changed", "TRACKING_LOCKED");
-  if (checkpoint === 5 && !description?.trim() && !trackingUrl?.trim() && !riderName?.trim()) throw AppError.badRequest("Add rider details or a tracking link for the delivery checkpoint", "DELIVERY_DETAILS_REQUIRED");
+  if (checkpoint === 5 && !description?.trim() && !trackingUrl?.trim() && !riderName?.trim() && !riderPhone?.trim()) throw AppError.badRequest("Add rider details or a tracking link for the delivery checkpoint", "DELIVERY_DETAILS_REQUIRED");
   const event = await prisma.trackingEvent.upsert({ where: { vendorOrderId_checkpoint: { vendorOrderId, checkpoint } }, create: { vendorOrderId, checkpoint, title: definition.title, description: description?.trim() || null, avatar: avatar || "package", trackingUrl: trackingUrl?.trim() || null, riderName: riderName?.trim() || null, riderPhone: riderPhone?.trim() || null }, update: { description: description?.trim() || null, avatar: avatar || "package", trackingUrl: trackingUrl?.trim() || null, riderName: riderName?.trim() || null, riderPhone: riderPhone?.trim() || null } });
   const highestCheckpoint = Math.max(checkpoint, ...order.trackingEvents.map((existing) => existing.checkpoint)); const updated = await prisma.vendorOrder.update({ where: { id: vendorOrderId }, data: { status: checkpointToStatus(highestCheckpoint) }, include: { trackingEvents: { orderBy: { checkpoint: "asc" } } } }); return { order: updated, event };
 }
