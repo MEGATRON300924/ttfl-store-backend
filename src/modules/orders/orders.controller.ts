@@ -16,13 +16,7 @@ async function notifyCustomerWhatsAppIfNewlyPaid(reference: string, paymentWasAl
   const order = await prisma.order.findUnique({ where: { paymentReference: reference }, select: { paymentStatus: true, orderNumber: true, totalAmount: true, deliveryPhone: true } });
   if (!order || order.paymentStatus !== "PAID" || !order.deliveryPhone) return;
   const trackingToken = createPublicTrackingToken(order.orderNumber);
-  const result = await sendWhatsAppTemplate({
-    to: order.deliveryPhone,
-    templateName: env.whatsapp.templates.orderConfirmation,
-    bodyParameters: [order.orderNumber, `₦${Number(order.totalAmount).toLocaleString()}`],
-    buttonUrlParameters: [trackingToken],
-    event: "customer_order_paid",
-  });
+  const result = await sendWhatsAppTemplate({ to: order.deliveryPhone, templateName: env.whatsapp.templates.orderConfirmation, bodyParameters: [order.orderNumber, `₦${Number(order.totalAmount).toLocaleString()}`], buttonUrlParameters: [trackingToken], event: "customer_order_paid" });
   if (!result.delivered) logger.error("Customer WhatsApp order confirmation template was not delivered", { reference, error: result.error, status: result.status });
 }
 
@@ -32,6 +26,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response) 
 export const myOrders = asyncHandler(async (req: Request, res: Response) => { res.json({ orders: await ordersService.getMyOrders(req.user!.sub) }); });
 export const getByNumber = asyncHandler(async (req: Request, res: Response) => { res.json({ order: await ordersService.getOrderByNumber(req.params.orderNumber, req.user!.sub, req.user!.role) }); });
 export const trackPublicLink = asyncHandler(async (req: Request, res: Response) => { res.json(await trackByPublicToken(req.params.token)); });
+export const driverContact = asyncHandler(async (req: Request, res: Response) => { const { getDriverContactByToken } = await import("@/modules/tracking/tracking.service"); const contact = await getDriverContactByToken(req.params.token); res.json({ contact }); });
 export const myVendorOrders = asyncHandler(async (req: Request, res: Response) => { res.json({ vendorOrders: await vendorStaffOrderAccess.getVendorOrders(req.user!.sub) }); });
 export const updateVendorOrderStatus = asyncHandler(async (req: Request, res: Response) => { const { status } = updateVendorOrderStatusSchema.parse(req.body); res.json({ vendorOrder: await vendorStaffOrderAccess.updateVendorOrderStatus(req.user!.sub, req.params.id, status) }); });
 export const refundOrder = asyncHandler(async (req: Request, res: Response) => { res.json({ order: await ordersService.refundOrder(req.params.orderId, req.user!.sub) }); });
