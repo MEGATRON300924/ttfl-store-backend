@@ -32,12 +32,6 @@ if (!/\n\s*tags\s+String\[\]\s+@default\(\[\]\)/.test(block)) {
     schema.slice(end);
 }
 
-// Repair the malformed form produced by the previous script version.
-schema = schema.replace(
-  /(@@map\("products"\))\s+sponsored\s+Boolean\s+@default\(false)/g,
-  '$1\n  sponsored     Boolean          @default(false)'
-);
-
 fs.writeFileSync(schemaPath, schema);
 
 const validatorsPath = path.join(process.cwd(), "src", "modules", "products", "products.validators.ts");
