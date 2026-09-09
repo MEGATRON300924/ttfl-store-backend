@@ -6,7 +6,13 @@ import { recordAudit } from "@/lib/audit";
 import { getPlanForTier } from "@/modules/vendor-plans/vendor-plans.service";
 import { queueMaxEvent } from "@/lib/max-event-outbox";
 
-async function ensureTable(){await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS flash_deals (id TEXT PRIMARY KEY,vendor_id TEXT NOT NULL REFERENCES vendor_profiles(id) ON DELETE CASCADE,product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,discount_percent NUMERIC(5,2) NOT NULL,sale_price NUMERIC(12,2) NOT NULL,starts_at TIMESTAMPTZ NOT NULL,ends_at TIMESTAMPTZ NOT NULL,quantity_cap INTEGER,sold_count INTEGER NOT NULL DEFAULT 0,paused BOOLEAN NOT NULL DEFAULT false,active BOOLEAN NOT NULL DEFAULT true,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(vendor_id,product_id)); ALTER TABLE flash_deals ADD COLUMN IF NOT EXISTS quantity_cap INTEGER; ALTER TABLE flash_deals ADD COLUMN IF NOT EXISTS sold_count INTEGER NOT NULL DEFAULT 0; ALTER TABLE flash_deals ADD COLUMN IF NOT EXISTS paused BOOLEAN NOT NULL DEFAULT false; CREATE INDEX IF NOT EXISTS flash_deals_active_idx ON flash_deals(active,paused,starts_at,ends_at)`);}
+async function ensureTable(){
+  await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS flash_deals (id TEXT PRIMARY KEY,vendor_id TEXT NOT NULL REFERENCES vendor_profiles(id) ON DELETE CASCADE,product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,discount_percent NUMERIC(5,2) NOT NULL,sale_price NUMERIC(12,2) NOT NULL,starts_at TIMESTAMPTZ NOT NULL,ends_at TIMESTAMPTZ NOT NULL,quantity_cap INTEGER,sold_count INTEGER NOT NULL DEFAULT 0,paused BOOLEAN NOT NULL DEFAULT false,active BOOLEAN NOT NULL DEFAULT true,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(vendor_id,product_id))`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE flash_deals ADD COLUMN IF NOT EXISTS quantity_cap INTEGER`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE flash_deals ADD COLUMN IF NOT EXISTS sold_count INTEGER NOT NULL DEFAULT 0`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE flash_deals ADD COLUMN IF NOT EXISTS paused BOOLEAN NOT NULL DEFAULT false`);
+  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS flash_deals_active_idx ON flash_deals(active,paused,starts_at,ends_at)`);
+}
 
 async function soldCounts(ids:string[]){if(!ids.length)return new Map<string,number>();const rows=await prisma.$queryRawUnsafe<Array<{id:string;sold:number}>>(`SELECT fd.id,COALESCE(SUM(oi.quantity),0)::int sold FROM flash_deals fd LEFT JOIN order_items oi ON oi.product_id=fd.product_id LEFT JOIN vendor_orders vo ON vo.id=oi.vendor_order_id LEFT JOIN orders o ON o.id=vo.order_id AND o.payment_status='PAID' WHERE fd.id=ANY($1::text[]) GROUP BY fd.id`,ids);return new Map(rows.map(r=>[r.id,Number(r.sold)]));}
 
