@@ -16,25 +16,44 @@ function addProductField(fieldName, definition) {
   schema = schema.slice(0, marker) + `  ${definition}\n` + schema.slice(marker);
 }
 
+function addModel(model) {
+  const name = model.match(/model\s+(\w+)\s*\{/)[1];
+  if (!schema.includes(`model ${name} {`)) schema += `\n${model}\n`;
+}
+
 addProductField("comingSoon", "comingSoon Boolean @default(false) @map(\"coming_soon\")");
 addProductField("availableAt", "availableAt DateTime? @map(\"available_at\")");
+
+addModel(`model ProductAvailabilityNotification {
+ id String @id
+ productId String @map("product_id")
+ userId String? @map("user_id")
+ email String?
+ whatsapp String?
+ emailNotifiedAt DateTime? @map("email_notified_at")
+ whatsappNotifiedAt DateTime? @map("whatsapp_notified_at")
+ createdAt DateTime @default(now()) @map("created_at")
+ updatedAt DateTime @updatedAt @map("updated_at")
+ @@unique([productId,email], name:"product_availability_notifications_product_email_idx")
+ @@unique([productId,whatsapp], name:"product_availability_notifications_product_whatsapp_idx")
+ @@index([productId], name:"product_availability_notifications_product_idx")
+ @@map("product_availability_notifications")
+}`);
 
 fs.writeFileSync(schemaPath, schema);
 
 const sql = [
   `ALTER TABLE products ADD COLUMN IF NOT EXISTS coming_soon BOOLEAN NOT NULL DEFAULT false`,
   `ALTER TABLE products ADD COLUMN IF NOT EXISTS available_at TIMESTAMPTZ`,
-  `CREATE TABLE IF NOT EXISTS product_availability_notifications (\n    id TEXT PRIMARY KEY,\n    product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,\n    user_id TEXT REFERENCES users(id) ON DELETE SET NULL,\n    email TEXT,\n    whatsapp TEXT,\n    email_notified_at TIMESTAMPTZ,\n    whatsapp_notified_at TIMESTAMPTZ,\n    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),\n    CHECK (email IS NOT NULL OR whatsapp IS NOT NULL)\n  )`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS product_availability_notifications_product_email_idx ON product_availability_notifications(product_id, email) WHERE email IS NOT NULL`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS product_availability_notifications_product_whatsapp_idx ON product_availability_notifications(product_id, whatsapp) WHERE whatsapp IS NOT NULL`,
+  `CREATE TABLE IF NOT EXISTS product_availability_notifications (id TEXT PRIMARY KEY, product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE, user_id TEXT REFERENCES users(id) ON DELETE SET NULL, email TEXT, whatsapp TEXT, email_notified_at TIMESTAMPTZ, whatsapp_notified_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (email IS NOT NULL OR whatsapp IS NOT NULL))`,
+  `DROP INDEX IF EXISTS product_availability_notifications_product_email_idx`,
+  `DROP INDEX IF EXISTS product_availability_notifications_product_whatsapp_idx`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS product_availability_notifications_product_email_idx ON product_availability_notifications(product_id, email)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS product_availability_notifications_product_whatsapp_idx ON product_availability_notifications(product_id, whatsapp)`,
   `CREATE INDEX IF NOT EXISTS product_availability_notifications_product_idx ON product_availability_notifications(product_id)`,
 ];
 
 const { execFileSync } = require("node:child_process");
 const prismaBin = path.join(process.cwd(), "node_modules", ".bin", process.platform === "win32" ? "prisma.cmd" : "prisma");
-
-for (const statement of sql) {
-  execFileSync(prismaBin, ["db", "execute", "--stdin", "--schema", schemaPath], { input: statement, stdio: ["pipe", "inherit", "inherit"] });
-}
-
+for (const statement of sql) execFileSync(prismaBin, ["db", "execute", "--stdin", "--schema", schemaPath], { input: statement, stdio: ["pipe", "inherit", "inherit"] });
 console.log("Coming-soon product fields and notification table ensured.");
