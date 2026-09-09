@@ -7,7 +7,7 @@ const baseProductFields = {
   name: z.string().min(3).max(160),
   description: z.string().min(10).max(5000),
   categorySlug: z.string().min(1, "Category is required"),
-  price: z.number().positive().max(999_999_999),
+  price: z.number().nonnegative().max(999_999_999).optional(),
   previousPrice: optionalNumber(z.number().positive().max(999_999_999)),
   condition: z.enum(["NEW", "USED"]).default("NEW"),
   stock: z.number().int().min(0).default(1),
@@ -25,13 +25,16 @@ const sellingMethodFields = z.discriminatedUnion("sellingMethod", [
   z.object({ sellingMethod: z.literal("WHATSAPP"), whatsappNumber: optionalString(z.string().min(7).max(20)) }),
 ]);
 
-export const createProductSchema = z.object(baseProductFields).and(sellingMethodFields).refine((data) => !data.previousPrice || data.previousPrice > data.price, { message: "Previous price must be greater than the current price to represent a discount", path: ["previousPrice"] });
+export const createProductSchema = z.object(baseProductFields).and(sellingMethodFields).superRefine((data, ctx) => {
+  if (!data.comingSoon && (!data.price || data.price <= 0)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A valid product price is required", path: ["price"] });
+  if (data.previousPrice !== undefined && data.price !== undefined && data.previousPrice <= data.price) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Previous price must be greater than the current price to represent a discount", path: ["previousPrice"] });
+});
 
 export const updateProductSchema = z.object({
   name: baseProductFields.name.optional(),
   description: baseProductFields.description.optional(),
   categorySlug: baseProductFields.categorySlug.optional(),
-  price: baseProductFields.price.optional(),
+  price: baseProductFields.price,
   previousPrice: optionalNumber(z.number().positive().max(999_999_999)),
   condition: baseProductFields.condition.optional(),
   stock: baseProductFields.stock.optional(),
@@ -51,7 +54,7 @@ export const productSearchSchema = z.object({
   q: z.string().max(120).optional(), category: z.string().optional(), vendor: z.string().optional(),
   minPrice: z.coerce.number().nonnegative().optional(), maxPrice: z.coerce.number().positive().optional(),
   condition: z.enum(["NEW", "USED"]).optional(), sellingMethod: z.enum(["CHECKOUT", "EXTERNAL_LINK", "WHATSAPP"]).optional(),
-  location: z.string().optional(), verifiedOnly: z.coerce.boolean().optional(),
+  location: z.string().optional(), verifiedOnly: z.coerce.boolean().optional(), comingSoon: z.coerce.boolean().optional(),
   sort: z.enum(["relevance", "price_asc", "price_desc", "newest", "rating"]).default("relevance"),
   page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(48).default(24),
 });
