@@ -17,14 +17,16 @@ export async function sendEmail(opts: { to: string; subject: string; html: strin
   }
   if (opts.event === "vendor_new_order") {
     void (async () => {
-      const vendorUser = await prisma.user.findUnique({ where: { email: opts.to }, select: { id: true, phone: true, vendorProfile: { select: { id: true } } } });
+      const vendorUser = await prisma.user.findUnique({ where: { email: opts.to }, select: { phone: true, vendorProfile: { select: { id: true } } } });
       const match = opts.subject.match(/^New order — (.+)$/);
       if (!vendorUser?.vendorProfile || !match) return;
       const paidOrderCount = await prisma.vendorOrder.count({ where: { vendorId: vendorUser.vendorProfile.id, order: { paymentStatus: "PAID" } } });
       if (paidOrderCount !== 1) return;
-      const order = await prisma.order.findUnique({ where: { orderNumber: match[1] }, select: { totalAmount: true } });
+      const order = await prisma.order.findUnique({ where: { orderNumber: match[1] }, select: { id: true, totalAmount: true } });
       if (!order) return;
-      void enqueueEmail({ to: opts.to, ...vendorFirstOrderEmail(match[1], 0, Number(order.totalAmount)) });
+      const vendorOrder = await prisma.vendorOrder.findFirst({ where: { orderId: order.id, vendorId: vendorUser.vendorProfile.id }, select: { items: { select: { quantity: true } } } });
+      const itemCount = vendorOrder?.items.reduce((sum, item) => sum + item.quantity, 0) ?? 0;
+      void enqueueEmail({ to: opts.to, ...vendorFirstOrderEmail(match[1], itemCount, Number(order.totalAmount)) });
       if (vendorUser.phone) void sendWhatsAppNotification({ to: vendorUser.phone, message: vendorFirstOrderWhatsAppMessage(match[1], Number(order.totalAmount)), event: "vendor_first_order" });
     })().catch(() => undefined);
   }
