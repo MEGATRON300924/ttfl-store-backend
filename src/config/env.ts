@@ -25,7 +25,7 @@ export const env = {
     accessSecret: required("JWT_ACCESS_SECRET"),
     refreshSecret: required("JWT_REFRESH_SECRET"),
     accessTtl: process.env.JWT_ACCESS_TTL ?? "1d",
-    refreshTtlDays: Number(process.env.JWT_REFRESH_TTL_DAYS ?? 30),
+    refreshTtlDays: Number(process.env.JWT_REFRESH_TTL_DAYS ?? 7),
   },
   cookies: {
     crossSite: process.env.COOKIE_CROSS_SITE === "true",
