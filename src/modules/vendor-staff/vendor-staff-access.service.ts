@@ -4,6 +4,7 @@ import { AppError } from "@/utils/app-error";
 import { env } from "@/config/env";
 import { sendWhatsAppTemplate, emitMaxEvent } from "@/lib/whatsapp-notifications";
 import { createPublicTrackingToken, createDriverContactToken } from "../tracking/tracking.service";
+import { sendPushToUser } from "../notifications/notifications.service";
 import type { OrderStatus } from "@prisma/client";
 
 const FORWARD_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
@@ -26,12 +27,31 @@ async function notifyCustomerOrderStatus(vendorOrderId: string, status: OrderSta
     where: { id: vendorOrderId },
     include: { order: { select: { orderNumber: true, deliveryPhone: true, customerId: true, customer: true } }, trackingEvents: { where: { checkpoint: 5 }, take: 1 } },
   });
-  if (!vendorOrder?.order.deliveryPhone) return;
+  if (!vendorOrder) return;
 
   const customer = vendorOrder.order.customer;
   const firstName = customer?.firstName || "there";
   const orderNumber = vendorOrder.order.orderNumber;
   const trackingToken = createPublicTrackingToken(orderNumber);
+
+  const pushCopy: Record<string, { title: string; body: string }> = {
+    PROCESSING: { title: "Your TTFL order is being prepared", body: `${storeName} is processing order ${orderNumber}.` },
+    SHIPPED: { title: "Your TTFL order has shipped", body: `Order ${orderNumber} from ${storeName} is on its way.` },
+    OUT_FOR_DELIVERY: { title: "Your TTFL order is out for delivery", body: `Order ${orderNumber} from ${storeName} is on the way to you.` },
+    DELIVERED: { title: "Your TTFL order was delivered", body: `Order ${orderNumber} from ${storeName} has been delivered.` },
+    CANCELLED: { title: "Your TTFL order was cancelled", body: `Order ${orderNumber} from ${storeName} has been cancelled.` },
+  };
+  const push = pushCopy[status];
+  if (vendorOrder.order.customerId && push) {
+    await sendPushToUser(vendorOrder.order.customerId, {
+      title: push.title,
+      body: push.body,
+      data: { url: `/orders/${encodeURIComponent(orderNumber)}`, type: `order_${status.toLowerCase()}`, orderNumber },
+    });
+  }
+
+  if (!vendorOrder.order.deliveryPhone) return;
+
   const templateByStatus: Partial<Record<OrderStatus, string>> = {
     PROCESSING: env.whatsapp.templates.orderProcessing,
     SHIPPED: env.whatsapp.templates.orderShipped,
