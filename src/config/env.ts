@@ -7,7 +7,9 @@ function required(name: string): string {
 }
 
 const production = process.env.NODE_ENV === "production";
-const defaultCorsOrigin = production ? "https://www.ttflstore.name.ng" : "http://localhost:3000";
+const defaultCorsOrigin = production
+  ? "https://ttflstore.name.ng,https://www.ttflstore.name.ng"
+  : "http://localhost:3000";
 const corsOrigins = (process.env.CORS_ORIGIN ?? defaultCorsOrigin)
   .split(",")
   .map((value) => value.trim())
@@ -17,7 +19,7 @@ export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   isProd: production,
   port: Number(process.env.PORT ?? 4000),
-  appUrl: process.env.APP_URL ?? (production ? "https://www.ttflstore.name.ng" : "http://localhost:3000"),
+  appUrl: process.env.APP_URL ?? (production ? "https://ttflstore.name.ng" : "http://localhost:3000"),
   databaseUrl: required("DATABASE_URL"),
   jwt: {
     accessSecret: required("JWT_ACCESS_SECRET"),
@@ -28,7 +30,7 @@ export const env = {
   cookies: {
     crossSite: process.env.COOKIE_CROSS_SITE === "true",
   },
-  corsOrigin: corsOrigins[0] ?? defaultCorsOrigin,
+  corsOrigin: corsOrigins[0] ?? (production ? "https://ttflstore.name.ng" : "http://localhost:3000"),
   corsOrigins,
   email: {
     from: process.env.EMAIL_FROM ?? "TTFL Store no-reply@thetronforge.com",
