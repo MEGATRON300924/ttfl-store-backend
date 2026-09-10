@@ -7,6 +7,7 @@ import { attachUser } from "@/middleware/auth";
 import { generalRateLimiter } from "@/middleware/rate-limit";
 import { errorHandler, notFoundHandler } from "@/middleware/error-handler";
 import { authRouter } from "@/modules/auth/auth.routes";
+import { notificationsRouter } from "@/modules/notifications/notifications.routes";
 import { vendorsRouter } from "@/modules/vendors/vendors.routes";
 import { categoriesRouter } from "@/modules/categories/categories.routes";
 import { productsRouter } from "@/modules/products/products.routes";
@@ -61,13 +62,9 @@ export function createApp() {
   app.use(cookieParser());
   app.use(generalRateLimiter);
   app.use(attachUser);
-  app.get("/health", (_req, res) => res.json({
-    status: "ok",
-    service: "ttfl-store-backend",
-    time: new Date().toISOString(),
-    build: process.env.RENDER_GIT_COMMIT ?? process.env.GIT_COMMIT ?? "unknown",
-  }));
+  app.get("/health", (_req, res) => res.json({ status: "ok", service: "ttfl-store-backend", time: new Date().toISOString(), build: process.env.RENDER_GIT_COMMIT ?? process.env.GIT_COMMIT ?? "unknown" }));
   app.use("/api/auth", authRouter);
+  app.use("/api/notifications", notificationsRouter);
   app.use("/api/vendors", vendorsRouter);
   app.use("/api/vendors/notification-preferences", vendorNotificationPreferencesRouter);
   app.use("/api/store-profile", storeProfileRouter);
