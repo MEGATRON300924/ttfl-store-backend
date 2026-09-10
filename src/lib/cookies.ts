@@ -8,10 +8,10 @@ function baseCookieOptions() {
   return {
     httpOnly: true,
     secure: env.isProd,
-    // Cross-site cookies (frontend on Vercel, API on Render) need
-    // SameSite=None + Secure. Same-site deployments can use Lax.
-    sameSite: env.cookies.crossSite ? ("none" as const) : ("lax" as const),
-    domain: env.cookies.domain,
+    // The storefront and Render API are different origins/sites, so production
+    // authentication must use SameSite=None. Host-only cookies are intentional:
+    // COOKIE_DOMAIN can otherwise make browsers reject a cookie set by Render.
+    sameSite: env.isProd || env.cookies.crossSite ? ("none" as const) : ("lax" as const),
     path: "/",
   };
 }
@@ -19,7 +19,7 @@ function baseCookieOptions() {
 export function setAuthCookies(res: Response, accessToken: string, refreshToken: string) {
   res.cookie(ACCESS_COOKIE, accessToken, {
     ...baseCookieOptions(),
-    maxAge: 15 * 60 * 1000, // 15 minutes, mirrors access token TTL
+    maxAge: 15 * 60 * 1000,
   });
   res.cookie(REFRESH_COOKIE, refreshToken, {
     ...baseCookieOptions(),
