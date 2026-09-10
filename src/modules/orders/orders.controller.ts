@@ -24,9 +24,9 @@ async function notifyCustomerWhatsAppIfNewlyPaid(reference: string, paymentWasAl
 async function notifyCustomerPushIfNewlyPaid(reference: string, paymentWasAlreadyPaid: boolean) {
   if (paymentWasAlreadyPaid) return;
   try {
-    const order = await prisma.order.findUnique({ where: { paymentReference: reference }, select: { userId: true, paymentStatus: true, orderNumber: true } });
+    const order = await prisma.order.findUnique({ where: { paymentReference: reference }, select: { customerId: true, paymentStatus: true, orderNumber: true } });
     if (!order || order.paymentStatus !== "PAID") return;
-    await sendPushToUser(order.userId, {
+    await sendPushToUser(order.customerId, {
       title: "Payment confirmed",
       body: `Payment for order ${order.orderNumber} has been confirmed.`,
       data: { type: "order.payment.confirmed", orderNumber: order.orderNumber, url: `${env.appUrl}/orders/${encodeURIComponent(order.orderNumber)}` },
