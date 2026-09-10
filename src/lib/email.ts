@@ -1,7 +1,7 @@
 import { enqueueEmail } from "@/lib/email-queue";
 import { renderEmailLayout, escapeHtml } from "@/lib/email-layout";
 import { prisma } from "@/lib/prisma";
-import { sendWhatsAppNotification, customerOrderWhatsAppMessage } from "@/lib/whatsapp-notifications";
+import { sendWhatsAppNotification, customerOrderWhatsAppMessage, vendorFirstOrderWhatsAppMessage } from "@/lib/whatsapp-notifications";
 
 export async function sendEmail(opts: { to: string; subject: string; html: string; event?: string }) {
   const result = await enqueueEmail({ to: opts.to, subject: opts.subject, html: opts.html, event: opts.event ?? "generic" });
@@ -15,6 +15,19 @@ export async function sendEmail(opts: { to: string; subject: string; html: strin
       await sendWhatsAppNotification({ to: user.phone, message: customerOrderWhatsAppMessage(match[1], Number(order.totalAmount)), event: "customer_order_confirmed" });
     })().catch(() => undefined);
   }
+  if (opts.event === "vendor_new_order") {
+    void (async () => {
+      const vendorUser = await prisma.user.findUnique({ where: { email: opts.to }, select: { id: true, phone: true, vendorProfile: { select: { id: true } } } });
+      const match = opts.subject.match(/^New order — (.+)$/);
+      if (!vendorUser?.vendorProfile || !match) return;
+      const paidOrderCount = await prisma.vendorOrder.count({ where: { vendorId: vendorUser.vendorProfile.id, order: { paymentStatus: "PAID" } } });
+      if (paidOrderCount !== 1) return;
+      const order = await prisma.order.findUnique({ where: { orderNumber: match[1] }, select: { totalAmount: true } });
+      if (!order) return;
+      void enqueueEmail({ to: opts.to, ...vendorFirstOrderEmail(match[1], 0, Number(order.totalAmount)) });
+      if (vendorUser.phone) void sendWhatsAppNotification({ to: vendorUser.phone, message: vendorFirstOrderWhatsAppMessage(match[1], Number(order.totalAmount)), event: "vendor_first_order" });
+    })().catch(() => undefined);
+  }
   return result;
 }
 
@@ -24,7 +37,7 @@ export function vendorApplicationReceivedEmail(storeName: string) { return { sub
 export function orderConfirmationEmail(orderNumber: string) { return { subject: `Order ${orderNumber} confirmed`, html: renderEmailLayout({ heading: "Order confirmed", previewText: `We've received your payment for ${orderNumber}.`, bodyHtml: `<p>Thanks for your order! We've received your payment for <strong>${escapeHtml(orderNumber)}</strong>. The vendor(s) have been notified and will begin processing shortly.</p>` }), event: "order_confirmation" }; }
 export function vendorNewOrderEmail(orderNumber: string, itemCount: number) { return { subject: `New order — ${orderNumber}`, html: renderEmailLayout({ heading: "New order", bodyHtml: `<p>You have a new order (<strong>${escapeHtml(orderNumber)}</strong>) with ${itemCount} item(s). Log in to your vendor dashboard to process it.</p>` }), event: "vendor_new_order" }; }
 export function vendorFirstProductEmail(storeName: string, productName: string, productUrl: string) { return { subject: "🎉 Your first product is live on TTFL Store", html: renderEmailLayout({ heading: "Your first product is live!", previewText: "Congratulations — your store is officially open for business.", bodyHtml: `<p>Congratulations! <strong>${escapeHtml(productName)}</strong> is now live on TTFL Store.</p><p>Your store <strong>${escapeHtml(storeName)}</strong> is officially open for customers. This is your first live product — now let's get your next one listed.</p>`, ctaText: "View product", ctaUrl: productUrl }), event: "vendor_first_product" }; }
-export function vendorFirstOrderEmail(orderNumber: string, itemCount: number, amount: number) { return { subject: "🎉 Congratulations on your first TTFL Store order", html: renderEmailLayout({ heading: "Your first order!", previewText: `Congratulations — you received your first order on TTFL Store.`, bodyHtml: `<p>Congratulations! Your store has received its first order on TTFL Store.</p><p><strong>Order:</strong> ${escapeHtml(orderNumber)}<br><strong>Items:</strong> ${itemCount}<br><strong>Order value:</strong> ₦${amount.toLocaleString()}</p><p>Log in to your vendor dashboard to review and fulfill the order.</p>`, ctaText: "View orders", ctaUrl: `${process.env.APP_URL ?? "https://ttflstore.name.ng"}/vendor/dashboard/orders` }), event: "vendor_first_order" }; }
+export function vendorFirstOrderEmail(orderNumber: string, itemCount: number, amount: number) { return { subject: "🎉 Congratulations on your first TTFL Store order", html: renderEmailLayout({ heading: "Your first order!", previewText: "Congratulations — you received your first order on TTFL Store.", bodyHtml: `<p>Congratulations! Your store has received its first order on TTFL Store.</p><p><strong>Order:</strong> ${escapeHtml(orderNumber)}<br><strong>Items:</strong> ${itemCount}<br><strong>Order value:</strong> ₦${amount.toLocaleString()}</p><p>Log in to your vendor dashboard to review and fulfill the order.</p>`, ctaText: "View orders", ctaUrl: `${process.env.APP_URL ?? "https://ttflstore.name.ng"}/vendor/dashboard/orders` }), event: "vendor_first_order" }; }
 export function vendorApprovedEmail(storeName: string) { return { subject: "Your TTFL Store vendor application was approved", html: renderEmailLayout({ heading: "You're approved!", bodyHtml: `<p>Good news — <strong>${escapeHtml(storeName)}</strong> is now live on TTFL Store. You can start listing products right away.</p>` }), event: "vendor_approved" }; }
 export function vendorRejectedEmail(storeName: string, reason: string) { return { subject: "Update on your TTFL Store vendor application", html: renderEmailLayout({ heading: "Application update", bodyHtml: `<p>Your application for <strong>${escapeHtml(storeName)}</strong> wasn't approved this time.</p><p><strong>Reason:</strong> ${escapeHtml(reason)}</p>` }), event: "vendor_rejected" }; }
 export function adminNewVendorEmail(storeName: string) { return { subject: `New vendor application: ${storeName}`, html: renderEmailLayout({ heading: "New vendor application", bodyHtml: `<p><strong>${escapeHtml(storeName)}</strong> has applied to sell on TTFL Store. Review it in the admin dashboard.</p>` }), event: "admin_new_vendor" }; }
