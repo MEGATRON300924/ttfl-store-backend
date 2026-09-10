@@ -43,11 +43,15 @@ async function notifyCustomerOrderStatus(vendorOrderId: string, status: OrderSta
   };
   const push = pushCopy[status];
   if (vendorOrder.order.customerId && push) {
-    await sendPushToUser(vendorOrder.order.customerId, {
-      title: push.title,
-      body: push.body,
-      data: { url: `/orders/${encodeURIComponent(orderNumber)}`, type: `order_${status.toLowerCase()}`, orderNumber },
-    });
+    try {
+      await sendPushToUser(vendorOrder.order.customerId, {
+        title: push.title,
+        body: push.body,
+        data: { url: `/orders/${encodeURIComponent(orderNumber)}`, type: `order_${status.toLowerCase()}`, orderNumber },
+      });
+    } catch {
+      // Mobile push delivery must never block existing WhatsApp notifications.
+    }
   }
 
   if (!vendorOrder.order.deliveryPhone) return;
