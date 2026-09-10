@@ -11,6 +11,7 @@ authRouter.post("/google", authRateLimiter, googleAuthController.googleLogin);
 
 authRouter.post("/register/customer", authRateLimiter, authController.registerCustomer);
 authRouter.post("/register/vendor", authRateLimiter, authController.registerVendor);
+authRouter.post("/mobile/register/customer", authRateLimiter, authController.mobileRegisterCustomer);
 authRouter.post("/login", authRateLimiter, authController.login);
 authRouter.post("/mobile/login", authRateLimiter, authController.mobileLogin);
 authRouter.post("/refresh", authController.refresh);
