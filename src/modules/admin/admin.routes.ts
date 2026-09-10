@@ -10,6 +10,32 @@ import { generateOpaqueToken } from "@/lib/tokens";
 
 export const adminRouter = Router();
 
+adminRouter.get("/waitlists", requireAuth, requireRole("ADMIN"), asyncHandler(async (_req, res) => {
+  const rows = await prisma.$queryRawUnsafe<Array<{ productId: string; name: string; slug: string; vendorName: string | null; count: bigint | number; latestJoinedAt: Date | string | null }>>(`
+    SELECT p.id AS "productId", p.name, p.slug, vp."storeName" AS "vendorName",
+           COUNT(a.id)::bigint AS count, MAX(a.created_at) AS "latestJoinedAt"
+    FROM products p
+    LEFT JOIN vendor_profiles vp ON vp.id=p."vendorId"
+    LEFT JOIN product_alerts a ON a.product_id=p.id AND a.type='WAITLIST'
+    WHERE p."deletedAt" IS NULL AND p."comingSoon"=true
+    GROUP BY p.id,p.name,p.slug,vp."storeName"
+    ORDER BY COUNT(a.id) DESC, p."createdAt" DESC
+  `);
+  const waitlists = rows.map((row) => ({ ...row, count: Number(row.count) }));
+  const total = waitlists.reduce((sum, row) => sum + row.count, 0);
+  res.json({ total, products: waitlists });
+}));
+
+adminRouter.get("/waitlists/:productId", requireAuth, requireRole("ADMIN"), asyncHandler(async (req, res) => {
+  const product = await prisma.product.findFirst({ where: { id: req.params.productId, deletedAt: null }, select: { id: true, name: true, slug: true, comingSoon: true } });
+  if (!product) throw AppError.notFound("Product not found");
+  const entries = await prisma.$queryRawUnsafe<Array<{ id: string; email: string | null; whatsapp: string | null; userId: string | null; createdAt: Date | string }>>(`
+    SELECT id,email,whatsapp,user_id AS "userId",created_at AS "createdAt"
+    FROM product_alerts WHERE product_id=$1 AND type='WAITLIST' ORDER BY created_at DESC
+  `, product.id);
+  res.json({ product, count: entries.length, entries });
+}));
+
 adminRouter.get("/admins", requireAuth, requireRole("ADMIN"), asyncHandler(async (_req, res) => {
   const admins = await prisma.user.findMany({ where: { role: "ADMIN", status: { not: "DELETED" } }, select: { id: true, email: true, firstName: true, lastName: true, status: true, emailVerified: true, createdAt: true, lastLoginAt: true }, orderBy: { createdAt: "asc" } });
   res.json({ admins });
