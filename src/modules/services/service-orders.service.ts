@@ -41,16 +41,10 @@ export async function createServiceOrder(customerId: string, customerEmail: stri
   const paymentReference = `ttfl_service_${id}_${Date.now()}`;
   await prisma.$executeRawUnsafe(`INSERT INTO service_orders (id,service_id,vendor_id,customer_id,amount,currency,commission_rate,commission_amount,vendor_earnings,payment_reference,status,payment_status,booking_date,booking_time,location,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PENDING','PENDING',$11,$12,$13,$14)`, id, service.id, service.vendor_id, customerId, amount, service.currency ?? "NGN", commissionRate, commissionAmount, vendorEarnings, paymentReference, input.bookingDate || null, input.bookingTime?.trim() || null, input.location?.trim() || null, input.notes?.trim() || null);
   try {
-    const paystack = await initializeTransaction({ email: customerEmail, amountNaira: amount, reference: paymentReference, callbackUrl: `${env.appUrl}/services/${encodeURIComponent(service.slug)}/confirm`, metadata: { kind: "ttfl_service_order", serviceOrderId: id, serviceId: service.id, serviceSlug: service.slug, ...(input.adCampaignId ? { adCampaignId: input.adCampaignId } : {}) }, split: await buildServiceSplit(service.vendor_id, vendorEarnings, paymentReference) });
+    const paystack = await initializeTransaction({ email: customerEmail, amountNaira: amount, reference: paymentReference, callbackUrl: `${env.appUrl}/services/${encodeURIComponent(service.slug)}/confirm`, metadata: { kind: "ttfl_service_order", serviceOrderId: id, serviceId: service.id, serviceSlug: service.slug, ...(input.adCampaignId ? { adCampaignId: input.adCampaignId } : {}) } });
     if (input.adCampaignId) void recordConversionEvent(input.adCampaignId, "BOOKING", { serviceOrderId: id, stage: "CHECKOUT_START" }).catch(() => undefined);
     return { serviceOrder: await getServiceOrderById(id, customerId, false), checkoutUrl: paystack.authorization_url };
   } catch (error) { await prisma.$executeRawUnsafe(`DELETE FROM service_orders WHERE id=$1`, id); throw error; }
-}
-
-async function buildServiceSplit(vendorId: string, vendorEarnings: number, reference: string) {
-  const vendor = await prisma.vendorProfile.findUnique({ where: { id: vendorId }, select: { paystackSubaccountCode: true, storeName: true } });
-  if (!vendor?.paystackSubaccountCode) throw AppError.badRequest(`Payment cannot start because ${vendor?.storeName ?? "this vendor"} has not configured a payout account`, "VENDOR_PAYOUT_NOT_CONFIGURED");
-  return { type: "flat" as const, bearer_type: "account" as const, subaccounts: [{ subaccount: vendor.paystackSubaccountCode, share: Math.round(vendorEarnings * 100) }], reference: `ttfl_service_split_${reference}` };
 }
 
 export async function verifyAndFinalizeServicePayment(reference: string) {
