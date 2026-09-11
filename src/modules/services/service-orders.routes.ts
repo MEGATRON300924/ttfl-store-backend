@@ -10,6 +10,7 @@ export const serviceOrdersRouter = Router();
 
 const createSchema = z.object({
   serviceId: z.string().min(1),
+  adCampaignId: z.string().uuid().optional(),
   bookingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   bookingTime: z.string().trim().max(80).nullable().optional(),
   location: z.string().trim().max(300).nullable().optional(),
@@ -23,26 +24,8 @@ serviceOrdersRouter.post("/", requireAuth, asyncHandler(async (req, res) => {
   const result = await orders.createServiceOrder(req.user!.sub, customer.email, input.serviceId, input);
   res.status(201).json(result);
 }));
-
-serviceOrdersRouter.get("/mine", requireAuth, asyncHandler(async (req, res) => {
-  res.json({ serviceOrders: await orders.getMyServiceOrders(req.user!.sub) });
-}));
-
-serviceOrdersRouter.get("/vendor/mine", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => {
-  res.json({ serviceOrders: await orders.getMyVendorServiceOrders(req.user!.sub) });
-}));
-
-serviceOrdersRouter.patch("/vendor/:id/status", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => {
-  const input = z.object({ status: z.enum(orders.SERVICE_ORDER_STATUSES) }).parse(req.body);
-  res.json({ serviceOrder: await orders.updateVendorServiceOrderStatus(req.user!.sub, req.params.id, input.status) });
-}));
-
-serviceOrdersRouter.get("/:id", requireAuth, asyncHandler(async (req, res) => {
-  res.json({ serviceOrder: await orders.getServiceOrderById(req.params.id, req.user!.sub, true) });
-}));
-
-serviceOrdersRouter.post("/:reference/verify", requireAuth, asyncHandler(async (req, res) => {
-  const serviceOrder = await orders.verifyAndFinalizeServicePayment(req.params.reference);
-  if (serviceOrder.customer_id !== req.user!.sub) throw AppError.forbidden("You don't have access to this service order");
-  res.json({ serviceOrder });
-}));
+serviceOrdersRouter.get("/mine", requireAuth, asyncHandler(async (req, res) => { res.json({ serviceOrders: await orders.getMyServiceOrders(req.user!.sub) }); }));
+serviceOrdersRouter.get("/vendor/mine", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => { res.json({ serviceOrders: await orders.getMyVendorServiceOrders(req.user!.sub) }); }));
+serviceOrdersRouter.patch("/vendor/:id/status", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => { const input = z.object({ status: z.enum(orders.SERVICE_ORDER_STATUSES) }).parse(req.body); res.json({ serviceOrder: await orders.updateVendorServiceOrderStatus(req.user!.sub, req.params.id, input.status) }); }));
+serviceOrdersRouter.get("/:id", requireAuth, asyncHandler(async (req, res) => { res.json({ serviceOrder: await orders.getServiceOrderById(req.params.id, req.user!.sub, true) }); }));
+serviceOrdersRouter.post("/:reference/verify", requireAuth, asyncHandler(async (req, res) => { const serviceOrder = await orders.verifyAndFinalizeServicePayment(req.params.reference); if (serviceOrder.customer_id !== req.user!.sub) throw AppError.forbidden("You don't have access to this service order"); res.json({ serviceOrder }); }));
