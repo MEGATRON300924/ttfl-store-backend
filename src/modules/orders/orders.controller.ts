@@ -39,7 +39,34 @@ async function notifyCustomerPushIfNewlyPaid(reference: string, paymentWasAlread
 
 export const checkout = asyncHandler(async (req: Request, res: Response) => { const input = checkoutSchema.parse(req.body); const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.sub } }); const { order, checkoutUrl } = await ordersService.checkout(req.user!.sub, user.email, input); res.status(201).json({ order, checkoutUrl }); });
 export const verifyPayment = asyncHandler(async (req: Request, res: Response) => { const existing = await prisma.order.findUnique({ where: { paymentReference: req.params.reference }, select: { paymentStatus: true } }); if (!existing) throw AppError.notFound("Order not found for this payment reference"); const order = await ordersService.verifyAndFinalizePayment(req.params.reference); await notifyCustomerWhatsAppIfNewlyPaid(req.params.reference, existing.paymentStatus === "PAID"); await notifyCustomerPushIfNewlyPaid(req.params.reference, existing.paymentStatus === "PAID"); res.json({ order }); });
-export const paystackWebhook = asyncHandler(async (req: Request, res: Response) => { const signature = req.headers["x-paystack-signature"] as string | undefined; const rawBody = (req as Request & { rawBody?: Buffer }).rawBody; if (!rawBody || !isValidPaystackSignature(rawBody, signature)) { logger.warn("Rejected Paystack webhook with invalid signature"); throw AppError.unauthorized("Invalid webhook signature", "INVALID_WEBHOOK_SIGNATURE"); } const event = req.body as { event: string; data: { reference: string } }; if (event.event === "charge.success") { try { const existing = await prisma.order.findUnique({ where: { paymentReference: event.data.reference }, select: { paymentStatus: true } }); await ordersService.verifyAndFinalizePayment(event.data.reference); await notifyCustomerWhatsAppIfNewlyPaid(event.data.reference, existing?.paymentStatus === "PAID"); await notifyCustomerPushIfNewlyPaid(event.data.reference, existing?.paymentStatus === "PAID"); } catch (err) { logger.error("Failed to finalize order from webhook", { err, reference: event.data.reference }); } } res.status(200).json({ received: true }); });
+export const paystackWebhook = asyncHandler(async (req: Request, res: Response) => {
+  const signature = req.headers["x-paystack-signature"] as string | undefined;
+  const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
+  if (!rawBody || !isValidPaystackSignature(rawBody, signature)) {
+    logger.warn("Rejected Paystack webhook with invalid signature");
+    throw AppError.unauthorized("Invalid webhook signature", "INVALID_WEBHOOK_SIGNATURE");
+  }
+
+  const event = req.body as { event: string; data: { reference: string } };
+
+  // Acknowledge Paystack immediately. Payment finalization and notifications
+  // continue asynchronously so a slow database/email/WhatsApp operation cannot
+  // cause Paystack to retry a valid webhook.
+  res.status(200).json({ received: true });
+
+  if (event.event === "charge.success") {
+    void (async () => {
+      try {
+        const existing = await prisma.order.findUnique({ where: { paymentReference: event.data.reference }, select: { paymentStatus: true } });
+        await ordersService.verifyAndFinalizePayment(event.data.reference);
+        await notifyCustomerWhatsAppIfNewlyPaid(event.data.reference, existing?.paymentStatus === "PAID");
+        await notifyCustomerPushIfNewlyPaid(event.data.reference, existing?.paymentStatus === "PAID");
+      } catch (err) {
+        logger.error("Failed to finalize order from webhook", { err, reference: event.data.reference });
+      }
+    })();
+  }
+});
 export const myOrders = asyncHandler(async (req: Request, res: Response) => { res.json({ orders: await ordersService.getMyOrders(req.user!.sub) }); });
 export const getByNumber = asyncHandler(async (req: Request, res: Response) => { res.json({ order: await ordersService.getOrderByNumber(req.params.orderNumber, req.user!.sub, req.user!.role) }); });
 export const trackPublicLink = asyncHandler(async (req: Request, res: Response) => { res.json(await trackByPublicToken(req.params.token)); });
