@@ -20,7 +20,7 @@ type PaystackVerifyResponse = {
   status: boolean;
   message: string;
   data: {
-    status: "success" | "failed" | "abandoned";
+    status: "success" | "failed" | "abandoned" | "ongoing" | "pending" | "processing" | "queued" | "reversed";
     reference: string;
     amount: number;
     currency: string;
