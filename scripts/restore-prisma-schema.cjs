@@ -56,16 +56,36 @@ function normalizeOrderItemVendorColumn(schema) {
   return schema.slice(0, start) + normalized + schema.slice(end);
 }
 
+function normalizeVendorOrderColumn(schema) {
+  const start = schema.indexOf("model VendorOrder {");
+  if (start === -1) throw new Error("Downloaded Prisma schema is missing model VendorOrder.");
+  const end = schema.indexOf("\n}", start);
+  if (end === -1) throw new Error("Downloaded Prisma schema has an invalid VendorOrder model.");
+
+  const block = schema.slice(start, end);
+  const normalized = block.replace(
+    /  orderId\s+String\s*\n/,
+    '  orderId String @map("order_id")\n'
+  );
+
+  if (!normalized.includes('orderId String @map("order_id")')) {
+    throw new Error("VendorOrder orderId field could not be normalized.");
+  }
+
+  return schema.slice(0, start) + normalized + schema.slice(end);
+}
+
 (async () => {
   let schema = await download(sourceUrl);
 
-  if (!["model User {", "model Order {", "model VendorProfile {", "model Product {", "model OrderItem {"]
+  if (!["model User {", "model Order {", "model VendorProfile {", "model Product {", "model OrderItem {", "model VendorOrder {"]
     .every(x => schema.includes(x))) {
     throw new Error("Downloaded Prisma schema failed validation.");
   }
 
   schema = normalizeProductVendorColumn(schema);
   schema = normalizeOrderItemVendorColumn(schema);
+  schema = normalizeVendorOrderColumn(schema);
 
   fs.writeFileSync(schemaPath, schema);
 
@@ -85,7 +105,7 @@ function normalizeOrderItemVendorColumn(schema) {
     execFileSync(process.execPath, [path.join(process.cwd(), "scripts", script)], { stdio: "inherit" });
   }
 
-  console.log("Canonical Prisma schema restored with mapped product and order-item vendor columns plus all local schema extensions applied.");
+  console.log("Canonical Prisma schema restored with mapped product, vendor-order, and order-item foreign-key columns plus all local schema extensions applied.");
 })().catch(error => {
   console.error("Prisma schema restoration failed:", error);
   process.exit(1);
