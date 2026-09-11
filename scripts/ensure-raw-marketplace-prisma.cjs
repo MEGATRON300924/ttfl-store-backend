@@ -25,10 +25,10 @@ function addModelField(modelName, marker, field) {
 // db push does not try to remove either object from the live database.
 if (schema.includes("model StorePublicProfile {")) {
   const start = schema.indexOf("model StorePublicProfile {");
-  const end = schema.indexOf("\n}", start);
+  let end = schema.indexOf("\n}", start);
   if (end === -1) throw new Error("StorePublicProfile model is not closed");
 
-  const modelBlock = schema.slice(start, end);
+  let modelBlock = schema.slice(start, end);
 
   if (!/\n\s*visibility\s+String\b/.test(modelBlock)) {
     const marker = schema.indexOf("  createdAt", start);
@@ -36,13 +36,14 @@ if (schema.includes("model StorePublicProfile {")) {
     schema = schema.slice(0, marker) + '  visibility  String        @default("PUBLIC")\n' + schema.slice(marker);
   }
 
+  end = schema.indexOf("\n}", start);
+  modelBlock = schema.slice(start, end);
+
   // The live database already has this index. Without the matching Prisma
   // @@index, migrate diff generates DROP INDEX during safe-push.
-  const refreshedEnd = schema.indexOf("\n}", start);
-  const refreshedBlock = schema.slice(start, refreshedEnd);
-  if (!refreshedBlock.includes('map: "store_public_profiles_visibility_idx"')) {
+  if (!modelBlock.includes('map: "store_public_profiles_visibility_idx"')) {
     const indexMarker = schema.indexOf("\n}", start);
-    schema = schema.slice(0, indexMarker) + '  @@index([visibility], map: "store_public_profiles_visibility_idx")\n' + schema.slice(indexMarker);
+    schema = schema.slice(0, indexMarker) + '\n  @@index([visibility], map: "store_public_profiles_visibility_idx")' + schema.slice(indexMarker);
   }
 }
 
