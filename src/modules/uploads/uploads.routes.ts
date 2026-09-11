@@ -5,11 +5,60 @@ import { requireAuth, requireRole } from "@/middleware/auth";
 import { AppError } from "@/utils/app-error";
 import { prisma } from "@/lib/prisma";
 import { getVendorProfileForUser } from "@/lib/vendor-access";
-import { validateUploadFile, uploadProductImage, deleteProductImage, uploadAvatar, uploadStoreBranding, deleteStoreBranding } from "./uploads.service";
+import { validateUploadFile, validateUploadVideo, uploadProductImage, uploadProductVideo, deleteProductImage, deleteProductVideo, uploadAvatar, uploadStoreBranding, deleteStoreBranding } from "./uploads.service";
+
 export const uploadsRouter = Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
-uploadsRouter.post("/product-image", requireAuth, requireRole("VENDOR"), upload.single("image"), asyncHandler(async (req, res) => { if (!req.file) throw AppError.badRequest("No image file provided", "NO_FILE"); validateUploadFile({ mimetype: req.file.mimetype, size: req.file.size }); const vendor = await getVendorProfileForUser(req.user!.sub); res.status(201).json(await uploadProductImage(vendor.id, req.file.buffer, req.file.mimetype)); }));
-uploadsRouter.delete("/product-image/:publicId", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => { await deleteProductImage(decodeURIComponent(req.params.publicId)); res.status(204).send(); }));
-uploadsRouter.post("/avatar", requireAuth, upload.single("image"), asyncHandler(async (req, res) => { if (!req.file) throw AppError.badRequest("No image file provided", "NO_FILE"); validateUploadFile({ mimetype: req.file.mimetype, size: req.file.size }); res.status(201).json(await uploadAvatar(req.user!.sub, req.file.buffer, req.file.mimetype)); }));
-uploadsRouter.post("/store-branding", requireAuth, requireRole("VENDOR"), upload.single("image"), asyncHandler(async (req, res) => { if (!req.file) throw AppError.badRequest("No image file provided", "NO_FILE"); validateUploadFile({ mimetype: req.file.mimetype, size: req.file.size }); const type = req.body.type; if (type !== "logo" && type !== "banner") throw AppError.badRequest('Branding type must be either "logo" or "banner"', "INVALID_BRANDING_TYPE"); const vendor = await getVendorProfileForUser(req.user!.sub); const result = await uploadStoreBranding(vendor.id, type, req.file.buffer, req.file.mimetype); const updateData = type === "logo" ? { logoUrl: result.url, logoPublicId: result.publicId } : { bannerUrl: result.url, bannerPublicId: result.publicId }; const updatedProfile = await prisma.vendorProfile.update({ where: { id: vendor.id }, data: updateData }); res.status(201).json({ ...result, vendorProfile: updatedProfile }); }));
-uploadsRouter.delete("/store-branding", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => { const type = req.query.type; if (type !== "logo" && type !== "banner") throw AppError.badRequest('Type must be either "logo" or "banner"', "INVALID_BRANDING_TYPE"); const vendor = await getVendorProfileForUser(req.user!.sub); const publicId = type === "logo" ? vendor.logoPublicId : vendor.bannerPublicId; if (publicId) await deleteStoreBranding(publicId); const updateData = type === "logo" ? { logoUrl: null, logoPublicId: null } : { bannerUrl: null, bannerPublicId: null }; await prisma.vendorProfile.update({ where: { id: vendor.id }, data: updateData }); res.status(204).send(); }));
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+
+uploadsRouter.post("/product-image", requireAuth, requireRole("VENDOR"), upload.single("image"), asyncHandler(async (req, res) => {
+  if (!req.file) throw AppError.badRequest("No image file provided", "NO_FILE");
+  validateUploadFile({ mimetype: req.file.mimetype, size: req.file.size });
+  const vendor = await getVendorProfileForUser(req.user!.sub);
+  res.status(201).json(await uploadProductImage(vendor.id, req.file.buffer, req.file.mimetype));
+}));
+
+uploadsRouter.delete("/product-image/:publicId", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => {
+  await deleteProductImage(decodeURIComponent(req.params.publicId));
+  res.status(204).send();
+}));
+
+uploadsRouter.post("/product-video", requireAuth, requireRole("VENDOR"), upload.single("video"), asyncHandler(async (req, res) => {
+  if (!req.file) throw AppError.badRequest("No video file provided", "NO_FILE");
+  validateUploadVideo({ mimetype: req.file.mimetype, size: req.file.size });
+  const vendor = await getVendorProfileForUser(req.user!.sub);
+  res.status(201).json(await uploadProductVideo(vendor.id, req.file.buffer, req.file.mimetype));
+}));
+
+uploadsRouter.delete("/product-video/:publicId", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => {
+  await deleteProductVideo(decodeURIComponent(req.params.publicId));
+  res.status(204).send();
+}));
+
+uploadsRouter.post("/avatar", requireAuth, upload.single("image"), asyncHandler(async (req, res) => {
+  if (!req.file) throw AppError.badRequest("No image file provided", "NO_FILE");
+  validateUploadFile({ mimetype: req.file.mimetype, size: req.file.size });
+  res.status(201).json(await uploadAvatar(req.user!.sub, req.file.buffer, req.file.mimetype));
+}));
+
+uploadsRouter.post("/store-branding", requireAuth, requireRole("VENDOR"), upload.single("image"), asyncHandler(async (req, res) => {
+  if (!req.file) throw AppError.badRequest("No image file provided", "NO_FILE");
+  validateUploadFile({ mimetype: req.file.mimetype, size: req.file.size });
+  const type = req.body.type;
+  if (type !== "logo" && type !== "banner") throw AppError.badRequest('Branding type must be either "logo" or "banner"', "INVALID_BRANDING_TYPE");
+  const vendor = await getVendorProfileForUser(req.user!.sub);
+  const result = await uploadStoreBranding(vendor.id, type, req.file.buffer, req.file.mimetype);
+  const updateData = type === "logo" ? { logoUrl: result.url, logoPublicId: result.publicId } : { bannerUrl: result.url, bannerPublicId: result.publicId };
+  const updatedProfile = await prisma.vendorProfile.update({ where: { id: vendor.id }, data: updateData });
+  res.status(201).json({ ...result, vendorProfile: updatedProfile });
+}));
+
+uploadsRouter.delete("/store-branding", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => {
+  const type = req.query.type;
+  if (type !== "logo" && type !== "banner") throw AppError.badRequest('Type must be either "logo" or "banner"', "INVALID_BRANDING_TYPE");
+  const vendor = await getVendorProfileForUser(req.user!.sub);
+  const publicId = type === "logo" ? vendor.logoPublicId : vendor.bannerPublicId;
+  if (publicId) await deleteStoreBranding(publicId);
+  const updateData = type === "logo" ? { logoUrl: null, logoPublicId: null } : { bannerUrl: null, bannerPublicId: null };
+  await prisma.vendorProfile.update({ where: { id: vendor.id }, data: updateData });
+  res.status(204).send();
+}));
