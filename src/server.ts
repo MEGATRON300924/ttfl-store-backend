@@ -5,6 +5,7 @@ import { startEmailWorker } from "@/lib/email-queue";
 import { startMaxEventOutboxWorker } from "@/lib/max-event-outbox";
 import { startProductAlertWorker } from "@/modules/products/product-alert-worker";
 import { startLaunchCampaignWorker } from "@/modules/launch-campaigns/launch-campaign-worker";
+import { startSubscriptionWorker } from "@/modules/subscriptions/subscription-worker";
 
 const app = createApp();
 
@@ -14,4 +15,5 @@ app.listen(env.port, () => {
   startMaxEventOutboxWorker();
   startProductAlertWorker();
   startLaunchCampaignWorker();
+  startSubscriptionWorker();
 });
