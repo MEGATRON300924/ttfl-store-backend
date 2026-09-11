@@ -18,7 +18,11 @@ uploadsRouter.post("/product-image", requireAuth, requireRole("VENDOR"), upload.
 }));
 
 uploadsRouter.delete("/product-image/:publicId", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => {
-  await deleteProductImage(decodeURIComponent(req.params.publicId));
+  const vendor = await getVendorProfileForUser(req.user!.sub);
+  const publicId = decodeURIComponent(req.params.publicId);
+  const prefix = `ttfl-store/vendors/${vendor.id}/products/`;
+  if (!publicId.startsWith(prefix)) throw AppError.forbidden("You can only delete your own product images", "UPLOAD_OWNERSHIP_REQUIRED");
+  await deleteProductImage(publicId);
   res.status(204).send();
 }));
 
@@ -30,7 +34,11 @@ uploadsRouter.post("/product-video", requireAuth, requireRole("VENDOR"), upload.
 }));
 
 uploadsRouter.delete("/product-video/:publicId", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => {
-  await deleteProductVideo(decodeURIComponent(req.params.publicId));
+  const vendor = await getVendorProfileForUser(req.user!.sub);
+  const publicId = decodeURIComponent(req.params.publicId);
+  const prefix = `ttfl-store/vendors/${vendor.id}/products/videos/`;
+  if (!publicId.startsWith(prefix)) throw AppError.forbidden("You can only delete your own product videos", "UPLOAD_OWNERSHIP_REQUIRED");
+  await deleteProductVideo(publicId);
   res.status(204).send();
 }));
 
