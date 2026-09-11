@@ -105,13 +105,27 @@ export async function verifyAndFinalizePayment(reference: string) {
   if (verification.currency !== "NGN") throw AppError.badRequest("Payment currency does not match this order", "CURRENCY_MISMATCH");
   const paidAmountNaira = verification.amount / 100;
   if (Math.round(paidAmountNaira) !== Math.round(Number(order.totalAmount))) throw AppError.badRequest("Payment amount does not match order total", "AMOUNT_MISMATCH");
+
+  let alreadyFinalized = false;
   await prisma.$transaction(async (tx) => {
+    // Callback and webhook can arrive at nearly the same time. Serialize finalization
+    // per payment reference so stock, rewards and vendor notifications cannot run twice.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${reference}))`;
+    const current = await tx.order.findUnique({ where: { id: order.id }, select: { paymentStatus: true } });
+    if (current?.paymentStatus === "PAID") {
+      alreadyFinalized = true;
+      return;
+    }
+
     await tx.payment.upsert({ where: { reference }, create: { orderId: order.id, reference, amount: paidAmountNaira, status: "PAID", channel: verification.channel, gatewayResponse: verification as unknown as Prisma.InputJsonValue }, update: { status: "PAID", channel: verification.channel, gatewayResponse: verification as unknown as Prisma.InputJsonValue } });
     await tx.order.update({ where: { id: order.id }, data: { paymentStatus: "PAID", paidAt: new Date() } });
     await tx.vendorOrder.updateMany({ where: { orderId: order.id }, data: { status: "PROCESSING" } });
     for (const vo of order.vendorOrders) for (const item of vo.items) { const updated = await tx.product.updateMany({ where: { id: item.productId, stock: { gte: item.quantity } }, data: { stock: { decrement: item.quantity } } }); if (updated.count !== 1) throw AppError.badRequest(`Not enough stock for "${item.productName}"`, "INSUFFICIENT_STOCK"); }
     for (const item of order.vendorOrders.flatMap((vo) => vo.items)) await tx.$executeRawUnsafe(`UPDATE flash_deals fd SET sold_count=(SELECT COALESCE(SUM(oi.quantity),0)::int FROM order_items oi JOIN vendor_orders vo ON vo.id=oi.vendor_order_id JOIN orders o ON o.id=vo.order_id WHERE oi.product_id=fd.product_id AND o.payment_status='PAID') WHERE fd.product_id=$1 AND fd.active=true`, item.productId);
   });
+
+  if (alreadyFinalized) return prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { vendorOrders: { include: { items: true } } } });
+
   const metadata = (verification as any)?.metadata;
   const adCampaignId = typeof metadata?.adCampaignId === "string" ? metadata.adCampaignId : undefined;
   if (adCampaignId) void recordConversionEvent(adCampaignId, "PURCHASE", { orderId: order.id, orderNumber: order.orderNumber, amount: Number(order.totalAmount), stage: "PAID" }).catch(() => undefined);
