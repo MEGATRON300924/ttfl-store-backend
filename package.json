@@ -10,7 +10,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
-    "prisma:safe-push": "node scripts/ensure-vendor-store-category-prisma.cjs && node scripts/ensure-raw-marketplace-prisma.cjs && node scripts/safe-prisma-push.cjs",
+    "prisma:safe-push": "node scripts/ensure-vendor-store-category-prisma.cjs && node scripts/ensure-order-item-vendor-column.cjs && node scripts/ensure-raw-marketplace-prisma.cjs && node scripts/safe-prisma-push.cjs",
     "prisma:studio": "prisma studio",
     "seed:admin": "tsx prisma/seed.ts",
     "backfill:product-ids": "node scripts/backfill-product-ids.cjs",
