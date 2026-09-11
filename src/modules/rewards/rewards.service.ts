@@ -10,6 +10,7 @@ const DEFAULTS = {
   referralPoints: 200,
   signupPoints: 100,
   profilePoints: 50,
+  appDownloadPoints: 500,
   maxOrderRedemptionPercent: 20,
   pointsPerNaira: 1,
   expirationDays: 365,
@@ -36,13 +37,24 @@ export async function ensureWallet(userId: string) {
   );
 }
 
+async function ensureWelcomeReward(userId: string) {
+  const existing = await prisma.$queryRawUnsafe<{ id: string }[]>(
+    `SELECT id FROM reward_ledger WHERE user_id=$1 AND type='SIGNUP' LIMIT 1`,
+    userId,
+  );
+  if (!existing.length) await awardSignup(userId);
+}
+
 export async function getWallet(userId: string) {
   await ensureWallet(userId);
+  await ensureWelcomeReward(userId);
   const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT user_id AS "userId", points_balance AS "pointsBalance", lifetime_earned AS "lifetimeEarned", lifetime_redeemed AS "lifetimeRedeemed", lifetime_spend AS "lifetimeSpend", completed_orders AS "completedOrders", level, updated_at AS "updatedAt" FROM reward_wallets WHERE user_id=$1`, userId);
   return rows[0];
 }
 
 export async function getHistory(userId: string, limit = 50) {
+  await ensureWallet(userId);
+  await ensureWelcomeReward(userId);
   return prisma.$queryRawUnsafe<any[]>(`SELECT id,type,points,description,reference_type AS "referenceType",reference_id AS "referenceId",expires_at AS "expiresAt",created_at AS "createdAt" FROM reward_ledger WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`, userId, Math.min(Math.max(limit, 1), 100));
 }
 
