@@ -5,6 +5,7 @@ import { AppError } from "@/utils/app-error";
 import { getVendorProfileForUser } from "@/lib/vendor-access";
 import { initializeTransaction, verifyTransaction } from "@/lib/paystack";
 import { resolveCommissionRate, calculateCommission } from "@/lib/commissions";
+import { recordConversionEvent } from "@/modules/ads/ads.service";
 import { ensureServiceTables } from "./services.service";
 
 export const SERVICE_ORDER_STATUSES = ["PENDING", "CONFIRMED", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const;
@@ -25,7 +26,7 @@ async function getServiceForCheckout(serviceIdOrSlug: string) {
   return rows[0];
 }
 
-export async function createServiceOrder(customerId: string, customerEmail: string, serviceIdOrSlug: string, input: { bookingDate?: string | null; bookingTime?: string | null; location?: string | null; notes?: string | null }) {
+export async function createServiceOrder(customerId: string, customerEmail: string, serviceIdOrSlug: string, input: { bookingDate?: string | null; bookingTime?: string | null; location?: string | null; notes?: string | null; adCampaignId?: string }) {
   await ensureServiceOrderTables();
   const service = await getServiceForCheckout(serviceIdOrSlug);
   if (service.price_type === "QUOTE" || service.price == null) throw AppError.badRequest("This service requires a quote before payment", "SERVICE_REQUIRES_QUOTE");
@@ -34,28 +35,16 @@ export async function createServiceOrder(customerId: string, customerEmail: stri
   if (service.booking_required && !input.bookingDate) throw AppError.badRequest("Please choose a booking date", "BOOKING_DATE_REQUIRED");
   if (service.booking_required && !input.bookingTime) throw AppError.badRequest("Please choose a booking time", "BOOKING_TIME_REQUIRED");
   if (input.bookingDate && !/^\d{4}-\d{2}-\d{2}$/.test(input.bookingDate)) throw AppError.badRequest("Invalid booking date", "INVALID_BOOKING_DATE");
-
   const commissionRate = await resolveCommissionRate(service.vendor_id);
   const { commissionAmount, vendorEarnings } = calculateCommission(amount, commissionRate);
   const id = randomUUID();
   const paymentReference = `ttfl_service_${id}_${Date.now()}`;
-
   await prisma.$executeRawUnsafe(`INSERT INTO service_orders (id,service_id,vendor_id,customer_id,amount,currency,commission_rate,commission_amount,vendor_earnings,payment_reference,status,payment_status,booking_date,booking_time,location,notes) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'PENDING','PENDING',$11,$12,$13,$14)`, id, service.id, service.vendor_id, customerId, amount, service.currency ?? "NGN", commissionRate, commissionAmount, vendorEarnings, paymentReference, input.bookingDate || null, input.bookingTime?.trim() || null, input.location?.trim() || null, input.notes?.trim() || null);
-
   try {
-    const paystack = await initializeTransaction({
-      email: customerEmail,
-      amountNaira: amount,
-      reference: paymentReference,
-      callbackUrl: `${env.appUrl}/services/${encodeURIComponent(service.slug)}/confirm`,
-      metadata: { kind: "ttfl_service_order", serviceOrderId: id, serviceId: service.id, serviceSlug: service.slug },
-      split: await buildServiceSplit(service.vendor_id, vendorEarnings, paymentReference),
-    });
+    const paystack = await initializeTransaction({ email: customerEmail, amountNaira: amount, reference: paymentReference, callbackUrl: `${env.appUrl}/services/${encodeURIComponent(service.slug)}/confirm`, metadata: { kind: "ttfl_service_order", serviceOrderId: id, serviceId: service.id, serviceSlug: service.slug, ...(input.adCampaignId ? { adCampaignId: input.adCampaignId } : {}) }, split: await buildServiceSplit(service.vendor_id, vendorEarnings, paymentReference) });
+    if (input.adCampaignId) void recordConversionEvent(input.adCampaignId, "BOOKING", { serviceOrderId: id, stage: "CHECKOUT_START" }).catch(() => undefined);
     return { serviceOrder: await getServiceOrderById(id, customerId, false), checkoutUrl: paystack.authorization_url };
-  } catch (error) {
-    await prisma.$executeRawUnsafe(`DELETE FROM service_orders WHERE id=$1`, id);
-    throw error;
-  }
+  } catch (error) { await prisma.$executeRawUnsafe(`DELETE FROM service_orders WHERE id=$1`, id); throw error; }
 }
 
 async function buildServiceSplit(vendorId: string, vendorEarnings: number, reference: string) {
@@ -71,13 +60,13 @@ export async function verifyAndFinalizeServicePayment(reference: string) {
   if (!order) throw AppError.notFound("Service order not found for this payment reference");
   if (order.payment_status === "PAID") return getServiceOrderById(order.id, order.customer_id, true);
   const verification = await verifyTransaction(reference);
-  if (verification.status !== "success") {
-    await prisma.$executeRawUnsafe(`UPDATE service_orders SET payment_status='FAILED',updated_at=NOW() WHERE id=$1`, order.id);
-    throw AppError.badRequest("Payment was not successful", "PAYMENT_FAILED");
-  }
+  if (verification.status !== "success") { await prisma.$executeRawUnsafe(`UPDATE service_orders SET payment_status='FAILED',updated_at=NOW() WHERE id=$1`, order.id); throw AppError.badRequest("Payment was not successful", "PAYMENT_FAILED"); }
   const paidAmount = verification.amount / 100;
   if (Math.round(paidAmount) !== Math.round(Number(order.amount))) throw AppError.badRequest("Payment amount does not match service total", "AMOUNT_MISMATCH");
   await prisma.$executeRawUnsafe(`UPDATE service_orders SET payment_status='PAID',status='CONFIRMED',paid_at=NOW(),updated_at=NOW() WHERE id=$1`, order.id);
+  const metadata = (verification as any)?.metadata;
+  const adCampaignId = typeof metadata?.adCampaignId === "string" ? metadata.adCampaignId : undefined;
+  if (adCampaignId) void recordConversionEvent(adCampaignId, "BOOKING", { serviceOrderId: order.id, serviceId: order.service_id, amount: Number(order.amount), stage: "PAID" }).catch(() => undefined);
   return getServiceOrderById(order.id, order.customer_id, true);
 }
 
@@ -85,33 +74,9 @@ export async function getServiceOrderById(id: string, requesterId: string, allow
   await ensureServiceOrderTables();
   const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT so.*,s.title AS "serviceTitle",s.slug AS "serviceSlug",s.description AS "serviceDescription",s.booking_required AS "bookingRequired",vp."storeName" AS "storeName",vp."storeSlug" AS "storeSlug",vp."logoUrl" AS "storeLogoUrl" FROM service_orders so JOIN services s ON s.id=so.service_id JOIN vendor_profiles vp ON vp.id=so.vendor_id WHERE so.id=$1 LIMIT 1`, id);
   if (!rows[0]) throw AppError.notFound("Service order not found");
-  if (rows[0].customer_id !== requesterId) {
-    if (!allowVendor) throw AppError.forbidden("You don't have access to this service order");
-    const vendor = await getVendorProfileForUser(requesterId);
-    if (vendor.id !== rows[0].vendor_id) throw AppError.forbidden("You don't have access to this service order");
-  }
+  if (rows[0].customer_id !== requesterId) { if (!allowVendor) throw AppError.forbidden("You don't have access to this service order"); const vendor = await getVendorProfileForUser(requesterId); if (vendor.id !== rows[0].vendor_id) throw AppError.forbidden("You don't have access to this service order"); }
   return rows[0];
 }
-
-export async function getMyServiceOrders(customerId: string) {
-  await ensureServiceOrderTables();
-  return prisma.$queryRawUnsafe<any[]>(`SELECT so.*,s.title AS "serviceTitle",s.slug AS "serviceSlug",vp."storeName" AS "storeName",vp."storeSlug" AS "storeSlug",vp."logoUrl" AS "storeLogoUrl" FROM service_orders so JOIN services s ON s.id=so.service_id JOIN vendor_profiles vp ON vp.id=so.vendor_id WHERE so.customer_id=$1 ORDER BY so.created_at DESC`, customerId);
-}
-
-export async function getMyVendorServiceOrders(userId: string) {
-  await ensureServiceOrderTables();
-  const vendor = await getVendorProfileForUser(userId);
-  return prisma.$queryRawUnsafe<any[]>(`SELECT so.*,s.title AS "serviceTitle",s.slug AS "serviceSlug",u."email" AS "customerEmail",u."firstName" AS "customerFirstName",u."lastName" AS "customerLastName" FROM service_orders so JOIN services s ON s.id=so.service_id JOIN users u ON u.id=so.customer_id WHERE so.vendor_id=$1 ORDER BY so.created_at DESC`, vendor.id);
-}
-
-export async function updateVendorServiceOrderStatus(userId: string, id: string, nextStatus: ServiceOrderStatus) {
-  await ensureServiceOrderTables();
-  const vendor = await getVendorProfileForUser(userId);
-  const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT status FROM service_orders WHERE id=$1 AND vendor_id=$2 LIMIT 1`, id, vendor.id);
-  if (!rows[0]) throw AppError.notFound("Service order not found");
-  const current = rows[0].status as ServiceOrderStatus;
-  const transitions: Record<ServiceOrderStatus, ServiceOrderStatus[]> = { PENDING: ["CANCELLED"], CONFIRMED: ["IN_PROGRESS","CANCELLED"], IN_PROGRESS: ["COMPLETED","CANCELLED"], COMPLETED: [], CANCELLED: [] };
-  if (!transitions[current].includes(nextStatus)) throw AppError.badRequest(`Can't move a service order from ${current} to ${nextStatus}`, "INVALID_STATUS_TRANSITION");
-  await prisma.$executeRawUnsafe(`UPDATE service_orders SET status=$1,updated_at=NOW() WHERE id=$2 AND vendor_id=$3`, nextStatus, id, vendor.id);
-  return getServiceOrderById(id, userId, true);
-}
+export async function getMyServiceOrders(customerId: string) { await ensureServiceOrderTables(); return prisma.$queryRawUnsafe<any[]>(`SELECT so.*,s.title AS "serviceTitle",s.slug AS "serviceSlug",vp."storeName" AS "storeName",vp."storeSlug" AS "storeSlug",vp."logoUrl" AS "storeLogoUrl" FROM service_orders so JOIN services s ON s.id=so.service_id JOIN vendor_profiles vp ON vp.id=so.vendor_id WHERE so.customer_id=$1 ORDER BY so.created_at DESC`, customerId); }
+export async function getMyVendorServiceOrders(userId: string) { await ensureServiceOrderTables(); const vendor = await getVendorProfileForUser(userId); return prisma.$queryRawUnsafe<any[]>(`SELECT so.*,s.title AS "serviceTitle",s.slug AS "serviceSlug",u."email" AS "customerEmail",u."firstName" AS "customerFirstName",u."lastName" AS "customerLastName" FROM service_orders so JOIN services s ON s.id=so.service_id JOIN users u ON u.id=so.customer_id WHERE so.vendor_id=$1 ORDER BY so.created_at DESC`, vendor.id); }
+export async function updateVendorServiceOrderStatus(userId: string, id: string, nextStatus: ServiceOrderStatus) { await ensureServiceOrderTables(); const vendor = await getVendorProfileForUser(userId); const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT status FROM service_orders WHERE id=$1 AND vendor_id=$2 LIMIT 1`, id, vendor.id); if (!rows[0]) throw AppError.notFound("Service order not found"); const current = rows[0].status as ServiceOrderStatus; const transitions: Record<ServiceOrderStatus, ServiceOrderStatus[]> = { PENDING: ["CANCELLED"], CONFIRMED: ["IN_PROGRESS","CANCELLED"], IN_PROGRESS: ["COMPLETED","CANCELLED"], COMPLETED: [], CANCELLED: [] }; if (!transitions[current].includes(nextStatus)) throw AppError.badRequest(`Can't move a service order from ${current} to ${nextStatus}`, "INVALID_STATUS_TRANSITION"); await prisma.$executeRawUnsafe(`UPDATE service_orders SET status=$1,updated_at=NOW() WHERE id=$2 AND vendor_id=$3`, nextStatus, id, vendor.id); return getServiceOrderById(id, userId, true); }
