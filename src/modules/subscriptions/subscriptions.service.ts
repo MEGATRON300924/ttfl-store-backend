@@ -13,7 +13,33 @@ function addBillingPeriod(date: Date, period: "MONTHLY" | "YEARLY"): Date {
   return next;
 }
 
+async function expireIfNeeded(vendorId: string) {
+  const subscription = await prisma.vendorSubscription.findUnique({
+    where: { vendorId },
+    include: { plan: true },
+  });
+
+  if (
+    subscription?.status === "CANCELLED" &&
+    subscription.renewalDate &&
+    subscription.renewalDate <= new Date()
+  ) {
+    const freePlan = await getPlanForTier("FREE");
+    await prisma.$transaction([
+      prisma.vendorSubscription.update({
+        where: { id: subscription.id },
+        data: { status: "EXPIRED" },
+      }),
+      prisma.vendorProfile.update({
+        where: { id: vendorId },
+        data: { tier: freePlan.tier },
+      }),
+    ]);
+  }
+}
+
 export async function getMySubscription(vendorId: string) {
+  await expireIfNeeded(vendorId);
   return prisma.vendorSubscription.findUnique({
     where: { vendorId },
     include: { plan: true, payments: { orderBy: { createdAt: "desc" }, take: 20 } },
@@ -31,6 +57,7 @@ export async function initiatePlanChange(
   vendorEmail: string,
   targetTier: VendorTier
 ) {
+  await expireIfNeeded(vendorId);
   const plan = await getPlanForTier(targetTier);
 
   if (Number(plan.price) === 0) {
@@ -52,13 +79,13 @@ export async function initiatePlanChange(
     metadata: { vendorId, targetTier, kind: "subscription" },
   });
 
-  // Subscription row starts PAST_DUE (i.e. "pending first payment") so the
-  // vendor's UI can show "upgrade pending" without granting the plan's
-  // benefits until payment actually clears.
+  // Subscription row starts PAST_DUE (pending first payment). A previously
+  // cancelled subscription is not downgraded until its paid period ends;
+  // paying again reactivates it normally after verification.
   const subscription = await prisma.vendorSubscription.upsert({
     where: { vendorId },
     create: { vendorId, planId: plan.id, status: "PAST_DUE" },
-    update: { planId: plan.id, status: "PAST_DUE" },
+    update: { planId: plan.id, status: "PAST_DUE", cancelledAt: null },
   });
 
   await prisma.subscriptionPayment.create({
@@ -115,15 +142,35 @@ export async function verifyAndActivateSubscription(reference: string) {
 }
 
 export async function cancelSubscription(vendorId: string) {
-  const subscription = await prisma.vendorSubscription.update({
+  await expireIfNeeded(vendorId);
+  const subscription = await prisma.vendorSubscription.findUnique({ where: { vendorId } });
+  if (!subscription) throw AppError.notFound("Subscription not found");
+  if (subscription.planId === (await getPlanForTier("FREE")).id) {
+    throw AppError.badRequest("You are already on the Free plan", "ALREADY_FREE");
+  }
+  if (subscription.status === "CANCELLED") {
+    return { subscription, cancellationScheduledFor: subscription.renewalDate };
+  }
+
+  // Cancellation is now scheduled for the end of the paid period. The
+  // vendor keeps the paid plan and all of its benefits until renewalDate.
+  const cancelledAt = new Date();
+  const updated = await prisma.vendorSubscription.update({
     where: { vendorId },
-    data: { status: "CANCELLED", cancelledAt: new Date() },
+    data: { status: "CANCELLED", cancelledAt },
+    include: { plan: true },
   });
-  // Vendor drops to FREE at cancellation — no partial-period logic in this
-  // pass (that would need a scheduled job to downgrade at renewalDate,
-  // which isn't set up yet; see README limitations).
-  const freePlan = await getPlanForTier("FREE");
-  await prisma.vendorProfile.update({ where: { id: vendorId }, data: { tier: "FREE" } });
-  await recordAudit({ action: "SUBSCRIPTION_CHANGED", targetType: "VendorSubscription", targetId: subscription.id, metadata: { cancelled: true } });
-  return { subscription, downgradedTo: freePlan.tier };
+
+  await recordAudit({
+    action: "SUBSCRIPTION_CHANGED",
+    targetType: "VendorSubscription",
+    targetId: updated.id,
+    metadata: {
+      cancelled: true,
+      cancellationScheduledFor: updated.renewalDate,
+      planTier: updated.plan.tier,
+    },
+  });
+
+  return { subscription: updated, cancellationScheduledFor: updated.renewalDate };
 }
