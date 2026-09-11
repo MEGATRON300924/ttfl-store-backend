@@ -14,6 +14,9 @@ ordersRouter.get("/driver-contact/:token", ordersController.driverContact);
 ordersRouter.get("/me", requireAuth, requireRole("CUSTOMER"), ordersController.myOrders);
 ordersRouter.get("/vendor/me", requireAuth, requireRole("VENDOR"), ordersController.myVendorOrders);
 ordersRouter.patch("/vendor/:id/status", requireAuth, requireRole("VENDOR"), ordersController.updateVendorOrderStatus);
-ordersRouter.get("/:orderNumber", requireAuth, ordersController.getByNumber);
+
+// Static admin routes must be registered before /:orderNumber.
 ordersRouter.get("/admin/list", requireAuth, requireRole("ADMIN"), ordersController.adminListOrders);
 ordersRouter.post("/admin/:orderId/refund", requireAuth, requireRole("ADMIN"), ordersController.refundOrder);
+
+ordersRouter.get("/:orderNumber", requireAuth, ordersController.getByNumber);
