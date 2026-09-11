@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { AppError } from "@/utils/app-error";
 
 export async function ensureStoreCategoryTable() {
   await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS vendor_store_categories (vendor_id TEXT PRIMARY KEY REFERENCES vendor_profiles(id) ON DELETE CASCADE, category_slug TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
@@ -13,7 +14,7 @@ export async function setStoreCategory(vendorId: string, categorySlug: string | 
     return null;
   }
   const category = await prisma.category.findUnique({ where: { slug: value }, select: { slug: true } });
-  if (!category) throw new Error("Invalid store category");
+  if (!category) throw AppError.badRequest("Please choose a valid store category", "INVALID_STORE_CATEGORY");
   await prisma.$executeRawUnsafe(`INSERT INTO vendor_store_categories (vendor_id, category_slug) VALUES ($1, $2) ON CONFLICT (vendor_id) DO UPDATE SET category_slug = EXCLUDED.category_slug, updated_at = NOW()`, vendorId, category.slug);
   return category.slug;
 }
