@@ -20,14 +20,30 @@ function addModelField(modelName, marker, field) {
   schema = schema.slice(0, markerIndex) + `  ${field}\n` + schema.slice(markerIndex);
 }
 
-// store_public_profiles is application-maintained and already has its own
-// Prisma compatibility model. Add the visibility column so Prisma does not
-// try to remove the live column during db push.
-if (schema.includes("model StorePublicProfile {") && !/model StorePublicProfile \{[\s\S]*?\n\s*visibility\s+String/.test(schema)) {
+// store_public_profiles is application-maintained. Keep both the live
+// visibility column and its existing database index represented in Prisma so
+// db push does not try to remove either object from the live database.
+if (schema.includes("model StorePublicProfile {")) {
   const start = schema.indexOf("model StorePublicProfile {");
-  const marker = schema.indexOf("  createdAt", start);
-  if (marker === -1) throw new Error("StorePublicProfile.createdAt marker not found");
-  schema = schema.slice(0, marker) + '  visibility  String        @default("PUBLIC")\n' + schema.slice(marker);
+  const end = schema.indexOf("\n}", start);
+  if (end === -1) throw new Error("StorePublicProfile model is not closed");
+
+  const modelBlock = schema.slice(start, end);
+
+  if (!/\n\s*visibility\s+String\b/.test(modelBlock)) {
+    const marker = schema.indexOf("  createdAt", start);
+    if (marker === -1 || marker > end) throw new Error("StorePublicProfile.createdAt marker not found");
+    schema = schema.slice(0, marker) + '  visibility  String        @default("PUBLIC")\n' + schema.slice(marker);
+  }
+
+  // The live database already has this index. Without the matching Prisma
+  // @@index, migrate diff generates DROP INDEX during safe-push.
+  const refreshedEnd = schema.indexOf("\n}", start);
+  const refreshedBlock = schema.slice(start, refreshedEnd);
+  if (!refreshedBlock.includes('map: "store_public_profiles_visibility_idx"')) {
+    const indexMarker = schema.indexOf("\n}", start);
+    schema = schema.slice(0, indexMarker) + '  @@index([visibility], map: "store_public_profiles_visibility_idx")\n' + schema.slice(indexMarker);
+  }
 }
 
 addModel(`model AdCampaign {
