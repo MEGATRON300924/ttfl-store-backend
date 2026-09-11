@@ -28,4 +28,10 @@ serviceOrdersRouter.get("/mine", requireAuth, asyncHandler(async (req, res) => {
 serviceOrdersRouter.get("/vendor/mine", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => { res.json({ serviceOrders: await orders.getMyVendorServiceOrders(req.user!.sub) }); }));
 serviceOrdersRouter.patch("/vendor/:id/status", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => { const input = z.object({ status: z.enum(orders.SERVICE_ORDER_STATUSES) }).parse(req.body); res.json({ serviceOrder: await orders.updateVendorServiceOrderStatus(req.user!.sub, req.params.id, input.status) }); }));
 serviceOrdersRouter.get("/:id", requireAuth, asyncHandler(async (req, res) => { res.json({ serviceOrder: await orders.getServiceOrderById(req.params.id, req.user!.sub, true) }); }));
-serviceOrdersRouter.post("/:reference/verify", requireAuth, asyncHandler(async (req, res) => { const serviceOrder = await orders.verifyAndFinalizeServicePayment(req.params.reference); if (serviceOrder.customer_id !== req.user!.sub) throw AppError.forbidden("You don't have access to this service order"); res.json({ serviceOrder }); }));
+serviceOrdersRouter.post("/:reference/verify", requireAuth, asyncHandler(async (req, res) => {
+  const existing = await prisma.$queryRawUnsafe<any[]>(`SELECT customer_id FROM service_orders WHERE payment_reference=$1 LIMIT 1`, req.params.reference);
+  if (!existing[0]) throw AppError.notFound("Service order not found for this payment reference");
+  if (existing[0].customer_id !== req.user!.sub) throw AppError.forbidden("You don't have access to this service order");
+  const serviceOrder = await orders.verifyAndFinalizeServicePayment(req.params.reference);
+  res.json({ serviceOrder });
+}));
