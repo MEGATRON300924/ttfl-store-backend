@@ -89,10 +89,20 @@ export async function verifyAndFinalizePayment(reference: string) {
   if (!order) throw AppError.notFound("Order not found for this payment reference");
   if (order.paymentStatus === "PAID") return order;
   const verification = await verifyTransaction(reference);
+
+  // Paystack can legitimately return a non-final state while a bank transfer,
+  // OTP, or another asynchronous payment step is still completing. Do not turn
+  // those states into a failed TTFL order; the webhook or a later verification
+  // can finalize it once Paystack reports success.
+  if (["ongoing", "pending", "processing", "queued"].includes(verification.status)) {
+    return order;
+  }
+
   if (verification.status !== "success") {
     await prisma.$transaction([prisma.payment.upsert({ where: { reference }, create: { orderId: order.id, reference, amount: order.totalAmount, status: "FAILED", gatewayResponse: verification as unknown as Prisma.InputJsonValue }, update: { status: "FAILED", gatewayResponse: verification as unknown as Prisma.InputJsonValue } }), prisma.order.update({ where: { id: order.id }, data: { paymentStatus: "FAILED" } })]);
     throw AppError.badRequest("Payment was not successful", "PAYMENT_FAILED");
   }
+  if (verification.currency !== "NGN") throw AppError.badRequest("Payment currency does not match this order", "CURRENCY_MISMATCH");
   const paidAmountNaira = verification.amount / 100;
   if (Math.round(paidAmountNaira) !== Math.round(Number(order.totalAmount))) throw AppError.badRequest("Payment amount does not match order total", "AMOUNT_MISMATCH");
   await prisma.$transaction(async (tx) => {
