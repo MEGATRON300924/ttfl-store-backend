@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { asyncHandler } from "@/middleware/error-handler";
 import { AppError } from "@/utils/app-error";
-import { isValidPaystackSignature } from "@/lib/paystack";
+import { isValidPaystackSignature, verifyTransaction } from "@/lib/paystack";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { sendPushToUser } from "@/modules/notifications/notifications.service";
@@ -50,6 +50,38 @@ async function notifyPostPayment(reference: string, paymentWasAlreadyPaid: boole
 }
 
 export const checkout = asyncHandler(async (req: Request, res: Response) => { const input = checkoutSchema.parse(req.body); const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.sub } }); const { order, checkoutUrl } = await ordersService.checkout(req.user!.sub, user.email, input); res.status(201).json({ order, checkoutUrl }); });
+
+// Fast customer-facing payment check. This asks Paystack directly for the current
+// transaction state and does not wait for order fulfillment, stock, flash-deal SQL,
+// notifications, or other post-payment work to finish.
+export const paymentStatus = asyncHandler(async (req: Request, res: Response) => {
+  const reference = req.params.reference;
+  const order = await prisma.order.findUnique({ where: { paymentReference: reference }, select: { orderNumber: true, totalAmount: true, paymentStatus: true } });
+  if (!order) throw AppError.notFound("Order not found for this payment reference");
+
+  const verification = await verifyTransaction(reference);
+  const requestedAmountKobo = verification.requested_amount ?? verification.amount;
+  const requestedAmountNaira = requestedAmountKobo / 100;
+  const amountMatches = Math.round(requestedAmountNaira * 100) === Math.round(Number(order.totalAmount) * 100);
+  const currencyMatches = verification.currency === "NGN";
+
+  if (verification.status === "success" && !amountMatches) {
+    throw AppError.badRequest("Payment amount does not match order total", "AMOUNT_MISMATCH");
+  }
+  if (verification.status === "success" && !currencyMatches) {
+    throw AppError.badRequest("Payment currency does not match this order", "CURRENCY_MISMATCH");
+  }
+
+  res.json({
+    reference,
+    orderNumber: order.orderNumber,
+    paymentStatus: verification.status === "success" && amountMatches && currencyMatches ? "PAID" : order.paymentStatus,
+    orderFinalized: order.paymentStatus === "PAID",
+    gatewayStatus: verification.status,
+    gatewayResponse: verification.gateway_response,
+  });
+});
+
 export const verifyPayment = asyncHandler(async (req: Request, res: Response) => { const existing = await prisma.order.findUnique({ where: { paymentReference: req.params.reference }, select: { paymentStatus: true } }); if (!existing) throw AppError.notFound("Order not found for this payment reference"); const order = await ordersService.verifyAndFinalizePayment(req.params.reference); void notifyPostPayment(req.params.reference, existing.paymentStatus === "PAID"); res.json({ order }); });
 export const paystackWebhook = asyncHandler(async (req: Request, res: Response) => {
   const signature = req.headers["x-paystack-signature"] as string | undefined;
