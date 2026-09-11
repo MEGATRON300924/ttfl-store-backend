@@ -143,17 +143,15 @@ export async function verifyAndActivateSubscription(reference: string) {
 
 export async function cancelSubscription(vendorId: string) {
   await expireIfNeeded(vendorId);
-  const subscription = await prisma.vendorSubscription.findUnique({ where: { vendorId } });
+  const subscription = await prisma.vendorSubscription.findUnique({ where: { vendorId }, include: { plan: true } });
   if (!subscription) throw AppError.notFound("Subscription not found");
-  if (subscription.planId === (await getPlanForTier("FREE")).id) {
-    throw AppError.badRequest("You are already on the Free plan", "ALREADY_FREE");
-  }
+  if (subscription.plan.tier === "FREE") throw AppError.badRequest("You are already on the Free plan", "ALREADY_FREE");
   if (subscription.status === "CANCELLED") {
     return { subscription, cancellationScheduledFor: subscription.renewalDate };
   }
 
-  // Cancellation is now scheduled for the end of the paid period. The
-  // vendor keeps the paid plan and all of its benefits until renewalDate.
+  // Cancellation is scheduled for the end of the paid period. The vendor
+  // keeps the paid plan and all of its benefits until renewalDate.
   const cancelledAt = new Date();
   const updated = await prisma.vendorSubscription.update({
     where: { vendorId },
@@ -173,4 +171,34 @@ export async function cancelSubscription(vendorId: string) {
   });
 
   return { subscription: updated, cancellationScheduledFor: updated.renewalDate };
+}
+
+export async function resumeSubscription(vendorId: string) {
+  await expireIfNeeded(vendorId);
+  const subscription = await prisma.vendorSubscription.findUnique({
+    where: { vendorId },
+    include: { plan: true },
+  });
+  if (!subscription) throw AppError.notFound("Subscription not found");
+  if (subscription.status !== "CANCELLED") {
+    return { subscription };
+  }
+  if (!subscription.renewalDate || subscription.renewalDate <= new Date()) {
+    throw AppError.badRequest("This subscription has already expired", "SUBSCRIPTION_EXPIRED");
+  }
+
+  const updated = await prisma.vendorSubscription.update({
+    where: { vendorId },
+    data: { status: "ACTIVE", cancelledAt: null },
+    include: { plan: true },
+  });
+
+  await recordAudit({
+    action: "SUBSCRIPTION_CHANGED",
+    targetType: "VendorSubscription",
+    targetId: updated.id,
+    metadata: { cancellationReversed: true, planTier: updated.plan.tier },
+  });
+
+  return { subscription: updated };
 }
