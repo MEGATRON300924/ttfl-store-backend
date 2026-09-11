@@ -47,7 +47,7 @@ export async function uploadProductImage(vendorId: string, buffer: Buffer, mimet
 export async function uploadProductVideo(vendorId: string, buffer: Buffer, mimetype: string): Promise<{ url: string; publicId: string }> {
   ensureConfigured();
   return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream({ folder: `ttfl-store/vendors/${vendorId}/products/videos`, resource_type: "video", quality: "auto" }, (error, result) => {
+    const stream = cloudinary.uploader.upload_stream({ folder: `ttfl-store/vendors/${vendorId}/products/videos`, resource_type: "video" }, (error, result) => {
       if (error || !result) {
         logger.error("Cloudinary product video upload failed", { error, vendorId });
         return reject(AppError.internal("Video upload failed, please try again", "VIDEO_UPLOAD_FAILED"));
