@@ -59,11 +59,34 @@ export async function verifyAndFinalizeServicePayment(reference: string) {
   const order = rows[0];
   if (!order) throw AppError.notFound("Service order not found for this payment reference");
   if (order.payment_status === "PAID") return getServiceOrderById(order.id, order.customer_id, true);
+
   const verification = await verifyTransaction(reference);
-  if (verification.status !== "success") { await prisma.$executeRawUnsafe(`UPDATE service_orders SET payment_status='FAILED',updated_at=NOW() WHERE id=$1`, order.id); throw AppError.badRequest("Payment was not successful", "PAYMENT_FAILED"); }
-  const paidAmount = verification.amount / 100;
-  if (Math.round(paidAmount) !== Math.round(Number(order.amount))) throw AppError.badRequest("Payment amount does not match service total", "AMOUNT_MISMATCH");
-  await prisma.$executeRawUnsafe(`UPDATE service_orders SET payment_status='PAID',status='CONFIRMED',paid_at=NOW(),updated_at=NOW() WHERE id=$1`, order.id);
+  if (["ongoing", "pending", "processing", "queued"].includes(verification.status)) {
+    return getServiceOrderById(order.id, order.customer_id, true);
+  }
+  if (verification.status !== "success") {
+    await prisma.$executeRawUnsafe(`UPDATE service_orders SET payment_status='FAILED',updated_at=NOW() WHERE id=$1 AND payment_status <> 'PAID'`, order.id);
+    throw AppError.badRequest("Payment was not successful", "PAYMENT_FAILED");
+  }
+  if (verification.currency !== "NGN") throw AppError.badRequest("Payment currency does not match service total", "CURRENCY_MISMATCH");
+
+  const requestedAmountKobo = verification.requested_amount ?? verification.amount;
+  const requestedAmountNaira = requestedAmountKobo / 100;
+  if (Math.round(requestedAmountNaira * 100) !== Math.round(Number(order.amount) * 100)) {
+    throw AppError.badRequest("Payment amount does not match service total", "AMOUNT_MISMATCH");
+  }
+
+  let finalized = false;
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${reference}))`;
+    const currentRows = await tx.$queryRawUnsafe<any[]>(`SELECT payment_status FROM service_orders WHERE id=$1 LIMIT 1`, order.id);
+    if (!currentRows[0] || currentRows[0].payment_status === "PAID") return;
+    await tx.$executeRawUnsafe(`UPDATE service_orders SET payment_status='PAID',status='CONFIRMED',paid_at=NOW(),updated_at=NOW() WHERE id=$1 AND payment_status <> 'PAID'`, order.id);
+    finalized = true;
+  });
+
+  if (!finalized) return getServiceOrderById(order.id, order.customer_id, true);
+
   const metadata = (verification as any)?.metadata;
   const adCampaignId = typeof metadata?.adCampaignId === "string" ? metadata.adCampaignId : undefined;
   if (adCampaignId) void recordConversionEvent(adCampaignId, "BOOKING", { serviceOrderId: order.id, serviceId: order.service_id, amount: Number(order.amount), stage: "PAID" }).catch(() => undefined);
