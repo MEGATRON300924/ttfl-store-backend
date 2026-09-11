@@ -1,12 +1,42 @@
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/utils/app-error";
+import { env } from "@/config/env";
+import { sendEmail } from "@/lib/email";
+
+function supportEmailHtml(title: string, body: string, link?: string) {
+  return `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#172033"><h2>${title}</h2><div style="white-space:pre-wrap;line-height:1.6">${body}</div>${link ? `<p><a href="${link}" style="display:inline-block;padding:10px 16px;background:#f97316;color:#fff;text-decoration:none;border-radius:8px">Open TTFL Support</a></p>` : ""}<p style="font-size:12px;color:#667085">TTFL Store Support</p></div>`;
+}
+
+async function notifyAdminNewReport(conversation: any, initialMessage: string) {
+  if (!env.adminNotificationEmail) return;
+  const subject = initialMessage.match(/^Subject:\s*(.+)$/m)?.[1]?.trim() || "Customer report";
+  await sendEmail({
+    to: env.adminNotificationEmail,
+    subject: `TTFL Store report: ${subject}`,
+    html: supportEmailHtml("New customer report", `Customer: ${conversation.customer?.email ?? conversation.customerId}\n\n${initialMessage}`),
+    event: "support_report_created",
+  }).catch((error) => console.error("Failed to send support report notification:", error));
+}
+
+async function notifyCustomerReply(conversationId: string, body: string) {
+  const conversation = await prisma.supportConversation.findUnique({ where: { id: conversationId }, include: { customer: { select: { email: true, firstName: true } } } });
+  if (!conversation?.customer?.email) return;
+  await sendEmail({
+    to: conversation.customer.email,
+    subject: "TTFL Store Support replied to your report",
+    html: supportEmailHtml(`Hi ${conversation.customer.firstName || "there"}, TTFL Support has replied`, body, `${env.appUrl.replace(/\/$/, "")}/support/reports`),
+    event: "support_report_reply",
+  }).catch((error) => console.error("Failed to send support reply notification:", error));
+}
 
 export async function startConversation(customerId: string, initialMessage: string, orderNumber?: string) {
-  return prisma.supportConversation.create({ data: { customerId, orderNumber, messages: { create: { senderId: customerId, senderType: "CUSTOMER", body: initialMessage } } }, include: { messages: true } });
+  const conversation = await prisma.supportConversation.create({ data: { customerId, orderNumber, messages: { create: { senderId: customerId, senderType: "CUSTOMER", body: initialMessage } } }, include: { messages: true, customer: { select: { email: true, firstName: true } } } });
+  void notifyAdminNewReport(conversation, initialMessage);
+  return conversation;
 }
 
 export async function getMyConversations(customerId: string) {
-  return prisma.supportConversation.findMany({ where: { customerId }, include: { messages: { orderBy: { createdAt: "asc" }, take: 1 } }, orderBy: { updatedAt: "desc" } });
+  return prisma.supportConversation.findMany({ where: { customerId }, include: { messages: { orderBy: { createdAt: "desc" }, take: 1 } }, orderBy: { updatedAt: "desc" } });
 }
 
 export async function getConversation(conversationId: string, requesterId: string, requesterRole: string) {
@@ -18,6 +48,7 @@ export async function getConversation(conversationId: string, requesterId: strin
 
 export async function postMessage(conversationId: string, senderId: string | null, senderType: "CUSTOMER" | "AGENT" | "SYSTEM", body: string) {
   const [message] = await prisma.$transaction([prisma.supportMessage.create({ data: { conversationId, senderId, senderType, body } }), prisma.supportConversation.update({ where: { id: conversationId }, data: { updatedAt: new Date() } })]);
+  if (senderType === "AGENT") void notifyCustomerReply(conversationId, body);
   return message;
 }
 
