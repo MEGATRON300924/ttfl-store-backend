@@ -1,0 +1,38 @@
+import { randomUUID } from "node:crypto";
+import { prisma } from "@/lib/prisma";
+import { AppError } from "@/utils/app-error";
+import { getVendorProfileForUser } from "@/lib/vendor-access";
+
+export const SERVICE_STATUSES = ["DRAFT", "ACTIVE", "PAUSED", "SUSPENDED"] as const;
+export const SERVICE_PRICE_TYPES = ["FIXED", "STARTING_FROM", "QUOTE"] as const;
+
+export async function ensureServiceTables() {
+  await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS services (id TEXT PRIMARY KEY, vendor_id TEXT NOT NULL REFERENCES vendor_profiles(id) ON DELETE CASCADE, category_slug TEXT, title TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, description TEXT NOT NULL, price NUMERIC(14,2), price_type TEXT NOT NULL DEFAULT 'FIXED', currency TEXT NOT NULL DEFAULT 'NGN', location TEXT, service_area TEXT, booking_required BOOLEAN NOT NULL DEFAULT false, status TEXT NOT NULL DEFAULT 'ACTIVE', image_url TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (price_type IN ('FIXED','STARTING_FROM','QUOTE')), CHECK (status IN ('DRAFT','ACTIVE','PAUSED','SUSPENDED')))`);
+  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS services_vendor_idx ON services(vendor_id, status)`);
+  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS services_category_idx ON services(category_slug, status)`);
+}
+
+function slugify(value: string) { return value.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, ""); }
+
+export async function createService(userId: string, input: { title: string; description: string; categorySlug?: string | null; price?: number | null; priceType?: string; location?: string | null; serviceArea?: string | null; bookingRequired?: boolean; imageUrl?: string | null }) {
+  await ensureServiceTables();
+  const vendor = await getVendorProfileForUser(userId);
+  if (vendor.status !== "APPROVED") throw AppError.forbidden("Your store must be approved before publishing a service");
+  const base = slugify(input.title) || randomUUID();
+  let slug = base;
+  for (let i = 2; i < 100; i++) { const exists = await prisma.$queryRawUnsafe<any[]>(`SELECT id FROM services WHERE slug = $1 LIMIT 1`, slug); if (!exists[0]) break; slug = `${base}-${i}`; }
+  const priceType = input.priceType ?? "FIXED";
+  if (!SERVICE_PRICE_TYPES.includes(priceType as any)) throw AppError.badRequest("Invalid service price type");
+  if (priceType !== "QUOTE" && (input.price == null || Number(input.price) < 0)) throw AppError.badRequest("A service price is required unless the service uses quote pricing");
+  const id = randomUUID();
+  await prisma.$executeRawUnsafe(`INSERT INTO services (id, vendor_id, category_slug, title, slug, description, price, price_type, location, service_area, booking_required, image_url) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`, id, vendor.id, input.categorySlug?.trim().toLowerCase() || null, input.title.trim(), slug, input.description.trim(), input.price == null ? null : Number(input.price), priceType, input.location?.trim() || null, input.serviceArea?.trim() || null, Boolean(input.bookingRequired), input.imageUrl?.trim() || null);
+  return getServiceById(id);
+}
+
+export async function getServiceById(id: string) { await ensureServiceTables(); const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT s.*, vp."storeName" AS "storeName", vp."storeSlug" AS "storeSlug", vp."logoUrl" AS "storeLogoUrl", vp.verified FROM services s JOIN vendor_profiles vp ON vp.id=s.vendor_id WHERE s.id=$1 AND s.status='ACTIVE' AND vp.status='APPROVED' LIMIT 1`, id); if (!rows[0]) throw AppError.notFound("Service not found"); return rows[0]; }
+
+export async function listServices(query?: { q?: string; category?: string; location?: string; vendor?: string; limit?: number }) { await ensureServiceTables(); const limit = Math.min(Math.max(Number(query?.limit ?? 24) || 24,1),48); const q = query?.q?.trim() ?? ""; const category = query?.category?.trim().toLowerCase() ?? ""; const location = query?.location?.trim() ?? ""; const vendor = query?.vendor?.trim() ?? ""; return prisma.$queryRawUnsafe<any[]>(`SELECT s.*, vp."storeName" AS "storeName", vp."storeSlug" AS "storeSlug", vp."logoUrl" AS "storeLogoUrl", vp.verified FROM services s JOIN vendor_profiles vp ON vp.id=s.vendor_id WHERE s.status='ACTIVE' AND vp.status='APPROVED' AND ($1='' OR s.title ILIKE '%'||$1||'%' OR s.description ILIKE '%'||$1||'%') AND ($2='' OR s.category_slug=$2) AND ($3='' OR s.location ILIKE '%'||$3||'%' OR s.service_area ILIKE '%'||$3||'%') AND ($4='' OR vp."storeSlug"=$4 OR vp."storeName" ILIKE '%'||$4||'%') ORDER BY s.created_at DESC LIMIT $5`, q, category, location, vendor, limit); }
+
+export async function getMyServices(userId: string) { await ensureServiceTables(); const vendor = await getVendorProfileForUser(userId); return prisma.$queryRawUnsafe<any[]>(`SELECT * FROM services WHERE vendor_id=$1 ORDER BY created_at DESC`, vendor.id); }
+
+export async function updateService(userId: string, id: string, input: Partial<{ title: string; description: string; categorySlug: string | null; price: number | null; priceType: string; location: string | null; serviceArea: string | null; bookingRequired: boolean; status: string; imageUrl: string | null }>) { await ensureServiceTables(); const vendor = await getVendorProfileForUser(userId); const existing = await prisma.$queryRawUnsafe<any[]>(`SELECT id FROM services WHERE id=$1 AND vendor_id=$2 LIMIT 1`, id, vendor.id); if (!existing[0]) throw AppError.notFound("Service not found"); const fields: string[]=[]; const values: any[]=[]; const add=(sql:string,v:any)=>{fields.push(sql);values.push(v)}; if(input.title!==undefined)add('title=$'+(values.length+1),input.title.trim()); if(input.description!==undefined)add('description=$'+(values.length+1),input.description.trim()); if(input.categorySlug!==undefined)add('category_slug=$'+(values.length+1),input.categorySlug?.trim().toLowerCase()||null); if(input.price!==undefined)add('price=$'+(values.length+1),input.price==null?null:Number(input.price)); if(input.priceType!==undefined){if(!SERVICE_PRICE_TYPES.includes(input.priceType as any))throw AppError.badRequest('Invalid service price type');add('price_type=$'+(values.length+1),input.priceType)} if(input.location!==undefined)add('location=$'+(values.length+1),input.location?.trim()||null); if(input.serviceArea!==undefined)add('service_area=$'+(values.length+1),input.serviceArea?.trim()||null); if(input.bookingRequired!==undefined)add('booking_required=$'+(values.length+1),Boolean(input.bookingRequired)); if(input.status!==undefined){if(!SERVICE_STATUSES.includes(input.status as any))throw AppError.badRequest('Invalid service status');add('status=$'+(values.length+1),input.status)} if(input.imageUrl!==undefined)add('image_url=$'+(values.length+1),input.imageUrl?.trim()||null); if(fields.length) await prisma.$executeRawUnsafe(`UPDATE services SET ${fields.join(', ')}, updated_at=NOW() WHERE id=$${values.length+1} AND vendor_id=$${values.length+1}`,...values,id,vendor.id); return getMyServices(userId); }
