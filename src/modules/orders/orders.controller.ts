@@ -26,37 +26,23 @@ async function notifyCustomerPushIfNewlyPaid(reference: string, paymentWasAlread
   try {
     const order = await prisma.order.findUnique({ where: { paymentReference: reference }, select: { customerId: true, paymentStatus: true, orderNumber: true } });
     if (!order || order.paymentStatus !== "PAID") return;
-    await sendPushToUser(order.customerId, {
-      title: "Payment confirmed",
-      body: `Payment for order ${order.orderNumber} has been confirmed.`,
-      data: { type: "order.payment.confirmed", orderNumber: order.orderNumber, url: `${env.appUrl}/orders/${encodeURIComponent(order.orderNumber)}` },
-    });
-  } catch (error) {
-    logger.warn("Customer push notification after payment confirmation failed", { reference, error });
-  }
+    await sendPushToUser(order.customerId, { title: "Payment confirmed", body: `Payment for order ${order.orderNumber} has been confirmed.`, data: { type: "order.payment.confirmed", orderNumber: order.orderNumber, url: `${env.appUrl}/orders/${encodeURIComponent(order.orderNumber)}` } });
+  } catch (error) { logger.warn("Customer push notification after payment confirmation failed", { reference, error }); }
 }
 
 async function notifyPostPayment(reference: string, paymentWasAlreadyPaid: boolean) {
-  try {
-    await notifyCustomerWhatsAppIfNewlyPaid(reference, paymentWasAlreadyPaid);
-  } catch (error) {
-    logger.warn("Customer WhatsApp notification after payment confirmation failed", { reference, error });
-  }
-  try {
-    await notifyCustomerPushIfNewlyPaid(reference, paymentWasAlreadyPaid);
-  } catch (error) {
-    logger.warn("Customer push notification after payment confirmation failed", { reference, error });
-  }
+  try { await notifyCustomerWhatsAppIfNewlyPaid(reference, paymentWasAlreadyPaid); } catch (error) { logger.warn("Customer WhatsApp notification after payment confirmation failed", { reference, error }); }
+  try { await notifyCustomerPushIfNewlyPaid(reference, paymentWasAlreadyPaid); } catch (error) { logger.warn("Customer push notification after payment confirmation failed", { reference, error }); }
 }
 
 export const checkout = asyncHandler(async (req: Request, res: Response) => { const input = checkoutSchema.parse(req.body); const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.sub } }); const { order, checkoutUrl } = await ordersService.checkout(req.user!.sub, user.email, input); res.status(201).json({ order, checkoutUrl }); });
 
-// Fast customer-facing payment check. This asks Paystack directly for the current
-// transaction state and does not wait for order fulfillment, stock, flash-deal SQL,
-// notifications, or other post-payment work to finish.
+// Fast customer-facing payment check. Paystack is queried directly. When Paystack
+// reports success, finalization is kicked off in the background so this endpoint
+// never waits on stock, flash-deal SQL, emails, WhatsApp, rewards, or other work.
 export const paymentStatus = asyncHandler(async (req: Request, res: Response) => {
   const reference = req.params.reference;
-  const order = await prisma.order.findUnique({ where: { paymentReference: reference }, select: { orderNumber: true, totalAmount: true, paymentStatus: true } });
+  const order = await prisma.order.findUnique({ where: { paymentReference: reference }, select: { id: true, orderNumber: true, totalAmount: true, paymentStatus: true } });
   if (!order) throw AppError.notFound("Order not found for this payment reference");
 
   const verification = await verifyTransaction(reference);
@@ -65,17 +51,20 @@ export const paymentStatus = asyncHandler(async (req: Request, res: Response) =>
   const amountMatches = Math.round(requestedAmountNaira * 100) === Math.round(Number(order.totalAmount) * 100);
   const currencyMatches = verification.currency === "NGN";
 
-  if (verification.status === "success" && !amountMatches) {
-    throw AppError.badRequest("Payment amount does not match order total", "AMOUNT_MISMATCH");
-  }
-  if (verification.status === "success" && !currencyMatches) {
-    throw AppError.badRequest("Payment currency does not match this order", "CURRENCY_MISMATCH");
+  if (verification.status === "success" && !amountMatches) throw AppError.badRequest("Payment amount does not match order total", "AMOUNT_MISMATCH");
+  if (verification.status === "success" && !currencyMatches) throw AppError.badRequest("Payment currency does not match this order", "CURRENCY_MISMATCH");
+
+  const paymentSucceeded = verification.status === "success" && amountMatches && currencyMatches;
+  if (paymentSucceeded && order.paymentStatus !== "PAID") {
+    void ordersService.verifyAndFinalizePayment(reference)
+      .then(() => notifyPostPayment(reference, false))
+      .catch((err) => logger.error("Failed to finalize order from customer payment-status check", { err, reference }));
   }
 
   res.json({
     reference,
     orderNumber: order.orderNumber,
-    paymentStatus: verification.status === "success" && amountMatches && currencyMatches ? "PAID" : order.paymentStatus,
+    paymentStatus: paymentSucceeded ? "PAID" : order.paymentStatus,
     orderFinalized: order.paymentStatus === "PAID",
     gatewayStatus: verification.status,
     gatewayResponse: verification.gateway_response,
@@ -86,23 +75,16 @@ export const verifyPayment = asyncHandler(async (req: Request, res: Response) =>
 export const paystackWebhook = asyncHandler(async (req: Request, res: Response) => {
   const signature = req.headers["x-paystack-signature"] as string | undefined;
   const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
-  if (!rawBody || !isValidPaystackSignature(rawBody, signature)) {
-    logger.warn("Rejected Paystack webhook with invalid signature");
-    throw AppError.unauthorized("Invalid webhook signature", "INVALID_WEBHOOK_SIGNATURE");
-  }
-
+  if (!rawBody || !isValidPaystackSignature(rawBody, signature)) { logger.warn("Rejected Paystack webhook with invalid signature"); throw AppError.unauthorized("Invalid webhook signature", "INVALID_WEBHOOK_SIGNATURE"); }
   const event = req.body as { event: string; data: { reference: string } };
   res.status(200).json({ received: true });
-
   if (event.event === "charge.success") {
     void (async () => {
       try {
         const existing = await prisma.order.findUnique({ where: { paymentReference: event.data.reference }, select: { paymentStatus: true } });
         await ordersService.verifyAndFinalizePayment(event.data.reference);
         await notifyPostPayment(event.data.reference, existing?.paymentStatus === "PAID");
-      } catch (err) {
-        logger.error("Failed to finalize order from webhook", { err, reference: event.data.reference });
-      }
+      } catch (err) { logger.error("Failed to finalize order from webhook", { err, reference: event.data.reference }); }
     })();
   }
 });
