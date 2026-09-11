@@ -23,6 +23,8 @@ type PaystackVerifyResponse = {
     status: "success" | "failed" | "abandoned" | "ongoing" | "pending" | "processing" | "queued" | "reversed";
     reference: string;
     amount: number;
+    requested_amount?: number | null;
+    fees?: number | null;
     currency: string;
     channel: string;
     paid_at: string | null;
