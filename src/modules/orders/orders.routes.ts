@@ -6,7 +6,9 @@ export const ordersRouter = Router();
 
 // The Paystack webhook is mounted separately in app.ts before express.json().
 ordersRouter.post("/checkout", requireAuth, requireRole("CUSTOMER"), ordersController.checkout);
-ordersRouter.get("/verify/:reference", requireAuth, ordersController.verifyPayment);
+// Paystack redirects the customer here after checkout. This endpoint must be public
+// because a payment callback is not an authenticated application request.
+ordersRouter.get("/verify/:reference", ordersController.verifyPayment);
 ordersRouter.get("/track-link/:token", ordersController.trackPublicLink);
 ordersRouter.get("/driver-contact/:token", ordersController.driverContact);
 ordersRouter.get("/me", requireAuth, requireRole("CUSTOMER"), ordersController.myOrders);
