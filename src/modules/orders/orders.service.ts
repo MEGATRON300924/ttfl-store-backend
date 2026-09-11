@@ -9,6 +9,7 @@ import { sendEmail, orderConfirmationEmail, vendorNewOrderEmail, adminNewOrderEm
 import { sendWhatsAppNotification, newOrderWhatsAppMessage } from "@/lib/whatsapp-notifications";
 import { recordAudit } from "@/lib/audit";
 import { recordPurchase, reversePurchase } from "@/modules/rewards/rewards.service";
+import { recordConversionEvent } from "@/modules/ads/ads.service";
 import type { CheckoutInput } from "./orders.validators";
 import type { Prisma, OrderStatus, Product } from "@prisma/client";
 
@@ -76,28 +77,10 @@ export async function checkout(customerId: string, customerEmail: string, input:
   }
   const orderNumber = await generateOrderNumber();
   const paymentReference = `ttfl_${orderNumber}_${Date.now()}`;
-  const order = await prisma.order.create({
-    data: {
-      orderNumber,
-      customerId,
-      totalAmount,
-      subtotalAmount,
-      discountAmount,
-      couponCode,
-      paymentReference,
-      deliveryName: input.delivery.name,
-      deliveryPhone: input.delivery.phone,
-      deliveryLine1: input.delivery.line1,
-      deliveryLine2: input.delivery.line2,
-      deliveryCity: input.delivery.city,
-      deliveryState: input.delivery.state,
-      deliveryCountry: input.delivery.country,
-      vendorOrders: { create: vendorOrderData },
-    },
-    include: { vendorOrders: { include: { items: true } } },
-  });
+  const order = await prisma.order.create({ data: { orderNumber, customerId, totalAmount, subtotalAmount, discountAmount, couponCode, paymentReference, deliveryName: input.delivery.name, deliveryPhone: input.delivery.phone, deliveryLine1: input.delivery.line1, deliveryLine2: input.delivery.line2, deliveryCity: input.delivery.city, deliveryState: input.delivery.state, deliveryCountry: input.delivery.country, vendorOrders: { create: vendorOrderData } }, include: { vendorOrders: { include: { items: true } } } });
   if (couponId) await recordRedemption(couponId, customerId, order.id, discountAmount);
-  const paystack = await initializeTransaction({ email: customerEmail, amountNaira: totalAmount, reference: paymentReference, callbackUrl: `${env.appUrl}/orders/${order.orderNumber}/confirm`, metadata: { orderId: order.id, orderNumber: order.orderNumber } });
+  const paystack = await initializeTransaction({ email: customerEmail, amountNaira: totalAmount, reference: paymentReference, callbackUrl: `${env.appUrl}/orders/${order.orderNumber}/confirm`, metadata: { orderId: order.id, orderNumber: order.orderNumber, ...(input.adCampaignId ? { adCampaignId: input.adCampaignId } : {}) } });
+  if (input.adCampaignId) void recordConversionEvent(input.adCampaignId, "PURCHASE", { stage: "CHECKOUT_START", orderId: order.id }).catch(() => undefined);
   return { order, checkoutUrl: paystack.authorization_url };
 }
 
@@ -107,10 +90,7 @@ export async function verifyAndFinalizePayment(reference: string) {
   if (order.paymentStatus === "PAID") return order;
   const verification = await verifyTransaction(reference);
   if (verification.status !== "success") {
-    await prisma.$transaction([
-      prisma.payment.upsert({ where: { reference }, create: { orderId: order.id, reference, amount: order.totalAmount, status: "FAILED", gatewayResponse: verification as unknown as Prisma.InputJsonValue }, update: { status: "FAILED", gatewayResponse: verification as unknown as Prisma.InputJsonValue } }),
-      prisma.order.update({ where: { id: order.id }, data: { paymentStatus: "FAILED" } }),
-    ]);
+    await prisma.$transaction([prisma.payment.upsert({ where: { reference }, create: { orderId: order.id, reference, amount: order.totalAmount, status: "FAILED", gatewayResponse: verification as unknown as Prisma.InputJsonValue }, update: { status: "FAILED", gatewayResponse: verification as unknown as Prisma.InputJsonValue } }), prisma.order.update({ where: { id: order.id }, data: { paymentStatus: "FAILED" } })]);
     throw AppError.badRequest("Payment was not successful", "PAYMENT_FAILED");
   }
   const paidAmountNaira = verification.amount / 100;
@@ -119,23 +99,15 @@ export async function verifyAndFinalizePayment(reference: string) {
     await tx.payment.upsert({ where: { reference }, create: { orderId: order.id, reference, amount: paidAmountNaira, status: "PAID", channel: verification.channel, gatewayResponse: verification as unknown as Prisma.InputJsonValue }, update: { status: "PAID", channel: verification.channel, gatewayResponse: verification as unknown as Prisma.InputJsonValue } });
     await tx.order.update({ where: { id: order.id }, data: { paymentStatus: "PAID", paidAt: new Date() } });
     await tx.vendorOrder.updateMany({ where: { orderId: order.id }, data: { status: "PROCESSING" } });
-    for (const vo of order.vendorOrders) for (const item of vo.items) {
-      const updated = await tx.product.updateMany({ where: { id: item.productId, stock: { gte: item.quantity } }, data: { stock: { decrement: item.quantity } } });
-      if (updated.count !== 1) throw AppError.badRequest(`Not enough stock for "${item.productName}"`, "INSUFFICIENT_STOCK");
-    }
-    for (const item of order.vendorOrders.flatMap((vo) => vo.items)) {
-      await tx.$executeRawUnsafe(`UPDATE flash_deals fd SET sold_count=(SELECT COALESCE(SUM(oi.quantity),0)::int FROM order_items oi JOIN vendor_orders vo ON vo.id=oi.vendor_order_id JOIN orders o ON o.id=vo.order_id WHERE oi.product_id=fd.product_id AND o.payment_status='PAID') WHERE fd.product_id=$1 AND fd.active=true`, item.productId);
-    }
+    for (const vo of order.vendorOrders) for (const item of vo.items) { const updated = await tx.product.updateMany({ where: { id: item.productId, stock: { gte: item.quantity } }, data: { stock: { decrement: item.quantity } } }); if (updated.count !== 1) throw AppError.badRequest(`Not enough stock for "${item.productName}"`, "INSUFFICIENT_STOCK"); }
+    for (const item of order.vendorOrders.flatMap((vo) => vo.items)) await tx.$executeRawUnsafe(`UPDATE flash_deals fd SET sold_count=(SELECT COALESCE(SUM(oi.quantity),0)::int FROM order_items oi JOIN vendor_orders vo ON vo.id=oi.vendor_order_id JOIN orders o ON o.id=vo.order_id WHERE oi.product_id=fd.product_id AND o.payment_status='PAID') WHERE fd.product_id=$1 AND fd.active=true`, item.productId);
   });
+  const metadata = (verification as any)?.metadata;
+  const adCampaignId = typeof metadata?.adCampaignId === "string" ? metadata.adCampaignId : undefined;
+  if (adCampaignId) void recordConversionEvent(adCampaignId, "PURCHASE", { orderId: order.id, orderNumber: order.orderNumber, amount: Number(order.totalAmount), stage: "PAID" }).catch(() => undefined);
   const customer = await prisma.user.findUnique({ where: { id: order.customerId } });
-  if (customer) {
-    void sendEmail({ to: customer.email, ...orderConfirmationEmail(order.orderNumber) });
-    void recordPurchase(customer.id, order.id, Number(order.totalAmount)).catch(() => undefined);
-  }
-  for (const vo of order.vendorOrders) {
-    const vendor = await prisma.vendorProfile.findUnique({ where: { id: vo.vendorId }, include: { user: true } });
-    if (vendor) void sendEmail({ to: vendor.user.email, ...vendorNewOrderEmail(order.orderNumber, vo.items.length) });
-  }
+  if (customer) { void sendEmail({ to: customer.email, ...orderConfirmationEmail(order.orderNumber) }); void recordPurchase(customer.id, order.id, Number(order.totalAmount)).catch(() => undefined); }
+  for (const vo of order.vendorOrders) { const vendor = await prisma.vendorProfile.findUnique({ where: { id: vo.vendorId }, include: { user: true } }); if (vendor) void sendEmail({ to: vendor.user.email, ...vendorNewOrderEmail(order.orderNumber, vo.items.length) }); }
   if (env.adminNotificationEmail) void sendEmail({ to: env.adminNotificationEmail, ...adminNewOrderEmail(order.orderNumber, Number(order.totalAmount)) });
   if (env.whatsapp.adminNumber) void sendWhatsAppNotification({ to: env.whatsapp.adminNumber, message: newOrderWhatsAppMessage(order.orderNumber, Number(order.totalAmount)), event: "admin_new_order" });
   return prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { vendorOrders: { include: { items: true } } } });
@@ -146,27 +118,5 @@ export async function getOrderByNumber(orderNumber: string, requesterId: string,
 export async function getMyVendorOrders(userId: string) { const vendor = await prisma.vendorProfile.findUniqueOrThrow({ where: { userId } }); return prisma.vendorOrder.findMany({ where: { vendorId: vendor.id }, include: { items: true, order: true }, orderBy: { createdAt: "desc" } }); }
 const FORWARD_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = { PENDING: ["PROCESSING", "CANCELLED"], PROCESSING: ["SHIPPED", "CANCELLED"], SHIPPED: ["OUT_FOR_DELIVERY"], OUT_FOR_DELIVERY: ["DELIVERED"], DELIVERED: [], CANCELLED: [], REFUND_REQUESTED: ["REFUNDED"], REFUNDED: [], FAILED: [] };
 export async function updateVendorOrderStatus(userId: string, vendorOrderId: string, nextStatus: OrderStatus) { const vendor = await prisma.vendorProfile.findUniqueOrThrow({ where: { userId } }); const vo = await prisma.vendorOrder.findUnique({ where: { id: vendorOrderId } }); if (!vo || vo.vendorId !== vendor.id) throw AppError.notFound("Order not found"); if (!FORWARD_TRANSITIONS[vo.status].includes(nextStatus)) throw AppError.badRequest(`Can't move an order from ${vo.status} to ${nextStatus}`, "INVALID_STATUS_TRANSITION"); return prisma.vendorOrder.update({ where: { id: vendorOrderId }, data: { status: nextStatus } }); }
-export async function refundOrder(orderId: string, adminId: string) {
-  const order = await prisma.order.findUnique({ where: { id: orderId }, include: { vendorOrders: { include: { items: true } } } });
-  if (!order) throw AppError.notFound("Order not found");
-  if (order.paymentStatus !== "PAID") throw AppError.badRequest("Only paid orders can be refunded", "ORDER_NOT_PAID");
-  await refundTransaction(order.paymentReference, Number(order.totalAmount));
-  await prisma.$transaction(async (tx) => {
-    await tx.order.update({ where: { id: order.id }, data: { paymentStatus: "REFUNDED" } });
-    await tx.vendorOrder.updateMany({ where: { orderId: order.id }, data: { status: "REFUNDED" } });
-    for (const vo of order.vendorOrders) for (const item of vo.items) await tx.product.update({ where: { id: item.productId }, data: { stock: { increment: item.quantity } } });
-  });
-  void reversePurchase(order.id).catch(() => undefined);
-  const customer = await prisma.user.findUnique({ where: { id: order.customerId } });
-  if (customer) void sendEmail({ to: customer.email, ...orderRefundedEmail(order.orderNumber) });
-  await recordAudit({ actorId: adminId, action: "ORDER_REFUNDED", targetType: "Order", targetId: order.id });
-  return prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { vendorOrders: { include: { items: true } } } });
-}
-export async function adminListOrders(page: number, limit: number, paymentStatus?: string) {
-  const where = paymentStatus ? { paymentStatus: paymentStatus as never } : {};
-  const [items, total] = await prisma.$transaction([
-    prisma.order.findMany({ where, include: { customer: { select: { firstName: true, lastName: true, email: true } }, vendorOrders: true }, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }),
-    prisma.order.count({ where }),
-  ]);
-  return { items, pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } };
-}
+export async function refundOrder(orderId: string, adminId: string) { const order = await prisma.order.findUnique({ where: { id: orderId }, include: { vendorOrders: { include: { items: true } } } }); if (!order) throw AppError.notFound("Order not found"); if (order.paymentStatus !== "PAID") throw AppError.badRequest("Only paid orders can be refunded", "ORDER_NOT_PAID"); await refundTransaction(order.paymentReference, Number(order.totalAmount)); await prisma.$transaction(async (tx) => { await tx.order.update({ where: { id: order.id }, data: { paymentStatus: "REFUNDED" } }); await tx.vendorOrder.updateMany({ where: { orderId: order.id }, data: { status: "REFUNDED" } }); for (const vo of order.vendorOrders) for (const item of vo.items) await tx.product.update({ where: { id: item.productId }, data: { stock: { increment: item.quantity } } }); }); void reversePurchase(order.id).catch(() => undefined); const customer = await prisma.user.findUnique({ where: { id: order.customerId } }); if (customer) void sendEmail({ to: customer.email, ...orderRefundedEmail(order.orderNumber) }); await recordAudit({ actorId: adminId, action: "ORDER_REFUNDED", targetType: "Order", targetId: order.id }); return prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { vendorOrders: { include: { items: true } } } }); }
+export async function adminListOrders(page: number, limit: number, paymentStatus?: string) { const where = paymentStatus ? { paymentStatus: paymentStatus as never } : {}; const [items, total] = await prisma.$transaction([prisma.order.findMany({ where, include: { customer: { select: { firstName: true, lastName: true, email: true } }, vendorOrders: true }, orderBy: { createdAt: "desc" }, skip: (page - 1) * limit, take: limit }), prisma.order.count({ where })]); return { items, pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } }; }
