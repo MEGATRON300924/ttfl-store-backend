@@ -11,9 +11,18 @@ function addModel(model) {
   if (!schema.includes(`model ${name} {`)) schema += `\n${model}\n`;
 }
 
+function addModelField(modelName, marker, field) {
+  const start = schema.indexOf(`model ${modelName} {`);
+  if (start === -1 || schema.includes(field.trim())) return;
+  const markerIndex = schema.indexOf(marker, start);
+  const end = schema.indexOf("\n}", start);
+  if (markerIndex === -1 || end === -1 || markerIndex > end) throw new Error(`Could not insert ${field} into ${modelName}`);
+  schema = schema.slice(0, markerIndex) + `  ${field}\n` + schema.slice(markerIndex);
+}
+
 // store_public_profiles is application-maintained and already has its own
-// Prisma compatibility model. Add the visibility column to that model so
-// Prisma does not try to remove the live column during db push.
+// Prisma compatibility model. Add the visibility column so Prisma does not
+// try to remove the live column during db push.
 if (schema.includes("model StorePublicProfile {") && !/model StorePublicProfile \{[\s\S]*?\n\s*visibility\s+String/.test(schema)) {
   const start = schema.indexOf("model StorePublicProfile {");
   const marker = schema.indexOf("  createdAt", start);
@@ -24,6 +33,7 @@ if (schema.includes("model StorePublicProfile {") && !/model StorePublicProfile 
 addModel(`model AdCampaign {
   id              String   @id
   vendorId        String   @map("vendor_id")
+  vendor          VendorProfile @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   name            String
   objective       String   @default("STORE_VISITS")
   targetType      String   @default("STORE") @map("target_type")
@@ -38,6 +48,7 @@ addModel(`model AdCampaign {
   endAt           DateTime? @map("end_at") @db.Timestamptz(6)
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  events          AdEvent[]
   @@index([status, startAt, endAt], map: "ad_campaigns_active_idx")
   @@map("ad_campaigns")
 }`);
@@ -45,6 +56,7 @@ addModel(`model AdCampaign {
 addModel(`model AdEvent {
   id          String   @id
   campaignId  String   @map("campaign_id")
+  campaign    AdCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   eventType   String   @map("event_type")
   visitorKey  String?  @map("visitor_key")
   metadata    Json?
@@ -57,6 +69,7 @@ addModel(`model AdEvent {
 addModel(`model Service {
   id             String   @id
   vendorId       String   @map("vendor_id")
+  vendor         VendorProfile @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   categorySlug   String?  @map("category_slug")
   title          String
   slug           String   @unique
@@ -75,6 +88,11 @@ addModel(`model Service {
   @@index([categorySlug, status], map: "services_category_idx")
   @@map("services")
 }`);
+
+// Preserve the existing foreign keys instead of allowing Prisma to infer
+// that the raw application tables should be detached from vendor_profiles.
+addModelField("VendorProfile", "  @@index([status])", "adCampaigns AdCampaign[]");
+addModelField("VendorProfile", "  @@index([status])", "services Service[]");
 
 fs.writeFileSync(schemaPath, schema);
 console.log("Raw marketplace Prisma compatibility models ensured for ads, services, and store visibility.");
