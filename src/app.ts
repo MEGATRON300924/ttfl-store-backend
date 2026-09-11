@@ -39,63 +39,16 @@ import { trackingRouter } from "@/modules/tracking/tracking.routes";
 import { vendorStaffRouter } from "@/modules/vendor-staff/vendor-staff.routes";
 import { flashDealsRouter } from "@/modules/flash-deals/flash-deals.routes";
 import { rewardsRouter } from "@/modules/rewards/rewards.routes";
+import { servicesRouter } from "@/modules/services/services.routes";
+import { adsRouter } from "@/modules/ads/ads.routes";
 
 export function createApp() {
   const app = express();
   app.set("trust proxy", 1);
   app.use(helmet());
-  app.use(
-    cors({
-      origin: (origin, callback) => {
-        if (!origin || env.corsOrigins.includes(origin)) return callback(null, true);
-        return callback(new Error(`CORS origin not allowed: ${origin}`));
-      },
-      credentials: true,
-    })
-  );
-  app.post("/api/payments/webhook", express.raw({ type: "application/json" }), (req, _res, next) => {
-    (req as typeof req & { rawBody: Buffer }).rawBody = req.body;
-    req.body = JSON.parse(req.body.toString("utf8"));
-    next();
-  }, paystackWebhook);
-  app.use(express.json({ limit: "1mb" }));
-  app.use(cookieParser());
-  app.use(generalRateLimiter);
-  app.use(attachUser);
-  app.get("/health", (_req, res) => res.json({ status: "ok", service: "ttfl-store-backend", time: new Date().toISOString(), build: process.env.RENDER_GIT_COMMIT ?? process.env.GIT_COMMIT ?? "unknown" }));
-  app.use("/api/auth", authRouter);
-  app.use("/api/notifications", notificationsRouter);
-  app.use("/api/vendors", vendorsRouter);
-  app.use("/api/vendors/notification-preferences", vendorNotificationPreferencesRouter);
-  app.use("/api/store-profile", storeProfileRouter);
-  app.use("/api/categories", categoriesRouter);
-  app.use("/api/products", productDeliveryRouter);
-  app.use("/api/products/alerts", productAlertsRouter);
-  app.use("/api/products", productsRouter);
-  app.use("/api/orders", ordersRouter);
-  app.use("/api/rewards", rewardsRouter);
-  app.use("/api/tracking", trackingRouter);
-  app.use("/api/vendor-staff", vendorStaffRouter);
-  app.use("/api/vendor-plans", vendorPlansRouter);
-  app.use("/api/reviews", reviewsRouter);
-  app.use("/api/wishlist", wishlistRouter);
-  app.use("/api/coupons", couponsRouter);
-  app.use("/api/subscriptions", subscriptionsRouter);
-  app.use("/api/featured", featuredRouter);
-  app.use("/api/payouts", payoutsRouter);
-  app.use("/api/analytics", analyticsRouter);
-  app.use("/api/analytics/promotions", promotionAnalyticsRouter);
-  app.use("/api/seo", merchantFeedRouter);
-  app.use("/api/launch-campaigns", launchCampaignsRouter);
-  app.use("/api/support", supportRouter);
-  app.use("/api/uploads", uploadsRouter);
-  app.use("/api/settings", settingsRouter);
-  app.use("/api/addresses", addressesRouter);
-  app.use("/api/affiliates", affiliatesRouter);
-  app.use("/api/broadcast", broadcastRouter);
-  app.use("/api/admin", adminRouter);
-  app.use("/api/flash-deals", flashDealsRouter);
-  app.use(notFoundHandler);
-  app.use(errorHandler);
-  return app;
+  app.use(cors({ origin: (origin, callback) => { if (!origin || env.corsOrigins.includes(origin)) return callback(null, true); return callback(new Error(`CORS origin not allowed: ${origin}`)); }, credentials: true }));
+  app.post("/api/payments/webhook", express.raw({ type: "application/json" }), (req,_res,next)=>{(req as typeof req & {rawBody:Buffer}).rawBody=req.body;req.body=JSON.parse(req.body.toString("utf8"));next();},paystackWebhook);
+  app.use(express.json({limit:"1mb"})); app.use(cookieParser()); app.use(generalRateLimiter); app.use(attachUser);
+  app.get("/health",(_req,res)=>res.json({status:"ok",service:"ttfl-store-backend",time:new Date().toISOString(),build:process.env.RENDER_GIT_COMMIT??process.env.GIT_COMMIT??"unknown"}));
+  app.use("/api/auth",authRouter); app.use("/api/notifications",notificationsRouter); app.use("/api/vendors",vendorsRouter); app.use("/api/vendors/notification-preferences",vendorNotificationPreferencesRouter); app.use("/api/store-profile",storeProfileRouter); app.use("/api/categories",categoriesRouter); app.use("/api/services",servicesRouter); app.use("/api/ads",adsRouter); app.use("/api/products",productDeliveryRouter); app.use("/api/products/alerts",productAlertsRouter); app.use("/api/products",productsRouter); app.use("/api/orders",ordersRouter); app.use("/api/rewards",rewardsRouter); app.use("/api/tracking",trackingRouter); app.use("/api/vendor-staff",vendorStaffRouter); app.use("/api/vendor-plans",vendorPlansRouter); app.use("/api/reviews",reviewsRouter); app.use("/api/wishlist",wishlistRouter); app.use("/api/coupons",couponsRouter); app.use("/api/subscriptions",subscriptionsRouter); app.use("/api/featured",featuredRouter); app.use("/api/payouts",payoutsRouter); app.use("/api/analytics",analyticsRouter); app.use("/api/analytics/promotions",promotionAnalyticsRouter); app.use("/api/seo",merchantFeedRouter); app.use("/api/launch-campaigns",launchCampaignsRouter); app.use("/api/support",supportRouter); app.use("/api/uploads",uploadsRouter); app.use("/api/settings",settingsRouter); app.use("/api/addresses",addressesRouter); app.use("/api/affiliates",affiliatesRouter); app.use("/api/broadcast",broadcastRouter); app.use("/api/admin",adminRouter); app.use("/api/flash-deals",flashDealsRouter); app.use(notFoundHandler); app.use(errorHandler); return app;
 }
