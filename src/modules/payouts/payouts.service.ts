@@ -1,9 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/utils/app-error";
 import { recordAudit } from "@/lib/audit";
-import { sendEmail, payoutApprovedEmail } from "@/lib/email";
 import { resolveCommissionRate } from "@/lib/commissions";
-import { getSettingNumber, SETTING_KEYS } from "@/modules/settings/settings.service";
 import { createSubaccount, getSubaccount, listBanks, updateSubaccount } from "@/lib/paystack";
 
 export async function getPaystackAccount(userId: string) {
@@ -120,9 +118,6 @@ export async function getVendorBalance(vendorId: string) {
     grossSales,
     totalCommission,
     totalEarnings,
-    // These legacy fields are deliberately null: vendorOrder.payoutStatus is not
-    // a reliable record of Paystack's bank settlement and must not be presented as
-    // money paid or available for withdrawal.
     paidOut: null,
     availableBalance: null,
     settlementPending: null,
