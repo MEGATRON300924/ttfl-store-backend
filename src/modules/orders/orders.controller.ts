@@ -6,6 +6,7 @@ import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { sendPushToUser } from "@/modules/notifications/notifications.service";
 import * as ordersService from "./orders.service";
+import * as subscriptionsService from "@/modules/subscriptions/subscriptions.service";
 import * as vendorStaffOrderAccess from "@/modules/vendor-staff/vendor-staff-access.service";
 import { checkoutSchema, updateVendorOrderStatusSchema } from "./orders.validators";
 import { sendWhatsAppTemplate } from "@/lib/whatsapp-notifications";
@@ -37,9 +38,6 @@ async function notifyPostPayment(reference: string, paymentWasAlreadyPaid: boole
 
 export const checkout = asyncHandler(async (req: Request, res: Response) => { const input = checkoutSchema.parse(req.body); const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.sub } }); const { order, checkoutUrl } = await ordersService.checkout(req.user!.sub, user.email, input); res.status(201).json({ order, checkoutUrl }); });
 
-// Fast customer-facing payment check. Paystack is queried directly. When Paystack
-// reports success, finalization is kicked off in the background so this endpoint
-// never waits on stock, flash-deal SQL, emails, WhatsApp, rewards, or other work.
 export const paymentStatus = asyncHandler(async (req: Request, res: Response) => {
   const reference = req.params.reference;
   const order = await prisma.order.findUnique({ where: { paymentReference: reference }, select: { id: true, orderNumber: true, totalAmount: true, paymentStatus: true } });
@@ -72,22 +70,37 @@ export const paymentStatus = asyncHandler(async (req: Request, res: Response) =>
 });
 
 export const verifyPayment = asyncHandler(async (req: Request, res: Response) => { const existing = await prisma.order.findUnique({ where: { paymentReference: req.params.reference }, select: { paymentStatus: true } }); if (!existing) throw AppError.notFound("Order not found for this payment reference"); const order = await ordersService.verifyAndFinalizePayment(req.params.reference); void notifyPostPayment(req.params.reference, existing.paymentStatus === "PAID"); res.json({ order }); });
+
 export const paystackWebhook = asyncHandler(async (req: Request, res: Response) => {
   const signature = req.headers["x-paystack-signature"] as string | undefined;
   const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
-  if (!rawBody || !isValidPaystackSignature(rawBody, signature)) { logger.warn("Rejected Paystack webhook with invalid signature"); throw AppError.unauthorized("Invalid webhook signature", "INVALID_WEBHOOK_SIGNATURE"); }
-  const event = req.body as { event: string; data: { reference: string } };
-  res.status(200).json({ received: true });
-  if (event.event === "charge.success") {
-    void (async () => {
-      try {
-        const existing = await prisma.order.findUnique({ where: { paymentReference: event.data.reference }, select: { paymentStatus: true } });
-        await ordersService.verifyAndFinalizePayment(event.data.reference);
-        await notifyPostPayment(event.data.reference, existing?.paymentStatus === "PAID");
-      } catch (err) { logger.error("Failed to finalize order from webhook", { err, reference: event.data.reference }); }
-    })();
+  if (!rawBody || !isValidPaystackSignature(rawBody, signature)) {
+    logger.warn("Rejected Paystack webhook with invalid signature");
+    throw AppError.unauthorized("Invalid webhook signature", "INVALID_WEBHOOK_SIGNATURE");
   }
+
+  const event = req.body as { event: string; data: any };
+  res.status(200).json({ received: true });
+
+  void (async () => {
+    try {
+      const subscriptionHandled = await subscriptionsService.handlePaystackSubscriptionEvent(event.event, event.data);
+      if (subscriptionHandled) return;
+
+      if (event.event === "charge.success") {
+        const reference = event.data?.reference;
+        if (!reference) return;
+        const existing = await prisma.order.findUnique({ where: { paymentReference: reference }, select: { paymentStatus: true } });
+        if (!existing) return;
+        await ordersService.verifyAndFinalizePayment(reference);
+        await notifyPostPayment(reference, existing.paymentStatus === "PAID");
+      }
+    } catch (err) {
+      logger.error("Failed to process Paystack webhook", { err, event: event.event, reference: event.data?.reference });
+    }
+  })();
 });
+
 export const myOrders = asyncHandler(async (req: Request, res: Response) => { res.json({ orders: await ordersService.getMyOrders(req.user!.sub) }); });
 export const getByNumber = asyncHandler(async (req: Request, res: Response) => { res.json({ order: await ordersService.getOrderByNumber(req.params.orderNumber, req.user!.sub, req.user!.role) }); });
 export const trackPublicLink = asyncHandler(async (req: Request, res: Response) => { res.json(await trackByPublicToken(req.params.token)); });
