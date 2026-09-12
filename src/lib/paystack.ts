@@ -1,5 +1,4 @@
 import crypto from "crypto";
-import { prisma } from "@/lib/prisma";
 import { AppError } from "@/utils/app-error";
 
 const PAYSTACK_BASE_URL = "https://api.paystack.co";
@@ -33,12 +32,41 @@ type PaystackVerifyResponse = {
   };
 };
 
-export type PaystackSplit = {
+type PaystackSplitResponse = {
+  status: boolean;
+  message: string;
+  data: {
+    id: number;
+    split_code: string;
+    active: boolean;
+  };
+};
+
+type PaystackRefundResponse = {
+  status: boolean;
+  message: string;
+  data: { status: string; amount: number; transaction: { reference: string } };
+};
+
+export type PaystackPaymentChannel =
+  | "card"
+  | "bank"
+  | "bank_transfer"
+  | "ussd"
+  | "qr"
+  | "mobile_money"
+  | "eft"
+  | "apple_pay"
+  | "payattitude"
+  | "opay"
+  | "pay_with_transfer";
+
+export type PaystackTransactionSplit = {
   type: "flat" | "percentage";
+  currency: "NGN";
   bearer_type: "account" | "all" | "all-proportional" | "subaccount";
-  subaccounts: { subaccount: string; share: number }[];
   bearer_subaccount?: string;
-  reference?: string;
+  subaccounts: { subaccount: string; share: number }[];
 };
 
 async function paystackRequest<T>(path: string, init: RequestInit): Promise<T> {
@@ -50,61 +78,143 @@ async function paystackRequest<T>(path: string, init: RequestInit): Promise<T> {
       ...(init.headers ?? {}),
     },
   });
-  const json = (await res.json()) as T & { status?: boolean; message?: string };
+
+  let json: T & { status?: boolean; message?: string };
+  try {
+    json = (await res.json()) as T & { status?: boolean; message?: string };
+  } catch {
+    throw AppError.internal(`Paystack returned an invalid response (${res.status})`, "PAYSTACK_INVALID_RESPONSE");
+  }
+
   if (!res.ok || json.status === false) {
-    throw AppError.internal(json.message || "Paystack request failed", "PAYSTACK_REQUEST_FAILED");
+    throw AppError.internal(json.message || `Paystack request failed (${res.status})`, "PAYSTACK_REQUEST_FAILED");
   }
   return json;
 }
 
-async function splitForOrder(orderId: string): Promise<PaystackSplit> {
-  const order = await prisma.order.findUnique({ where: { id: orderId }, include: { vendorOrders: true } });
-  if (!order) throw AppError.notFound("Order not found");
-  const vendorIds = order.vendorOrders.map((item) => item.vendorId);
-  const vendors = await prisma.vendorProfile.findMany({ where: { id: { in: vendorIds } }, select: { id: true, storeName: true, paystackSubaccountCode: true } });
-  const byVendorId = new Map(vendors.map((vendor) => [vendor.id, vendor]));
-  const missing = order.vendorOrders.find((item) => !byVendorId.get(item.vendorId)?.paystackSubaccountCode);
-  if (missing) {
-    const vendor = byVendorId.get(missing.vendorId);
-    throw AppError.badRequest(`Payment cannot start because ${vendor?.storeName ?? "a vendor"} has not configured a payout account`, "VENDOR_PAYOUT_NOT_CONFIGURED");
+/**
+ * Create a Paystack transaction split. The split_code returned by this endpoint
+ * is the supported way to attach a multi-vendor split to transaction/initialize.
+ */
+export async function createTransactionSplit(params: {
+  name: string;
+  type: "flat" | "percentage";
+  subaccounts: { subaccount: string; share: number }[];
+  bearerType?: PaystackTransactionSplit["bearer_type"];
+  bearerSubaccount?: string;
+}): Promise<string> {
+  if (!params.subaccounts.length) throw AppError.badRequest("A payment split needs at least one vendor", "PAYSTACK_SPLIT_EMPTY");
+  if (params.subaccounts.some((item) => !item.subaccount || !Number.isFinite(item.share) || item.share <= 0)) {
+    throw AppError.badRequest("The payment split contains an invalid vendor share", "PAYSTACK_SPLIT_INVALID");
   }
-  const subaccounts = order.vendorOrders
-    .map((item) => ({ subaccount: byVendorId.get(item.vendorId)!.paystackSubaccountCode!, share: Math.round(Number(item.vendorEarnings) * 100) }))
-    .filter((item) => item.share > 0);
-  return { type: "flat", bearer_type: "account", subaccounts, reference: `ttfl_split_${order.orderNumber}` };
+
+  const json = await paystackRequest<PaystackSplitResponse>("/split", {
+    method: "POST",
+    body: JSON.stringify({
+      name: params.name.slice(0, 100),
+      type: params.type,
+      currency: "NGN",
+      subaccounts: params.subaccounts,
+      bearer_type: params.bearerType ?? "account",
+      ...(params.bearerSubaccount ? { bearer_subaccount: params.bearerSubaccount } : {}),
+    }),
+  });
+
+  if (!json.status || !json.data?.split_code) {
+    throw AppError.internal(json.message || "Paystack did not return a split code", "PAYSTACK_SPLIT_CREATE_FAILED");
+  }
+  return json.data.split_code;
 }
 
+/**
+ * Initialize hosted Paystack Checkout. Leaving channels undefined lets Paystack
+ * expose the payment methods enabled for the integration in the Dashboard.
+ * This keeps card, bank, transfer, USSD, QR, OPay, PayAttitude and other supported
+ * channels available without hard-coding a channel that may be unavailable.
+ */
 export async function initializeTransaction(params: {
   email: string;
   amountNaira: number;
   reference: string;
   callbackUrl: string;
   metadata?: Record<string, unknown>;
-  split?: PaystackSplit;
+  channels?: PaystackPaymentChannel[];
+  subaccount?: string;
+  splitCode?: string;
 }): Promise<PaystackInitResponse["data"]> {
+  const amountKobo = Math.round(params.amountNaira * 100);
+  if (!Number.isFinite(amountKobo) || amountKobo <= 0) throw AppError.badRequest("Payment amount must be greater than zero", "INVALID_PAYMENT_AMOUNT");
+  if (params.subaccount && params.splitCode) throw AppError.badRequest("A Paystack transaction cannot use both a subaccount and a split code", "PAYSTACK_SPLIT_CONFLICT");
+
   const payload: Record<string, unknown> = {
     email: params.email,
-    amount: Math.round(params.amountNaira * 100),
+    amount: amountKobo,
+    currency: "NGN",
     reference: params.reference,
     callback_url: params.callbackUrl,
     metadata: params.metadata,
   };
-  const orderId = typeof params.metadata?.orderId === "string" ? params.metadata.orderId : null;
-  if (params.split?.subaccounts.length) payload.split = params.split;
-  else if (orderId) payload.split = await splitForOrder(orderId);
 
-  const json = await paystackRequest<PaystackInitResponse>("/transaction/initialize", { method: "POST", body: JSON.stringify(payload) });
+  if (params.channels?.length) payload.channels = params.channels;
+  if (params.subaccount) payload.subaccount = params.subaccount;
+  if (params.splitCode) payload.split_code = params.splitCode;
+
+  const json = await paystackRequest<PaystackInitResponse>("/transaction/initialize", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
   if (!json.status) throw AppError.internal(json.message || "Could not start payment", "PAYSTACK_INIT_FAILED");
   return json.data;
 }
 
-export async function createSubaccount(params: { businessName: string; bankCode: string; accountNumber: string; percentageCharge: number; email?: string; contactName?: string; phone?: string }) {
-  const json = await paystackRequest<any>("/subaccount", { method: "POST", body: JSON.stringify({ business_name: params.businessName, settlement_bank: params.bankCode, account_number: params.accountNumber, percentage_charge: params.percentageCharge, primary_contact_email: params.email, primary_contact_name: params.contactName, primary_contact_phone: params.phone, settlement_schedule: "auto" }) });
+export async function createSubaccount(params: {
+  businessName: string;
+  bankCode: string;
+  accountNumber: string;
+  percentageCharge: number;
+  email?: string;
+  contactName?: string;
+  phone?: string;
+}) {
+  const json = await paystackRequest<any>("/subaccount", {
+    method: "POST",
+    body: JSON.stringify({
+      business_name: params.businessName,
+      settlement_bank: params.bankCode,
+      account_number: params.accountNumber,
+      percentage_charge: params.percentageCharge,
+      primary_contact_email: params.email,
+      primary_contact_name: params.contactName,
+      primary_contact_phone: params.phone,
+      settlement_schedule: "auto",
+    }),
+  });
   return json.data;
 }
 
-export async function updateSubaccount(code: string, params: { businessName: string; bankCode: string; accountNumber: string; percentageCharge: number; email?: string; contactName?: string; phone?: string }) {
-  const json = await paystackRequest<any>(`/subaccount/${encodeURIComponent(code)}`, { method: "PUT", body: JSON.stringify({ business_name: params.businessName, settlement_bank: params.bankCode, account_number: params.accountNumber, percentage_charge: params.percentageCharge, primary_contact_email: params.email, primary_contact_name: params.contactName, primary_contact_phone: params.phone, settlement_schedule: "auto", active: true }) });
+export async function updateSubaccount(code: string, params: {
+  businessName: string;
+  bankCode: string;
+  accountNumber: string;
+  percentageCharge: number;
+  email?: string;
+  contactName?: string;
+  phone?: string;
+}) {
+  const json = await paystackRequest<any>(`/subaccount/${encodeURIComponent(code)}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      business_name: params.businessName,
+      settlement_bank: params.bankCode,
+      account_number: params.accountNumber,
+      percentage_charge: params.percentageCharge,
+      primary_contact_email: params.email,
+      primary_contact_name: params.contactName,
+      primary_contact_phone: params.phone,
+      settlement_schedule: "auto",
+      active: true,
+    }),
+  });
   return json.data;
 }
 
@@ -118,16 +228,25 @@ export async function listBanks() {
   return json.data as Array<{ id: number; name: string; code: string; active: boolean }>;
 }
 
+/**
+ * Charge API support for integrations that need to initiate a specific channel
+ * server-side. Hosted Checkout remains the default TTFL Store experience.
+ */
+export async function chargeTransaction<T = any>(payload: Record<string, unknown>): Promise<T> {
+  return paystackRequest<T>("/charge", { method: "POST", body: JSON.stringify(payload) });
+}
+
 export async function verifyTransaction(reference: string): Promise<PaystackVerifyResponse["data"]> {
   const json = await paystackRequest<PaystackVerifyResponse>(`/transaction/verify/${encodeURIComponent(reference)}`, { method: "GET" });
   if (!json.status) throw AppError.internal(json.message || "Could not verify payment", "PAYSTACK_VERIFY_FAILED");
   return json.data;
 }
 
-type PaystackRefundResponse = { status: boolean; message: string; data: { status: string; amount: number; transaction: { reference: string } } };
-
 export async function refundTransaction(reference: string, amountNaira?: number): Promise<PaystackRefundResponse["data"]> {
-  const json = await paystackRequest<PaystackRefundResponse>("/refund", { method: "POST", body: JSON.stringify({ transaction: reference, ...(amountNaira ? { amount: Math.round(amountNaira * 100) } : {}) }) });
+  const json = await paystackRequest<PaystackRefundResponse>("/refund", {
+    method: "POST",
+    body: JSON.stringify({ transaction: reference, ...(amountNaira ? { amount: Math.round(amountNaira * 100) } : {}) }),
+  });
   if (!json.status) throw AppError.internal(json.message || "Could not process refund", "PAYSTACK_REFUND_FAILED");
   return json.data;
 }
