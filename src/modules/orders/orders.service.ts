@@ -23,16 +23,6 @@ async function generateOrderNumber(): Promise<string> {
   return orderNumber;
 }
 
-/**
- * Paystack's server-side Transaction API expects a split_code for multi-split
- * payments. The previous implementation sent an inline `split` object to
- * transaction/initialize, which is not the documented server API shape.
- *
- * We create a flat transaction split only when every vendor has a valid
- * Paystack subaccount. If payout configuration is incomplete, checkout falls
- * back to the main TTFL account so a vendor payout configuration issue can
- * never block a customer's payment.
- */
 async function createOrderSplitCode(order: {
   orderNumber: string;
   totalAmount: unknown;
@@ -43,17 +33,14 @@ async function createOrderSplitCode(order: {
   const vendorIds = order.vendorOrders.map((item) => item.vendorId);
   const vendors = await prisma.vendorProfile.findMany({
     where: { id: { in: vendorIds } },
-    select: { id: true, storeName: true, paystackSubaccountCode: true, paystackSubaccountActive: true },
+    select: { id: true, storeName: true, paystackSubaccountCode: true },
   });
   const byVendorId = new Map(vendors.map((vendor) => [vendor.id, vendor]));
 
-  const missing = order.vendorOrders.find((item) => {
-    const vendor = byVendorId.get(item.vendorId);
-    return !vendor?.paystackSubaccountCode || vendor.paystackSubaccountActive === false;
-  });
+  const missing = order.vendorOrders.find((item) => !byVendorId.get(item.vendorId)?.paystackSubaccountCode);
   if (missing) {
     const vendor = byVendorId.get(missing.vendorId);
-    logger.warn("Skipping Paystack split because a vendor payout account is not active", {
+    logger.warn("Skipping Paystack split because a vendor payout account is not configured", {
       orderNumber: order.orderNumber,
       vendor: vendor?.storeName ?? missing.vendorId,
     });
@@ -72,7 +59,6 @@ async function createOrderSplitCode(order: {
 
   if (!shares.length) return undefined;
 
-  // Never allow vendor shares to exceed the actual customer payment.
   const requestedShareTotal = shares.reduce((sum, item) => sum + item.share, 0);
   if (requestedShareTotal > totalKobo) {
     const scale = totalKobo / requestedShareTotal;
@@ -121,7 +107,6 @@ export async function checkout(customerId: string, customerEmail: string, input:
   const vendorOrderData: Prisma.VendorOrderCreateWithoutOrderInput[] = [];
   const vendorSubtotals = new Map<string, number>();
   const couponLines: CartLineForCoupon[] = [];
-
   for (const [vendorId, g] of groups) {
     const subtotal = g.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
     vendorSubtotals.set(vendorId, subtotal);
@@ -149,10 +134,6 @@ export async function checkout(customerId: string, customerEmail: string, input:
 
   const totalAmount = Math.max(0, Math.round((subtotalAmount - discountAmount) * 100) / 100);
 
-  // Allocate the coupon discount only across the vendor/category lines the
-  // coupon actually applies to. This keeps vendor earnings aligned with the
-  // amount the customer is actually paying and prevents split shares from
-  // exceeding the transaction total.
   for (const [vendorId, g] of groups) {
     const originalSubtotal = g.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
     if (!discountAmount || !couponEligibleBase) {
@@ -173,8 +154,6 @@ export async function checkout(customerId: string, customerEmail: string, input:
     vendorSubtotals.set(vendorId, Math.max(0, Math.round((originalSubtotal - allocation) * 100) / 100));
   }
 
-  // Correct any cent-level rounding drift so the vendor subtotals add up to
-  // exactly the amount the customer is being charged.
   const calculatedVendorSubtotal = Array.from(vendorSubtotals.values()).reduce((sum, value) => sum + value, 0);
   const subtotalDrift = Math.round((totalAmount - calculatedVendorSubtotal) * 100) / 100;
   if (groups.size && Math.abs(subtotalDrift) >= 0.01) {
