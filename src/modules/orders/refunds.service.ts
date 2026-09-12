@@ -11,16 +11,25 @@ async function finalizeRefund(orderId: string, adminId?: string) {
   if (!order) return null;
   if (order.paymentStatus === "REFUNDED") return order;
 
+  let finalized = false;
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${order.paymentReference}))`;
     const current = await tx.order.findUnique({ where: { id: order.id }, select: { paymentStatus: true } });
     if (current?.paymentStatus === "REFUNDED") return;
+
     await tx.order.update({ where: { id: order.id }, data: { paymentStatus: "REFUNDED" } });
     await tx.vendorOrder.updateMany({ where: { orderId: order.id }, data: { status: "REFUNDED" } });
-    for (const vo of order.vendorOrders) for (const item of vo.items) {
-      await tx.product.update({ where: { id: item.productId }, data: { stock: { increment: item.quantity } } });
+    for (const vo of order.vendorOrders) {
+      for (const item of vo.items) {
+        await tx.product.update({ where: { id: item.productId }, data: { stock: { increment: item.quantity } } });
+      }
     }
+    finalized = true;
   });
+
+  // A duplicate refund.processed webhook can arrive concurrently. Only the
+  // transaction that changed PAID -> REFUNDED performs side effects.
+  if (!finalized) return prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { vendorOrders: { include: { items: true } } } });
 
   void reversePurchase(order.id).catch((error) => logger.warn("Failed to reverse rewards after refund", { orderId: order.id, error }));
   const customer = await prisma.user.findUnique({ where: { id: order.customerId } });
