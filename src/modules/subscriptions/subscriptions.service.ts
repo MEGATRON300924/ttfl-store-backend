@@ -1,7 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { env } from "@/config/env";
 import { AppError } from "@/utils/app-error";
-import { initializeTransaction, verifyTransaction } from "@/lib/paystack";
+import {
+  disableSubscription,
+  getCustomer,
+  getOrCreateMonthlyPlan,
+  initializeTransaction,
+  verifyTransaction,
+} from "@/lib/paystack";
 import { recordAudit } from "@/lib/audit";
 import { getPlanForTier } from "@/modules/vendor-plans/vendor-plans.service";
 import type { VendorTier } from "@prisma/client";
@@ -47,10 +53,10 @@ export async function getMySubscription(vendorId: string) {
 }
 
 /**
- * Starts (or changes) a subscription. FREE has no charge — it activates
- * immediately. Paid tiers require a Paystack payment first; the
- * subscription only flips to that plan once verifyAndActivate confirms
- * payment, mirroring how order payments work (never trust the frontend).
+ * Starts (or changes) a vendor plan. Paid plans use a Paystack recurring plan.
+ * Paystack subscriptions currently support card and Nigerian direct debit, so
+ * the first checkout is intentionally card-only to avoid accepting a transfer
+ * that cannot create a recurring subscription.
  */
 export async function initiatePlanChange(
   vendorId: string,
@@ -70,18 +76,22 @@ export async function initiatePlanChange(
     return { subscription, checkoutUrl: null };
   }
 
+  const recurringPlan = await getOrCreateMonthlyPlan({
+    tier: targetTier,
+    amountNaira: Number(plan.price),
+  });
+
   const reference = `ttfl_sub_${vendorId}_${Date.now()}`;
   const paystack = await initializeTransaction({
     email: vendorEmail,
     amountNaira: Number(plan.price),
     reference,
     callbackUrl: `${env.appUrl}/vendor/dashboard/subscription/confirm`,
-    metadata: { vendorId, targetTier, kind: "subscription" },
+    metadata: { vendorId, targetTier, kind: "subscription", planCode: recurringPlan.plan_code },
+    plan: recurringPlan.plan_code,
+    channels: ["card"],
   });
 
-  // Subscription row starts PAST_DUE (pending first payment). A previously
-  // cancelled subscription is not downgraded until its paid period ends;
-  // paying again reactivates it normally after verification.
   const subscription = await prisma.vendorSubscription.upsert({
     where: { vendorId },
     create: { vendorId, planId: plan.id, status: "PAST_DUE" },
@@ -95,7 +105,7 @@ export async function initiatePlanChange(
   return { subscription, checkoutUrl: paystack.authorization_url };
 }
 
-/** Idempotent, same pattern as orders.verifyAndFinalizePayment. */
+/** Idempotent first-payment verification. */
 export async function verifyAndActivateSubscription(reference: string) {
   const payment = await prisma.subscriptionPayment.findUnique({
     where: { reference },
@@ -111,10 +121,14 @@ export async function verifyAndActivateSubscription(reference: string) {
   }
 
   const paidNaira = verification.amount / 100;
-  if (Math.round(paidNaira) !== Math.round(Number(payment.amount))) {
+  if (Math.round(paidNaira * 100) !== Math.round(Number(payment.amount) * 100)) {
     throw AppError.badRequest("Payment amount does not match plan price", "AMOUNT_MISMATCH");
   }
+  if (verification.currency !== "NGN") {
+    throw AppError.badRequest("Payment currency does not match plan currency", "CURRENCY_MISMATCH");
+  }
 
+  const now = new Date();
   await prisma.$transaction([
     prisma.subscriptionPayment.update({
       where: { reference },
@@ -124,8 +138,8 @@ export async function verifyAndActivateSubscription(reference: string) {
       where: { id: payment.subscriptionId },
       data: {
         status: "ACTIVE",
-        startDate: new Date(),
-        renewalDate: addBillingPeriod(new Date(), payment.subscription.plan.billingPeriod),
+        startDate: now,
+        renewalDate: addBillingPeriod(now, payment.subscription.plan.billingPeriod),
         cancelledAt: null,
       },
     }),
@@ -141,7 +155,99 @@ export async function verifyAndActivateSubscription(reference: string) {
   });
 }
 
-export async function cancelSubscription(vendorId: string) {
+/**
+ * Handles Paystack's recurring subscription webhooks. Paystack sends a new
+ * charge.success for each successful billing cycle and invoice.payment_failed
+ * when a recurring charge fails. We identify the local vendor from the
+ * Paystack customer email and require the event to contain subscription/plan
+ * context before treating it as a recurring vendor-plan payment.
+ */
+export async function handlePaystackSubscriptionEvent(event: string, data: any) {
+  const email = data?.customer?.email ?? data?.email;
+  if (!email || typeof email !== "string") return false;
+
+  const user = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  if (!user) return false;
+  const vendor = await prisma.vendorProfile.findUnique({ where: { userId: user.id }, select: { id: true } });
+  if (!vendor) return false;
+
+  const local = await prisma.vendorSubscription.findUnique({
+    where: { vendorId: vendor.id },
+    include: { plan: true },
+  });
+  if (!local || local.plan.tier === "FREE") return false;
+
+  const hasSubscriptionContext = Boolean(
+    data?.subscription?.subscription_code ||
+    data?.subscription_code ||
+    data?.plan?.plan_code ||
+    data?.plan_code
+  );
+  if (!hasSubscriptionContext) return false;
+
+  if (event === "charge.success") {
+    const reference = typeof data.reference === "string" ? data.reference : undefined;
+    const amountNaira = Number(data.amount ?? 0) / 100;
+    if (!reference || !Number.isFinite(amountNaira) || amountNaira <= 0) return false;
+    if (Math.round(amountNaira * 100) !== Math.round(Number(local.plan.price) * 100)) return false;
+    if (data.currency && data.currency !== "NGN") return false;
+
+    const existing = await prisma.subscriptionPayment.findUnique({ where: { reference } });
+    if (!existing) {
+      await prisma.subscriptionPayment.create({
+        data: {
+          subscriptionId: local.id,
+          reference,
+          amount: amountNaira,
+          status: "PAID",
+          gatewayResponse: data as object,
+        },
+      });
+    } else if (existing.status !== "PAID") {
+      await prisma.subscriptionPayment.update({
+        where: { reference },
+        data: { status: "PAID", gatewayResponse: data as object },
+      });
+    }
+
+    const now = new Date();
+    await prisma.$transaction([
+      prisma.vendorSubscription.update({
+        where: { id: local.id },
+        data: {
+          status: "ACTIVE",
+          renewalDate: addBillingPeriod(now, local.plan.billingPeriod),
+          cancelledAt: null,
+        },
+      }),
+      prisma.vendorProfile.update({ where: { id: vendor.id }, data: { tier: local.plan.tier } }),
+    ]);
+    return true;
+  }
+
+  if (event === "invoice.payment_failed") {
+    await prisma.vendorSubscription.update({ where: { id: local.id }, data: { status: "PAST_DUE" } });
+    return true;
+  }
+
+  if (event === "subscription.not_renew") {
+    await prisma.vendorSubscription.update({ where: { id: local.id }, data: { status: "CANCELLED", cancelledAt: new Date() } });
+    return true;
+  }
+
+  if (event === "subscription.disable") {
+    const freePlan = await getPlanForTier("FREE");
+    await prisma.$transaction([
+      prisma.vendorSubscription.update({ where: { id: local.id }, data: { status: "EXPIRED" } }),
+      prisma.vendorProfile.update({ where: { id: vendor.id }, data: { tier: freePlan.tier } }),
+    ]);
+    return true;
+  }
+
+  return false;
+}
+
+export async function cancelSubscription(vendorId: string, vendorEmail: string) {
   await expireIfNeeded(vendorId);
   const subscription = await prisma.vendorSubscription.findUnique({ where: { vendorId }, include: { plan: true } });
   if (!subscription) throw AppError.notFound("Subscription not found");
@@ -150,8 +256,24 @@ export async function cancelSubscription(vendorId: string) {
     return { subscription, cancellationScheduledFor: subscription.renewalDate };
   }
 
-  // Cancellation is scheduled for the end of the paid period. The vendor
-  // keeps the paid plan and all of its benefits until renewalDate.
+  // Tell Paystack to stop the recurring charge while keeping local access until
+  // the already-paid renewalDate. This uses the customer's active subscription
+  // code/token returned by the Customer API, so we don't need extra DB columns.
+  try {
+    const customer = await getCustomer(vendorEmail);
+    const remote = customer.subscriptions?.find((item) => {
+      const amount = Number(item.amount ?? 0);
+      return item.status === "active" && Math.round(amount) === Math.round(Number(subscription.plan.price) * 100);
+    });
+    if (remote?.subscription_code && remote.email_token) {
+      await disableSubscription(remote.subscription_code, remote.email_token);
+    }
+  } catch (error) {
+    // Do not silently mark a subscription cancelled if Paystack could not be
+    // reached; otherwise the customer could still be charged remotely.
+    throw AppError.internal("We could not cancel the recurring Paystack subscription. Please try again.", "PAYSTACK_CANCEL_FAILED");
+  }
+
   const cancelledAt = new Date();
   const updated = await prisma.vendorSubscription.update({
     where: { vendorId },
