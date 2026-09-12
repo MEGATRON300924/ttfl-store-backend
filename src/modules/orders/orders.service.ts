@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { env } from "@/config/env";
 import { AppError } from "@/utils/app-error";
-import { initializeTransaction, verifyTransaction, refundTransaction } from "@/lib/paystack";
+import { createTransactionSplit, initializeTransaction, verifyTransaction, refundTransaction } from "@/lib/paystack";
 import { resolveCommissionRate, calculateCommission } from "@/lib/commissions";
 import { validateCoupon, recordRedemption, type CartLineForCoupon } from "@/modules/coupons/coupons.service";
 import { getCheckoutDeals } from "@/modules/flash-deals/flash-deals.service";
@@ -10,6 +10,7 @@ import { sendWhatsAppNotification, newOrderWhatsAppMessage } from "@/lib/whatsap
 import { recordAudit } from "@/lib/audit";
 import { recordPurchase, reversePurchase } from "@/modules/rewards/rewards.service";
 import { recordConversionEvent } from "@/modules/ads/ads.service";
+import { logger } from "@/lib/logger";
 import type { CheckoutInput } from "./orders.validators";
 import type { Prisma, OrderStatus, Product } from "@prisma/client";
 
@@ -20,6 +21,81 @@ async function generateOrderNumber(): Promise<string> {
     orderNumber = `TTFL-${year}-${Math.floor(100000 + Math.random() * 900000)}`;
   } while (await prisma.order.findUnique({ where: { orderNumber } }));
   return orderNumber;
+}
+
+/**
+ * Paystack's server-side Transaction API expects a split_code for multi-split
+ * payments. The previous implementation sent an inline `split` object to
+ * transaction/initialize, which is not the documented server API shape.
+ *
+ * We create a flat transaction split only when every vendor has a valid
+ * Paystack subaccount. If payout configuration is incomplete, checkout falls
+ * back to the main TTFL account so a vendor payout configuration issue can
+ * never block a customer's payment.
+ */
+async function createOrderSplitCode(order: {
+  orderNumber: string;
+  totalAmount: unknown;
+  vendorOrders: Array<{ vendorId: string; vendorEarnings: unknown }>;
+}): Promise<string | undefined> {
+  if (order.vendorOrders.length === 0) return undefined;
+
+  const vendorIds = order.vendorOrders.map((item) => item.vendorId);
+  const vendors = await prisma.vendorProfile.findMany({
+    where: { id: { in: vendorIds } },
+    select: { id: true, storeName: true, paystackSubaccountCode: true, paystackSubaccountActive: true },
+  });
+  const byVendorId = new Map(vendors.map((vendor) => [vendor.id, vendor]));
+
+  const missing = order.vendorOrders.find((item) => {
+    const vendor = byVendorId.get(item.vendorId);
+    return !vendor?.paystackSubaccountCode || vendor.paystackSubaccountActive === false;
+  });
+  if (missing) {
+    const vendor = byVendorId.get(missing.vendorId);
+    logger.warn("Skipping Paystack split because a vendor payout account is not active", {
+      orderNumber: order.orderNumber,
+      vendor: vendor?.storeName ?? missing.vendorId,
+    });
+    return undefined;
+  }
+
+  const totalKobo = Math.round(Number(order.totalAmount) * 100);
+  if (!Number.isFinite(totalKobo) || totalKobo <= 0) return undefined;
+
+  const shares = order.vendorOrders
+    .map((item) => ({
+      subaccount: byVendorId.get(item.vendorId)!.paystackSubaccountCode!,
+      share: Math.max(0, Math.round(Number(item.vendorEarnings) * 100)),
+    }))
+    .filter((item) => item.share > 0);
+
+  if (!shares.length) return undefined;
+
+  // Never allow vendor shares to exceed the actual customer payment.
+  const requestedShareTotal = shares.reduce((sum, item) => sum + item.share, 0);
+  if (requestedShareTotal > totalKobo) {
+    const scale = totalKobo / requestedShareTotal;
+    for (const item of shares) item.share = Math.floor(item.share * scale);
+  }
+
+  const finalShares = shares.filter((item) => item.share > 0);
+  if (!finalShares.length) return undefined;
+
+  try {
+    return await createTransactionSplit({
+      name: `TTFL ${order.orderNumber}`,
+      type: "flat",
+      bearerType: "account",
+      subaccounts: finalShares,
+    });
+  } catch (error) {
+    logger.warn("Paystack split creation failed; continuing checkout without split", {
+      orderNumber: order.orderNumber,
+      error,
+    });
+    return undefined;
+  }
 }
 
 export async function checkout(customerId: string, customerEmail: string, input: CheckoutInput) {
@@ -40,28 +116,72 @@ export async function checkout(customerId: string, customerEmail: string, input:
     g.items.push({ product: p, quantity: line.quantity, unitPrice: d?.salePrice ?? Number(p.price) });
     groups.set(p.vendorId, g);
   }
+
   let subtotalAmount = 0;
   const vendorOrderData: Prisma.VendorOrderCreateWithoutOrderInput[] = [];
   const vendorSubtotals = new Map<string, number>();
   const couponLines: CartLineForCoupon[] = [];
+
   for (const [vendorId, g] of groups) {
     const subtotal = g.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
     vendorSubtotals.set(vendorId, subtotal);
     subtotalAmount += subtotal;
     for (const i of g.items) couponLines.push({ vendorId, categoryId: i.product.categoryId, lineTotal: i.unitPrice * i.quantity });
   }
+
   let discountAmount = 0;
   let couponId: string | null = null;
   let couponCode: string | null = null;
+  let couponVendorId: string | null = null;
+  let couponCategoryId: string | null = null;
+  let couponEligibleBase = 0;
+
   if (input.couponCode) {
     const result = await validateCoupon(input.couponCode, customerId, couponLines);
     discountAmount = result.discountAmount;
     couponId = result.coupon.id;
     couponCode = result.coupon.code;
+    couponEligibleBase = result.eligibleBase;
     const coupon = await prisma.coupon.findUniqueOrThrow({ where: { id: couponId } });
-    if (coupon.vendorId) vendorSubtotals.set(coupon.vendorId, Math.max(0, (vendorSubtotals.get(coupon.vendorId) ?? 0) - discountAmount));
+    couponVendorId = coupon.vendorId;
+    couponCategoryId = coupon.categoryId;
   }
-  const totalAmount = Math.max(0, subtotalAmount - discountAmount);
+
+  const totalAmount = Math.max(0, Math.round((subtotalAmount - discountAmount) * 100) / 100);
+
+  // Allocate the coupon discount only across the vendor/category lines the
+  // coupon actually applies to. This keeps vendor earnings aligned with the
+  // amount the customer is actually paying and prevents split shares from
+  // exceeding the transaction total.
+  for (const [vendorId, g] of groups) {
+    const originalSubtotal = g.items.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+    if (!discountAmount || !couponEligibleBase) {
+      vendorSubtotals.set(vendorId, originalSubtotal);
+      continue;
+    }
+
+    const eligibleForVendor = couponLines
+      .filter((line) => line.vendorId === vendorId)
+      .filter((line) => !couponVendorId || line.vendorId === couponVendorId)
+      .filter((line) => !couponCategoryId || line.categoryId === couponCategoryId)
+      .reduce((sum, line) => sum + line.lineTotal, 0);
+
+    const allocation = couponVendorId || couponCategoryId
+      ? discountAmount * (eligibleForVendor / couponEligibleBase)
+      : discountAmount * (originalSubtotal / subtotalAmount);
+
+    vendorSubtotals.set(vendorId, Math.max(0, Math.round((originalSubtotal - allocation) * 100) / 100));
+  }
+
+  // Correct any cent-level rounding drift so the vendor subtotals add up to
+  // exactly the amount the customer is being charged.
+  const calculatedVendorSubtotal = Array.from(vendorSubtotals.values()).reduce((sum, value) => sum + value, 0);
+  const subtotalDrift = Math.round((totalAmount - calculatedVendorSubtotal) * 100) / 100;
+  if (groups.size && Math.abs(subtotalDrift) >= 0.01) {
+    const firstVendorId = groups.keys().next().value as string;
+    vendorSubtotals.set(firstVendorId, Math.max(0, Math.round(((vendorSubtotals.get(firstVendorId) ?? 0) + subtotalDrift) * 100) / 100));
+  }
+
   for (const [vendorId, g] of groups) {
     const subtotal = vendorSubtotals.get(vendorId)!;
     const rate = await resolveCommissionRate(vendorId);
@@ -75,11 +195,42 @@ export async function checkout(customerId: string, customerEmail: string, input:
       items: { create: g.items.map((i) => ({ productId: i.product.id, productName: i.product.name, unitPrice: i.unitPrice, quantity: i.quantity, lineTotal: i.unitPrice * i.quantity })) },
     });
   }
+
   const orderNumber = await generateOrderNumber();
   const paymentReference = `ttfl_${orderNumber}_${Date.now()}`;
-  const order = await prisma.order.create({ data: { orderNumber, customerId, totalAmount, subtotalAmount, discountAmount, couponCode, paymentReference, deliveryName: input.delivery.name, deliveryPhone: input.delivery.phone, deliveryLine1: input.delivery.line1, deliveryLine2: input.delivery.line2, deliveryCity: input.delivery.city, deliveryState: input.delivery.state, deliveryCountry: input.delivery.country, vendorOrders: { create: vendorOrderData } }, include: { vendorOrders: { include: { items: true } } } });
+  const order = await prisma.order.create({
+    data: {
+      orderNumber,
+      customerId,
+      totalAmount,
+      subtotalAmount,
+      discountAmount,
+      couponCode,
+      paymentReference,
+      deliveryName: input.delivery.name,
+      deliveryPhone: input.delivery.phone,
+      deliveryLine1: input.delivery.line1,
+      deliveryLine2: input.delivery.line2,
+      deliveryCity: input.delivery.city,
+      deliveryState: input.delivery.state,
+      deliveryCountry: input.delivery.country,
+      vendorOrders: { create: vendorOrderData },
+    },
+    include: { vendorOrders: { include: { items: true } } },
+  });
+
   if (couponId) await recordRedemption(couponId, customerId, order.id, discountAmount);
-  const paystack = await initializeTransaction({ email: customerEmail, amountNaira: totalAmount, reference: paymentReference, callbackUrl: `${env.appUrl}/orders/${order.orderNumber}/confirm`, metadata: { orderId: order.id, orderNumber: order.orderNumber, ...(input.adCampaignId ? { adCampaignId: input.adCampaignId } : {}) } });
+
+  const splitCode = await createOrderSplitCode(order);
+  const paystack = await initializeTransaction({
+    email: customerEmail,
+    amountNaira: totalAmount,
+    reference: paymentReference,
+    callbackUrl: `${env.appUrl}/orders/${order.orderNumber}/confirm`,
+    metadata: { orderId: order.id, orderNumber: order.orderNumber, ...(input.adCampaignId ? { adCampaignId: input.adCampaignId } : {}) },
+    splitCode,
+  });
+
   if (input.adCampaignId) void recordConversionEvent(input.adCampaignId, "PURCHASE", { stage: "CHECKOUT_START", orderId: order.id }).catch(() => undefined);
   return { order, checkoutUrl: paystack.authorization_url };
 }
@@ -90,23 +241,17 @@ export async function verifyAndFinalizePayment(reference: string) {
   if (order.paymentStatus === "PAID") return order;
   const verification = await verifyTransaction(reference);
 
-  // Paystack can legitimately return a non-final state while a bank transfer,
-  // OTP, or another asynchronous payment step is still completing. Do not turn
-  // those states into a failed TTFL order; the webhook or a later verification
-  // can finalize it once Paystack reports success.
-  if (["ongoing", "pending", "processing", "queued"].includes(verification.status)) {
-    return order;
-  }
+  if (["ongoing", "pending", "processing", "queued"].includes(verification.status)) return order;
 
   if (verification.status !== "success") {
-    await prisma.$transaction([prisma.payment.upsert({ where: { reference }, create: { orderId: order.id, reference, amount: order.totalAmount, status: "FAILED", gatewayResponse: verification as unknown as Prisma.InputJsonValue }, update: { status: "FAILED", gatewayResponse: verification as unknown as Prisma.InputJsonValue } }), prisma.order.update({ where: { id: order.id }, data: { paymentStatus: "FAILED" } })]);
+    await prisma.$transaction([
+      prisma.payment.upsert({ where: { reference }, create: { orderId: order.id, reference, amount: order.totalAmount, status: "FAILED", gatewayResponse: verification as unknown as Prisma.InputJsonValue }, update: { status: "FAILED", gatewayResponse: verification as unknown as Prisma.InputJsonValue } }),
+      prisma.order.update({ where: { id: order.id }, data: { paymentStatus: "FAILED" } }),
+    ]);
     throw AppError.badRequest("Payment was not successful", "PAYMENT_FAILED");
   }
   if (verification.currency !== "NGN") throw AppError.badRequest("Payment currency does not match this order", "CURRENCY_MISMATCH");
 
-  // When Paystack is configured to pass transaction fees to the customer,
-  // data.amount is the gross amount the customer paid. Paystack also returns
-  // requested_amount, which is the original amount requested by TTFL.
   const requestedAmountKobo = verification.requested_amount ?? verification.amount;
   const requestedAmountNaira = requestedAmountKobo / 100;
   if (Math.round(requestedAmountNaira * 100) !== Math.round(Number(order.totalAmount) * 100)) {
@@ -115,8 +260,6 @@ export async function verifyAndFinalizePayment(reference: string) {
 
   let alreadyFinalized = false;
   await prisma.$transaction(async (tx) => {
-    // Callback and webhook can arrive at nearly the same time. Serialize finalization
-    // per payment reference so stock, rewards and vendor notifications cannot run twice.
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${reference}))`;
     const current = await tx.order.findUnique({ where: { id: order.id }, select: { paymentStatus: true } });
     if (current?.paymentStatus === "PAID") {
@@ -127,7 +270,10 @@ export async function verifyAndFinalizePayment(reference: string) {
     await tx.payment.upsert({ where: { reference }, create: { orderId: order.id, reference, amount: requestedAmountNaira, status: "PAID", channel: verification.channel, gatewayResponse: verification as unknown as Prisma.InputJsonValue }, update: { status: "PAID", amount: requestedAmountNaira, channel: verification.channel, gatewayResponse: verification as unknown as Prisma.InputJsonValue } });
     await tx.order.update({ where: { id: order.id }, data: { paymentStatus: "PAID", paidAt: new Date() } });
     await tx.vendorOrder.updateMany({ where: { orderId: order.id }, data: { status: "PROCESSING" } });
-    for (const vo of order.vendorOrders) for (const item of vo.items) { const updated = await tx.product.updateMany({ where: { id: item.productId, stock: { gte: item.quantity } }, data: { stock: { decrement: item.quantity } } }); if (updated.count !== 1) throw AppError.badRequest(`Not enough stock for "${item.productName}"`, "INSUFFICIENT_STOCK"); }
+    for (const vo of order.vendorOrders) for (const item of vo.items) {
+      const updated = await tx.product.updateMany({ where: { id: item.productId, stock: { gte: item.quantity } }, data: { stock: { decrement: item.quantity } } });
+      if (updated.count !== 1) throw AppError.badRequest(`Not enough stock for "${item.productName}"`, "INSUFFICIENT_STOCK");
+    }
     for (const item of order.vendorOrders.flatMap((vo) => vo.items)) await tx.$executeRawUnsafe(`UPDATE flash_deals fd SET sold_count=(SELECT COALESCE(SUM(oi.quantity),0)::int FROM order_items oi JOIN vendor_orders vo ON vo.id=oi.vendor_order_id JOIN orders o ON o.id=vo.order_id WHERE oi.product_id=fd.product_id AND o.payment_status='PAID') WHERE fd.product_id=$1 AND fd.active=true`, item.productId);
   });
 
