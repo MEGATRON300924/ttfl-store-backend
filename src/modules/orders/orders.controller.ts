@@ -6,6 +6,7 @@ import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { sendPushToUser } from "@/modules/notifications/notifications.service";
 import * as ordersService from "./orders.service";
+import * as refundsService from "./refunds.service";
 import * as subscriptionsService from "@/modules/subscriptions/subscriptions.service";
 import * as vendorStaffOrderAccess from "@/modules/vendor-staff/vendor-staff-access.service";
 import * as featuredService from "@/modules/featured/featured.service";
@@ -20,7 +21,7 @@ async function notifyCustomerPushIfNewlyPaid(reference: string, paymentWasAlread
 async function notifyPostPayment(reference: string, paymentWasAlreadyPaid: boolean) { try { await notifyCustomerWhatsAppIfNewlyPaid(reference, paymentWasAlreadyPaid); } catch (error) { logger.warn("Customer WhatsApp notification after payment confirmation failed", { reference, error }); } try { await notifyCustomerPushIfNewlyPaid(reference, paymentWasAlreadyPaid); } catch (error) { logger.warn("Customer push notification after payment confirmation failed", { reference, error }); } }
 
 export const checkout = asyncHandler(async (req: Request, res: Response) => { const input = checkoutSchema.parse(req.body); const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.sub } }); const { order, checkoutUrl } = await ordersService.checkout(req.user!.sub, user.email, input); res.status(201).json({ order, checkoutUrl }); });
-export const paymentStatus = asyncHandler(async (req: Request, res: Response) => { const reference = req.params.reference; const order = await prisma.order.findUnique({ where: { paymentReference: reference }, select: { id: true, orderNumber: true, totalAmount: true, paymentStatus: true } }); if (!order) throw AppError.notFound("Order not found for this payment reference"); const verification = await verifyTransaction(reference); const requestedAmountKobo = verification.requested_amount ?? verification.amount; const requestedAmountNaira = requestedAmountKobo / 100; const amountMatches = Math.round(requestedAmountNaira * 100) === Math.round(Number(order.totalAmount) * 100); const currencyMatches = verification.currency === "NGN"; if (verification.status === "success" && !amountMatches) throw AppError.badRequest("Payment amount does not match order total", "AMOUNT_MISMATCH"); if (verification.status === "success" && !currencyMatches) throw AppError.badRequest("Payment currency does not match this order", "CURRENCY_MISMATCH"); const paymentSucceeded = verification.status === "success" && amountMatches && currencyMatches; if (paymentSucceeded && order.paymentStatus !== "PAID") { void ordersService.verifyAndFinalizePayment(reference).then(() => notifyPostPayment(reference, false)).catch((err) => logger.error("Failed to finalize order from customer payment-status check", { err, reference })); } res.json({ reference, orderNumber: order.orderNumber, paymentStatus: paymentSucceeded ? "PAID" : order.paymentStatus, orderFinalized: order.paymentStatus === "PAID", gatewayStatus: verification.status, gatewayResponse: verification.gateway_response }); });
+export const paymentStatus = asyncHandler(async (req: Request, res: Response) => { const reference = req.params.reference; const order = await prisma.order.findUnique({ where: { paymentReference: reference }, select: { id: true, orderNumber: true, totalAmount: true, paymentStatus: true } }); if (!order) throw AppError.notFound("Order not found for this payment reference"); const verification = await verifyTransaction(reference); const requestedAmountKobo = verification.requested_amount ?? verification.amount; const requestedAmountNaira = requestedAmountKobo / 100; const amountMatches = Math.round(requestedAmountNaira * 100) === Math.round(Number(order.totalAmount) * 100); const currencyMatches = verification.currency === "NGN"; if (verification.status === "success" && !amountMatches) throw AppError.badRequest("Payment amount does not match order total", "AMOUNT_MISMATCH"); if (verification.status === "success" && !currencyMatches) throw AppError.badRequest("Payment currency does not match this order", "CURRENCY_MISMATCH"); const paymentSucceeded = verification.status === "success" && amountMatches && currencyMatches; if (paymentSucceeded && order.paymentStatus !== "PAID") void ordersService.verifyAndFinalizePayment(reference).then(() => notifyPostPayment(reference, false)).catch((err) => logger.error("Failed to finalize order from customer payment-status check", { err, reference })); res.json({ reference, orderNumber: order.orderNumber, paymentStatus: paymentSucceeded ? "PAID" : order.paymentStatus, orderFinalized: order.paymentStatus === "PAID", gatewayStatus: verification.status, gatewayResponse: verification.gateway_response }); });
 export const verifyPayment = asyncHandler(async (req: Request, res: Response) => { const existing = await prisma.order.findUnique({ where: { paymentReference: req.params.reference }, select: { paymentStatus: true } }); if (!existing) throw AppError.notFound("Order not found for this payment reference"); const order = await ordersService.verifyAndFinalizePayment(req.params.reference); void notifyPostPayment(req.params.reference, existing.paymentStatus === "PAID"); res.json({ order }); });
 
 export const paystackWebhook = asyncHandler(async (req: Request, res: Response) => {
@@ -31,6 +32,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response) 
   res.status(200).json({ received: true });
   void (async () => {
     try {
+      if (await refundsService.handlePaystackRefundEvent(event.event, event.data)) return;
       const subscriptionHandled = await subscriptionsService.handlePaystackSubscriptionEvent(event.event, event.data);
       if (subscriptionHandled) return;
       if (event.event === "charge.success") {
@@ -42,7 +44,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response) 
         if (await featuredService.handlePaystackFeaturedStoreCharge(reference)) return;
         if (await serviceOrdersService.handlePaystackServiceCharge(reference)) return;
       }
-    } catch (err) { logger.error("Failed to process Paystack webhook", { err, event: event.event, reference: event.data?.reference }); }
+    } catch (err) { logger.error("Failed to process Paystack webhook", { err, event: event.event, reference: event.data?.reference ?? event.data?.transaction_reference }); }
   })();
 });
 
@@ -52,5 +54,5 @@ export const trackPublicLink = asyncHandler(async (req: Request, res: Response) 
 export const driverContact = asyncHandler(async (req: Request, res: Response) => { const contact = await getDriverContactByToken(req.params.token); res.json({ contact }); });
 export const myVendorOrders = asyncHandler(async (req: Request, res: Response) => { res.json({ vendorOrders: await vendorStaffOrderAccess.getVendorOrders(req.user!.sub) }); });
 export const updateVendorOrderStatus = asyncHandler(async (req: Request, res: Response) => { const { status } = updateVendorOrderStatusSchema.parse(req.body); res.json({ vendorOrder: await vendorStaffOrderAccess.updateVendorOrderStatus(req.user!.sub, req.params.id, status) }); });
-export const refundOrder = asyncHandler(async (req: Request, res: Response) => { res.json({ order: await ordersService.refundOrder(req.params.orderId, req.user!.sub) }); });
+export const refundOrder = asyncHandler(async (req: Request, res: Response) => { res.json(await refundsService.requestOrderRefund(req.params.orderId, req.user!.sub)); });
 export const adminListOrders = asyncHandler(async (req: Request, res: Response) => { const page = Number(req.query.page ?? 1); const limit = Number(req.query.limit ?? 50); const paymentStatus = typeof req.query.paymentStatus === "string" ? req.query.paymentStatus : undefined; res.json(await ordersService.adminListOrders(page, limit, paymentStatus)); });
