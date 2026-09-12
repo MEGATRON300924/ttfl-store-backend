@@ -2,9 +2,9 @@ import { prisma } from "@/lib/prisma";
 import { AppError } from "@/utils/app-error";
 import { recordAudit } from "@/lib/audit";
 import { sendEmail, payoutApprovedEmail } from "@/lib/email";
+import { resolveCommissionRate } from "@/lib/commissions";
 import { getSettingNumber, SETTING_KEYS } from "@/modules/settings/settings.service";
 import { createSubaccount, getSubaccount, listBanks, updateSubaccount } from "@/lib/paystack";
-import { resolveCommissionRate } from "@/lib/commissions";
 
 export async function getPaystackAccount(userId: string) {
   const vendor = await prisma.vendorProfile.findUniqueOrThrow({ where: { userId } });
@@ -93,39 +93,47 @@ export async function savePaystackAccount(userId: string, input: { bankCode: str
 }
 
 export async function getVendorBalance(vendorId: string) {
-  const vendorOrders: { id: string; vendorEarnings: unknown; payoutStatus: string; subtotal: unknown; commissionAmount: unknown }[] = await prisma.vendorOrder.findMany({
+  const vendorOrders = await prisma.vendorOrder.findMany({
     where: {
       vendorId,
       order: { paymentStatus: "PAID" },
       status: { notIn: ["CANCELLED", "REFUNDED"] },
     },
-    select: { id: true, vendorEarnings: true, payoutStatus: true, subtotal: true, commissionAmount: true },
+    select: { id: true, vendorEarnings: true, subtotal: true, commissionAmount: true },
   });
 
   const grossSales = vendorOrders.reduce((sum, vo) => sum + Number(vo.subtotal), 0);
   const totalCommission = vendorOrders.reduce((sum, vo) => sum + Number(vo.commissionAmount), 0);
   const totalEarnings = vendorOrders.reduce((sum, vo) => sum + Number(vo.vendorEarnings), 0);
-  const settlementPending = vendorOrders.filter((vo) => vo.payoutStatus !== "SETTLED").reduce((sum, vo) => sum + Number(vo.vendorEarnings), 0);
-  const vendor = await prisma.vendorProfile.findUnique({ where: { id: vendorId }, select: { paystackSubaccountCode: true, paystackBankName: true, paystackAccountLast4: true, paystackAccountName: true, paystackSubaccountVerified: true } });
+  const vendor = await prisma.vendorProfile.findUnique({
+    where: { id: vendorId },
+    select: {
+      paystackSubaccountCode: true,
+      paystackBankName: true,
+      paystackAccountLast4: true,
+      paystackAccountName: true,
+      paystackSubaccountVerified: true,
+    },
+  });
 
   return {
     grossSales,
     totalCommission,
     totalEarnings,
-    paidOut: totalEarnings - settlementPending,
-    availableBalance: settlementPending,
+    // These legacy fields are deliberately null: vendorOrder.payoutStatus is not
+    // a reliable record of Paystack's bank settlement and must not be presented as
+    // money paid or available for withdrawal.
+    paidOut: null,
+    availableBalance: null,
+    settlementPending: null,
+    settlementMode: "PAYSTACK_AUTOMATIC",
     payoutAccountConfigured: Boolean(vendor?.paystackSubaccountCode),
     payoutAccountVerified: Boolean(vendor?.paystackSubaccountVerified),
     payoutBankName: vendor?.paystackBankName ?? null,
     payoutAccountLast4: vendor?.paystackAccountLast4 ?? null,
     payoutAccountName: vendor?.paystackAccountName ?? null,
-    settlementPending,
-    eligibleVendorOrderIds: vendorOrders.filter((vo) => vo.payoutStatus !== "SETTLED").map((vo) => vo.id),
+    eligibleVendorOrderIds: [],
   };
-}
-
-export async function requestPayout(_vendorId: string) {
-  throw AppError.badRequest("Vendor earnings are settled automatically through Paystack. No withdrawal request is required.", "AUTOMATIC_SETTLEMENT");
 }
 
 export async function getMyPayouts(vendorId: string) {
@@ -134,28 +142,4 @@ export async function getMyPayouts(vendorId: string) {
 
 export async function adminListPayouts(status?: "PENDING" | "APPROVED" | "REJECTED" | "PAID") {
   return prisma.payout.findMany({ where: status ? { status } : undefined, include: { vendor: { select: { storeName: true } } }, orderBy: { requestedAt: "desc" } });
-}
-
-export async function adminApprovePayout(id: string, adminId: string) {
-  const payout = await prisma.payout.update({ where: { id }, data: { status: "APPROVED", reviewedAt: new Date(), reviewedBy: adminId }, include: { vendor: { include: { user: true } } } });
-  await recordAudit({ actorId: adminId, action: "PAYOUT_APPROVED", targetType: "Payout", targetId: id });
-  void sendEmail({ to: payout.vendor.user.email, ...payoutApprovedEmail(Number(payout.amount)) });
-  return payout;
-}
-
-export async function adminRejectPayout(id: string, adminId: string, note: string) {
-  const payout = await prisma.payout.update({ where: { id }, data: { status: "REJECTED", reviewedAt: new Date(), reviewedBy: adminId, note } });
-  await recordAudit({ actorId: adminId, action: "PAYOUT_REJECTED", targetType: "Payout", targetId: id, metadata: { note } });
-  return payout;
-}
-
-export async function adminMarkPayoutPaid(id: string, adminId: string) {
-  const payout = await prisma.payout.findUniqueOrThrow({ where: { id } });
-  if (payout.status !== "APPROVED") throw AppError.badRequest("Only approved payouts can be marked as paid", "INVALID_PAYOUT_STATE");
-  await prisma.$transaction([
-    prisma.payout.update({ where: { id }, data: { status: "PAID", paidAt: new Date() } }),
-    prisma.vendorOrder.updateMany({ where: { id: { in: payout.vendorOrderIds } }, data: { payoutStatus: "PAID", payoutAt: new Date() } }),
-  ]);
-  await recordAudit({ actorId: adminId, action: "PAYOUT_PAID", targetType: "Payout", targetId: id });
-  return prisma.payout.findUniqueOrThrow({ where: { id } });
 }
