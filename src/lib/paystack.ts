@@ -29,6 +29,15 @@ type PaystackVerifyResponse = {
     paid_at: string | null;
     gateway_response: string;
     metadata: Record<string, unknown>;
+    plan?: unknown;
+    plan_object?: unknown;
+    subscription?: {
+      status?: string;
+      subscription_code?: string;
+      email_token?: string;
+      next_payment_date?: string;
+    } | null;
+    customer?: { email?: string; customer_code?: string } | null;
   };
 };
 
@@ -47,6 +56,45 @@ type PaystackRefundResponse = {
   message: string;
   data: { status: string; amount: number; transaction: { reference: string } };
 };
+
+type PaystackPlan = {
+  id: number;
+  name: string;
+  amount: number;
+  interval: string;
+  currency: string;
+  plan_code: string;
+};
+
+type PaystackPlanListResponse = {
+  status: boolean;
+  message: string;
+  data: PaystackPlan[];
+};
+
+type PaystackPlanCreateResponse = {
+  status: boolean;
+  message: string;
+  data: PaystackPlan;
+};
+
+type PaystackCustomerResponse = {
+  status: boolean;
+  message: string;
+  data: {
+    email: string;
+    customer_code: string;
+    subscriptions?: Array<{
+      status?: string;
+      subscription_code?: string;
+      email_token?: string;
+      amount?: number;
+      plan?: number | { id?: number; plan_code?: string; amount?: number };
+    }>;
+  };
+};
+
+type PaystackSubscriptionActionResponse = { status: boolean; message: string; data?: unknown };
 
 export type PaystackPaymentChannel =
   | "card"
@@ -92,10 +140,62 @@ async function paystackRequest<T>(path: string, init: RequestInit): Promise<T> {
   return json;
 }
 
+/** Create a reusable Paystack recurring plan. */
+export async function createPlan(params: {
+  name: string;
+  amountNaira: number;
+  interval?: "monthly" | "annually";
+  description?: string;
+}): Promise<PaystackPlan> {
+  const amount = Math.round(params.amountNaira * 100);
+  if (!Number.isFinite(amount) || amount < 10000) {
+    throw AppError.badRequest("A recurring plan must be at least ₦100", "PAYSTACK_PLAN_AMOUNT_INVALID");
+  }
+  const json = await paystackRequest<PaystackPlanCreateResponse>("/plan", {
+    method: "POST",
+    body: JSON.stringify({
+      name: params.name.slice(0, 100),
+      amount,
+      interval: params.interval ?? "monthly",
+      currency: "NGN",
+      description: params.description?.slice(0, 200),
+      send_invoices: true,
+      send_sms: false,
+    }),
+  });
+  return json.data;
+}
+
 /**
- * Create a Paystack transaction split. The split_code returned by this endpoint
- * is the supported way to attach a multi-vendor split to transaction/initialize.
+ * Reuse a matching plan when possible. If the admin changes a plan price,
+ * a new Paystack plan is created so existing subscribers keep their current
+ * price instead of being silently repriced.
  */
+export async function getOrCreateMonthlyPlan(params: {
+  tier: string;
+  amountNaira: number;
+}): Promise<PaystackPlan> {
+  const amount = Math.round(params.amountNaira * 100);
+  const name = `TTFL Store ${params.tier} Monthly`;
+  const json = await paystackRequest<PaystackPlanListResponse>(`/plan?perPage=100&interval=monthly&amount=${amount}`, { method: "GET" });
+  const existing = json.data?.find((plan) => plan.name === name && plan.amount === amount && plan.currency === "NGN");
+  if (existing) return existing;
+  return createPlan({ name, amountNaira: params.amountNaira, interval: "monthly", description: `TTFL Store ${params.tier} vendor plan` });
+}
+
+export async function getCustomer(emailOrCode: string) {
+  const json = await paystackRequest<PaystackCustomerResponse>(`/customer/${encodeURIComponent(emailOrCode)}`, { method: "GET" });
+  return json.data;
+}
+
+export async function disableSubscription(code: string, token: string) {
+  const json = await paystackRequest<PaystackSubscriptionActionResponse>("/subscription/disable", {
+    method: "POST",
+    body: JSON.stringify({ code, token }),
+  });
+  return json.data;
+}
+
 export async function createTransactionSplit(params: {
   name: string;
   type: "flat" | "percentage";
@@ -126,12 +226,6 @@ export async function createTransactionSplit(params: {
   return json.data.split_code;
 }
 
-/**
- * Initialize hosted Paystack Checkout. Leaving channels undefined lets Paystack
- * expose the payment methods enabled for the integration in the Dashboard.
- * This keeps card, bank, transfer, USSD, QR, OPay, PayAttitude and other supported
- * channels available without hard-coding a channel that may be unavailable.
- */
 export async function initializeTransaction(params: {
   email: string;
   amountNaira: number;
@@ -141,6 +235,8 @@ export async function initializeTransaction(params: {
   channels?: PaystackPaymentChannel[];
   subaccount?: string;
   splitCode?: string;
+  plan?: string;
+  invoiceLimit?: number;
 }): Promise<PaystackInitResponse["data"]> {
   const amountKobo = Math.round(params.amountNaira * 100);
   if (!Number.isFinite(amountKobo) || amountKobo <= 0) throw AppError.badRequest("Payment amount must be greater than zero", "INVALID_PAYMENT_AMOUNT");
@@ -158,6 +254,8 @@ export async function initializeTransaction(params: {
   if (params.channels?.length) payload.channels = params.channels;
   if (params.subaccount) payload.subaccount = params.subaccount;
   if (params.splitCode) payload.split_code = params.splitCode;
+  if (params.plan) payload.plan = params.plan;
+  if (params.invoiceLimit != null) payload.invoice_limit = params.invoiceLimit;
 
   const json = await paystackRequest<PaystackInitResponse>("/transaction/initialize", {
     method: "POST",
@@ -228,10 +326,6 @@ export async function listBanks() {
   return json.data as Array<{ id: number; name: string; code: string; active: boolean }>;
 }
 
-/**
- * Charge API support for integrations that need to initiate a specific channel
- * server-side. Hosted Checkout remains the default TTFL Store experience.
- */
 export async function chargeTransaction<T = any>(payload: Record<string, unknown>): Promise<T> {
   return paystackRequest<T>("/charge", { method: "POST", body: JSON.stringify(payload) });
 }
