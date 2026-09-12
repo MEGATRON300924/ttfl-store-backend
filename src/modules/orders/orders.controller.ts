@@ -11,6 +11,7 @@ import * as subscriptionsService from "@/modules/subscriptions/subscriptions.ser
 import * as vendorStaffOrderAccess from "@/modules/vendor-staff/vendor-staff-access.service";
 import * as featuredService from "@/modules/featured/featured.service";
 import * as serviceOrdersService from "@/modules/services/service-orders.service";
+import * as adsService from "@/modules/ads/ads.service";
 import { checkoutSchema, updateVendorOrderStatusSchema } from "./orders.validators";
 import { sendWhatsAppTemplate } from "@/lib/whatsapp-notifications";
 import { createPublicTrackingToken, trackByPublicToken, getDriverContactByToken } from "../tracking/tracking.service";
@@ -43,6 +44,7 @@ export const paystackWebhook = asyncHandler(async (req: Request, res: Response) 
         if (await featuredService.handlePaystackFeaturedCharge(reference)) return;
         if (await featuredService.handlePaystackFeaturedStoreCharge(reference)) return;
         if (await serviceOrdersService.handlePaystackServiceCharge(reference)) return;
+        if (await adsService.handlePaystackAdCharge(reference)) return;
       }
     } catch (err) { logger.error("Failed to process Paystack webhook", { err, event: event.event, reference: event.data?.reference ?? event.data?.transaction_reference }); }
   })();
