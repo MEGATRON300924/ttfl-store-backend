@@ -29,12 +29,19 @@ export async function createCampaign(userId: string, email: string, input: { nam
   if (!price) throw AppError.badRequest("Invalid advertising duration");
   if (!OBJECTIVES.includes(input.objective)) throw AppError.badRequest("Invalid advertising objective");
   const targetId = input.targetType === "STORE" ? vendor.id : input.targetId;
-  if (input.targetType !== "STORE'" && !targetId) throw AppError.badRequest("A target is required for this campaign type");
-  if (input.targetType === "PRODUCT" || input.targetType === "COMING_SOON") { const product = await prisma.product.findUnique({ where: { id: targetId! } }); if (!product || product.vendorId !== vendor.id) throw AppError.forbidden("You can only advertise your own products"); }
-  if (input.targetType === "SERVICE") { const service = await prisma.$queryRawUnsafe<any[]>(`SELECT id FROM services WHERE id=$1 AND vendor_id=$2 LIMIT 1`, targetId, vendor.id); if (!service[0]) throw AppError.forbidden("You can only advertise your own services"); }
+  if (input.targetType !== "STORE" && !targetId) throw AppError.badRequest("A target is required for this campaign type");
+  if (input.targetType === "PRODUCT" || input.targetType === "COMING_SOON") {
+    const product = await prisma.product.findUnique({ where: { id: targetId! } });
+    if (!product || product.vendorId !== vendor.id) throw AppError.forbidden("You can only advertise your own products");
+  }
+  if (input.targetType === "SERVICE") {
+    const service = await prisma.$queryRawUnsafe<any[]>(`SELECT id FROM services WHERE id=$1 AND vendor_id=$2 LIMIT 1`, targetId, vendor.id);
+    if (!service[0]) throw AppError.forbidden("You can only advertise your own services");
+  }
   const name = input.name.trim();
   if (name.length < 2 || /https?:\/\//i.test(name)) throw AppError.badRequest("Please use a clear campaign name without links");
-  const id = randomUUID(); const reference = `ttfl_ad_${id}_${Date.now()}`;
+  const id = randomUUID();
+  const reference = `ttfl_ad_${id}_${Date.now()}`;
   await prisma.$executeRawUnsafe(`INSERT INTO ad_campaigns (id,vendor_id,name,objective,target_type,target_id,target_category,target_location,duration_days,price,payment_reference) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, id, vendor.id, name, input.objective, input.targetType, targetId, input.targetCategory?.trim().toLowerCase() ?? null, input.targetLocation?.trim() || null, input.durationDays, price, reference);
   const paystack = await initializeTransaction({ email, amountNaira: price, reference, callbackUrl: `${env.appUrl}/vendor/dashboard/ads/confirm`, metadata: { campaignId: id, kind: "ttfl_ad_campaign" } });
   return { campaign: await getCampaignForVendor(id, vendor.id), checkoutUrl: paystack.authorization_url, plans: await getAdPlans() };
@@ -42,19 +49,16 @@ export async function createCampaign(userId: string, email: string, input: { nam
 
 async function getCampaignForVendor(id: string, vendorId: string) { const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT * FROM ad_campaigns WHERE id=$1 AND vendor_id=$2 LIMIT 1`, id, vendorId); if (!rows[0]) throw AppError.notFound("Ad campaign not found"); return rows[0]; }
 
-async function verifyCampaignRow(campaign: any) {
-  const verification = await verifyTransaction(campaign.payment_reference);
-  if (["ongoing","pending","processing","queued"].includes(verification.status)) return campaign;
-  if (verification.status !== "success") { await prisma.$executeRawUnsafe(`UPDATE ad_campaigns SET status='CANCELLED',updated_at=NOW() WHERE id=$1 AND status='PENDING_PAYMENT'`, campaign.id); return { ...campaign, status: "CANCELLED" }; }
-  if (verification.currency !== "NGN") throw AppError.badRequest("Payment currency does not match advertising price", "CURRENCY_MISMATCH");
-  const paidKobo = verification.requested_amount ?? verification.amount;
-  if (Math.round(paidKobo) !== Math.round(Number(campaign.price) * 100)) throw AppError.badRequest("Payment amount mismatch", "AMOUNT_MISMATCH");
-  await prisma.$executeRawUnsafe(`UPDATE ad_campaigns SET status='PENDING_REVIEW',updated_at=NOW() WHERE id=$1 AND status='PENDING_PAYMENT'`, campaign.id);
-  return { ...campaign, status: "PENDING_REVIEW" };
+export async function verifyCampaignPayment(userId: string, reference: string) {
+  await ensureAdTables(); const vendor = await getVendorProfileForUser(userId);
+  const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT * FROM ad_campaigns WHERE payment_reference=$1 AND vendor_id=$2 LIMIT 1`, reference, vendor.id); const campaign = rows[0];
+  if (!campaign) throw AppError.notFound("Ad campaign not found"); if (campaign.status !== "PENDING_PAYMENT") return campaign;
+  const verification = await verifyTransaction(reference);
+  if (verification.status !== "success") { await prisma.$executeRawUnsafe(`UPDATE ad_campaigns SET status='CANCELLED',updated_at=NOW() WHERE id=$1`, campaign.id); return { ...campaign, status: "CANCELLED" }; }
+  const paidNaira = verification.amount / 100; if (Math.round(paidNaira) !== Math.round(Number(campaign.price))) throw AppError.badRequest("Payment amount mismatch", "AMOUNT_MISMATCH");
+  await prisma.$executeRawUnsafe(`UPDATE ad_campaigns SET status='PENDING_REVIEW',updated_at=NOW() WHERE id=$1`, campaign.id);
+  return getCampaignForVendor(campaign.id, vendor.id);
 }
-
-export async function verifyCampaignPayment(userId: string, reference: string) { await ensureAdTables(); const vendor = await getVendorProfileForUser(userId); const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT * FROM ad_campaigns WHERE payment_reference=$1 AND vendor_id=$2 LIMIT 1`, reference, vendor.id); const campaign = rows[0]; if (!campaign) throw AppError.notFound("Ad campaign not found"); if (campaign.status !== "PENDING_PAYMENT") return campaign; return getCampaignForVendor(campaign.id, vendor.id).then(verifyCampaignRow); }
-export async function handlePaystackAdCharge(reference: string) { await ensureAdTables(); const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT * FROM ad_campaigns WHERE payment_reference=$1 LIMIT 1`, reference); const campaign = rows[0]; if (!campaign || campaign.status !== "PENDING_PAYMENT") return false; await verifyCampaignRow(campaign); return true; }
 
 export async function listMyCampaigns(userId: string) { await ensureAdTables(); const vendor = await getVendorProfileForUser(userId); return prisma.$queryRawUnsafe<any[]>(`SELECT * FROM ad_campaigns WHERE vendor_id=$1 ORDER BY created_at DESC`, vendor.id); }
 export async function recordEvent(campaignId: string, eventType: string, visitorKey?: string, metadata?: unknown) { await ensureAdTables(); if (!EVENTS.includes(eventType)) throw AppError.badRequest("Invalid ad event"); const active = await prisma.$queryRawUnsafe<any[]>(`SELECT id FROM ad_campaigns WHERE id=$1 AND status='ACTIVE' AND start_at<=NOW() AND end_at>NOW() LIMIT 1`, campaignId); if (!active[0]) throw AppError.badRequest("Ad campaign is not active", "AD_NOT_ACTIVE"); if (visitorKey && ["IMPRESSION", "CLICK", "DESTINATION_VIEW"].includes(eventType)) { const windowMinutes = eventType === "IMPRESSION" ? 30 : 5; const recent = await prisma.$queryRawUnsafe<any[]>(`SELECT id FROM ad_events WHERE campaign_id=$1 AND event_type=$2 AND visitor_key=$3 AND created_at>=NOW()-($4*INTERVAL '1 minute') LIMIT 1`, campaignId, eventType, visitorKey, windowMinutes); if (recent[0]) return { recorded: false, deduplicated: true }; } await prisma.$executeRawUnsafe(`INSERT INTO ad_events (id,campaign_id,event_type,visitor_key,metadata) VALUES ($1,$2,$3,$4,$5::jsonb)`, randomUUID(), campaignId, eventType, visitorKey ?? null, JSON.stringify(metadata ?? {})); return { recorded: true }; }
