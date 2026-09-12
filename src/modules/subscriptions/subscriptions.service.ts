@@ -6,7 +6,12 @@ import { recordAudit } from "@/lib/audit";
 import { getPlanForTier } from "@/modules/vendor-plans/vendor-plans.service";
 import type { VendorTier } from "@prisma/client";
 
-function addBillingPeriod(date: Date, period: "MONTHLY" | "YEARLY"): Date { const next = new Date(date); if (period === "MONTHLY") next.setMonth(next.getMonth() + 1); else next.setFullYear(next.getFullYear() + 1); return next; }
+function addBillingPeriod(date: Date, period: "MONTHLY" | "YEARLY"): Date {
+  const next = new Date(date);
+  if (period === "MONTHLY") next.setMonth(next.getMonth() + 1);
+  else next.setFullYear(next.getFullYear() + 1);
+  return next;
+}
 
 async function expireIfNeeded(vendorId: string) {
   const subscription = await prisma.vendorSubscription.findUnique({ where: { vendorId }, include: { plan: true } });
@@ -19,7 +24,10 @@ async function expireIfNeeded(vendorId: string) {
   }
 }
 
-export async function getMySubscription(vendorId: string) { await expireIfNeeded(vendorId); return prisma.vendorSubscription.findUnique({ where: { vendorId }, include: { plan: true, payments: { orderBy: { createdAt: "desc" }, take: 20 } } }); }
+export async function getMySubscription(vendorId: string) {
+  await expireIfNeeded(vendorId);
+  return prisma.vendorSubscription.findUnique({ where: { vendorId }, include: { plan: true, payments: { orderBy: { createdAt: "desc" }, take: 20 } } });
+}
 
 export async function initiatePlanChange(vendorId: string, vendorEmail: string, targetTier: VendorTier) {
   await expireIfNeeded(vendorId);
@@ -41,18 +49,34 @@ export async function verifyAndActivateSubscription(reference: string) {
   const payment = await prisma.subscriptionPayment.findUnique({ where: { reference }, include: { subscription: { include: { plan: true, vendor: true } } } });
   if (!payment) throw AppError.notFound("Subscription payment not found");
   if (payment.status === "PAID") return payment.subscription;
+
   const verification = await verifyTransaction(reference);
   if (["ongoing", "pending", "processing", "queued"].includes(verification.status)) return payment.subscription;
-  if (verification.status !== "success") { await prisma.subscriptionPayment.update({ where: { reference }, data: { status: "FAILED", gatewayResponse: verification as unknown as object } }); throw AppError.badRequest("Payment was not successful", "PAYMENT_FAILED"); }
+  if (verification.status !== "success") {
+    await prisma.subscriptionPayment.update({ where: { reference }, data: { status: "FAILED", gatewayResponse: verification as unknown as object } });
+    throw AppError.badRequest("Payment was not successful", "PAYMENT_FAILED");
+  }
   const paidNaira = verification.amount / 100;
   if (Math.round(paidNaira * 100) !== Math.round(Number(payment.amount) * 100)) throw AppError.badRequest("Payment amount does not match plan price", "AMOUNT_MISMATCH");
   if (verification.currency !== "NGN") throw AppError.badRequest("Payment currency does not match plan currency", "CURRENCY_MISMATCH");
-  const now = new Date();
-  await prisma.$transaction([
-    prisma.subscriptionPayment.update({ where: { reference }, data: { status: "PAID", gatewayResponse: verification as unknown as object } }),
-    prisma.vendorSubscription.update({ where: { id: payment.subscriptionId }, data: { status: "ACTIVE", startDate: now, renewalDate: addBillingPeriod(now, payment.subscription.plan.billingPeriod), cancelledAt: null } }),
-    prisma.vendorProfile.update({ where: { id: payment.subscription.vendorId }, data: { tier: payment.subscription.plan.tier } }),
-  ]);
+
+  // Callback verification and charge.success can arrive together. Serialize by
+  // payment reference so only one path can activate the subscription.
+  let activated = false;
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${reference}))`;
+    const current = await tx.subscriptionPayment.findUnique({ where: { reference }, select: { status: true, subscriptionId: true } });
+    if (!current || current.status === "PAID") return;
+    const subscription = await tx.vendorSubscription.findUnique({ where: { id: current.subscriptionId }, include: { plan: true } });
+    if (!subscription) return;
+    const now = new Date();
+    await tx.subscriptionPayment.update({ where: { reference }, data: { status: "PAID", gatewayResponse: verification as unknown as object } });
+    await tx.vendorSubscription.update({ where: { id: subscription.id }, data: { status: "ACTIVE", startDate: now, renewalDate: addBillingPeriod(now, subscription.plan.billingPeriod), cancelledAt: null } });
+    await tx.vendorProfile.update({ where: { id: subscription.vendorId }, data: { tier: subscription.plan.tier } });
+    activated = true;
+  });
+
+  if (!activated) return prisma.vendorSubscription.findUniqueOrThrow({ where: { id: payment.subscriptionId }, include: { plan: true } });
   return prisma.vendorSubscription.findUniqueOrThrow({ where: { id: payment.subscriptionId }, include: { plan: true } });
 }
 
@@ -84,11 +108,20 @@ export async function handlePaystackSubscriptionEvent(event: string, data: any) 
     ]);
     return true;
   }
-  if (event === "invoice.payment_failed") { await prisma.vendorSubscription.update({ where: { id: local.id }, data: { status: "PAST_DUE" } }); return true; }
-  if (event === "subscription.not_renew") { await prisma.vendorSubscription.update({ where: { id: local.id }, data: { status: "CANCELLED", cancelledAt: new Date() } }); return true; }
+  if (event === "invoice.payment_failed") {
+    await prisma.vendorSubscription.update({ where: { id: local.id }, data: { status: "PAST_DUE" } });
+    return true;
+  }
+  if (event === "subscription.not_renew") {
+    await prisma.vendorSubscription.update({ where: { id: local.id }, data: { status: "CANCELLED", cancelledAt: new Date() } });
+    return true;
+  }
   if (event === "subscription.disable") {
     const freePlan = await getPlanForTier("FREE");
-    await prisma.$transaction([prisma.vendorSubscription.update({ where: { id: local.id }, data: { status: "EXPIRED" } }), prisma.vendorProfile.update({ where: { id: vendor.id }, data: { tier: freePlan.tier } })]);
+    await prisma.$transaction([
+      prisma.vendorSubscription.update({ where: { id: local.id }, data: { status: "EXPIRED" } }),
+      prisma.vendorProfile.update({ where: { id: vendor.id }, data: { tier: freePlan.tier } }),
+    ]);
     return true;
   }
   return false;
