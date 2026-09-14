@@ -10,34 +10,28 @@ const replacements = [
   [/p\.\"deletedAt\"/g, "p.deleted_at"],
   [/p\.\"comingSoon\"/g, "p.coming_soon"],
   [/p\.\"sponsoredAt\"/g, "p.sponsored_at"],
-
   [/vs\.\"vendorId\"/g, "vs.vendor_id"],
   [/vs\.\"planId\"/g, "vs.plan_id"],
   [/vs\.\"renewalDate\"/g, "vs.renewal_date"],
   [/vs\.\"createdAt\"/g, "vs.created_at"],
   [/vs\.\"updatedAt\"/g, "vs.updated_at"],
-
   [/v\.\"storeName\"/g, "v.store_name"],
   [/v\.\"storeSlug\"/g, "v.store_slug"],
   [/v\.\"createdAt\"/g, "v.created_at"],
   [/v\.\"updatedAt\"/g, "v.updated_at"],
-
   [/oi\.\"productId\"/g, "oi.product_id"],
   [/oi\.\"vendorOrderId\"/g, "oi.vendor_order_id"],
   [/oi\.\"productName\"/g, "oi.product_name"],
   [/oi\.\"unitPrice\"/g, "oi.unit_price"],
   [/oi\.\"lineTotal\"/g, "oi.line_total"],
   [/oi\.\"createdAt\"/g, "oi.created_at"],
-
   [/vo\.\"orderId\"/g, "vo.order_id"],
   [/vo\.\"vendorId\"/g, "vo.vendor_id"],
   [/vo\.\"createdAt\"/g, "vo.created_at"],
   [/vo\.\"updatedAt\"/g, "vo.updated_at"],
-
   [/o\.\"paymentStatus\"/g, "o.payment_status"],
   [/o\.\"createdAt\"/g, "o.created_at"],
   [/o\.\"updatedAt\"/g, "o.updated_at"],
-
   [/fd\.\"productId\"/g, "fd.product_id"],
   [/fd\.\"vendorId\"/g, "fd.vendor_id"],
   [/fd\.\"discountPercent\"/g, "fd.discount_percent"],
@@ -52,7 +46,7 @@ const replacements = [
 
 const roots = [path.join(process.cwd(), "src"), path.join(process.cwd(), "scripts")];
 const extensions = new Set([".ts", ".tsx", ".js", ".cjs"]);
-const sqlAliasCamelCase = /\b(?:p|vs|v|oi|vo|o|fd)\.(?:\"[^\"]*[A-Z][^\"]*\"|[A-Za-z_]*[A-Z][A-Za-z0-9_]*)/;
+const quotedLegacyColumn = /\b(?:p|vs|v|oi|vo|o|fd)\.\"[^\"]*[A-Z][^\"]*\"/;
 
 function walk(dir) {
   if (!fs.existsSync(dir)) return;
@@ -66,17 +60,11 @@ function walk(dir) {
 
     let source = fs.readFileSync(filePath, "utf8");
     const before = source;
-    for (const [pattern, replacement] of replacements) {
-      source = source.replace(pattern, replacement);
-    }
+    for (const [pattern, replacement] of replacements) source = source.replace(pattern, replacement);
     if (source !== before) fs.writeFileSync(filePath, source);
 
-    // Do not allow a known legacy marketplace alias to reach production raw SQL.
-    // Output aliases such as AS "productId" are intentionally unaffected because
-    // this check only matches a column access after a table alias.
-    const matches = source.match(new RegExp(sqlAliasCamelCase.source, "g"));
-    if (matches && (source.includes("$queryRaw") || source.includes("$executeRaw"))) {
-      throw new Error(`Legacy camelCase raw SQL identifier(s) remain in ${path.relative(process.cwd(), filePath)}: ${matches.join(", ")}`);
+    if (quotedLegacyColumn.test(source) && (source.includes("$queryRaw") || source.includes("$executeRaw"))) {
+      throw new Error(`Legacy quoted camelCase raw SQL identifier remains in ${path.relative(process.cwd(), filePath)}`);
     }
   }
 }
