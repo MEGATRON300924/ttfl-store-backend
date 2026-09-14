@@ -52,6 +52,7 @@ const replacements = [
 
 const roots = [path.join(process.cwd(), "src"), path.join(process.cwd(), "scripts")];
 const extensions = new Set([".ts", ".tsx", ".js", ".cjs"]);
+const sqlAliasCamelCase = /\b(?:p|vs|v|oi|vo|o|fd)\.(?:\"[^\"]*[A-Z][^\"]*\"|[A-Za-z_]*[A-Z][A-Za-z0-9_]*)/;
 
 function walk(dir) {
   if (!fs.existsSync(dir)) return;
@@ -69,8 +70,16 @@ function walk(dir) {
       source = source.replace(pattern, replacement);
     }
     if (source !== before) fs.writeFileSync(filePath, source);
+
+    // Do not allow a known legacy marketplace alias to reach production raw SQL.
+    // Output aliases such as AS "productId" are intentionally unaffected because
+    // this check only matches a column access after a table alias.
+    const matches = source.match(new RegExp(sqlAliasCamelCase.source, "g"));
+    if (matches && (source.includes("$queryRaw") || source.includes("$executeRaw"))) {
+      throw new Error(`Legacy camelCase raw SQL identifier(s) remain in ${path.relative(process.cwd(), filePath)}: ${matches.join(", ")}`);
+    }
   }
 }
 
 for (const root of roots) walk(root);
-console.log("All known legacy raw SQL PostgreSQL identifiers normalized.");
+console.log("All known legacy raw SQL PostgreSQL identifiers normalized and validated.");
