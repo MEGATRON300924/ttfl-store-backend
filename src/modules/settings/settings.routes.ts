@@ -7,6 +7,14 @@ import * as settingsService from "./settings.service";
 export const settingsRouter = Router();
 
 settingsRouter.get(
+  "/public",
+  asyncHandler(async (_req, res) => {
+    const settings = await settingsService.getPublicSettings();
+    res.json(settings);
+  })
+);
+
+settingsRouter.get(
   "/",
   requireAuth,
   requireRole("ADMIN"),
