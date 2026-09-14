@@ -6,7 +6,6 @@ const replacements = [
   [/oi\.vendor_order_id/g, 'oi."vendorOrderId"'],
   [/vo\.order_id/g, 'vo."orderId"'],
   [/o\.payment_status/g, 'o."paymentStatus"'],
-  [/p\.vendorId(?!\")/g, 'p."vendorId"'],
 ];
 
 const files = [
