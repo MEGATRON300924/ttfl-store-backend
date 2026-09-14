@@ -44,7 +44,7 @@
     "@types/jsonwebtoken": "^9.0.7",
     "@types/multer": "^2.2.0",
     "@types/node": "^20.14.15",
-    "@types/nodemailer": "^8.4.1",
+    "@types/nodemailer": "^8.0.1",
     "@types/uuid": "^9.0.0",
     "prisma": "^5.19.1",
     "tsc-alias": "^1.9.2",
