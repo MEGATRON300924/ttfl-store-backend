@@ -1,11 +1,16 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+// PostgreSQL column names for the legacy marketplace tables are snake_case.
+// The Prisma schema maps these database columns to camelCase model fields.
+// Keep raw SQL aligned with the actual database identifiers and never rewrite
+// normal TypeScript property access such as product.vendorId.
 const replacements = [
-  [/oi\.product_id/g, 'oi."productId"'],
-  [/oi\.vendor_order_id/g, 'oi."vendorOrderId"'],
-  [/vo\.order_id/g, 'vo."orderId"'],
-  [/o\.payment_status/g, 'o."paymentStatus"'],
+  [/p\.\"vendorId\"/g, "p.vendor_id"],
+  [/oi\.\"productId\"/g, "oi.product_id"],
+  [/oi\.\"vendorOrderId\"/g, "oi.vendor_order_id"],
+  [/vo\.\"orderId\"/g, "vo.order_id"],
+  [/o\.\"paymentStatus\"/g, "o.payment_status"],
 ];
 
 const files = [
