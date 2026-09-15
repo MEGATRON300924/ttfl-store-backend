@@ -36,6 +36,7 @@ const replacements = [
   [/vo\.\"vendorId\"/g, "vo.vendor_id"],
   [/vo\.\"createdAt\"/g, "vo.created_at"],
   [/vo\.\"updatedAt\"/g, "vo.updated_at"],
+  [/o\.\"orderNumber\"/g, "o.order_number"],
   [/o\.\"paymentStatus\"/g, "o.payment_status"],
   [/o\.\"createdAt\"/g, "o.created_at"],
   [/o\.\"updatedAt\"/g, "o.updated_at"],
