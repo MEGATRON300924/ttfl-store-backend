@@ -23,6 +23,7 @@ const replacements = [
   [/vp\.\"vendorId\"/g, "vp.vendor_id"],
   [/vp\.\"storeName\"/g, "vp.store_name"],
   [/vp\.\"storeSlug\"/g, "vp.store_slug"],
+  [/vp\.\"logoUrl\"/g, "vp.logo_url"],
   [/vp\.\"createdAt\"/g, "vp.created_at"],
   [/vp\.\"updatedAt\"/g, "vp.updated_at"],
   [/oi\.\"productId\"/g, "oi.product_id"],
