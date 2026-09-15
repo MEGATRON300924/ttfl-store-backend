@@ -45,6 +45,8 @@ addEnumValues("AuditAction", [
   "PRODUCT_AVAILABILITY_NOTIFIED",
 ]);
 
+addEnumValues("ReferralType", ["PRODUCT_VIEW"]);
+
 addField("VendorProfile", "  @@index([status])", "paystackSubaccountCode String?");
 addField("VendorProfile", "  @@index([status])", "paystackBankName String?");
 addField("VendorProfile", "  @@index([status])", "paystackAccountLast4 String?");
