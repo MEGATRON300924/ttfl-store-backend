@@ -10,6 +10,7 @@ const replacements = [
   [/p\.\"deletedAt\"/g, "p.deleted_at"],
   [/p\.\"comingSoon\"/g, "p.coming_soon"],
   [/p\.\"sponsoredAt\"/g, "p.sponsored_at"],
+  [/p\.\"createdAt\"/g, "p.created_at"],
   [/vs\.\"vendorId\"/g, "vs.vendor_id"],
   [/vs\.\"planId\"/g, "vs.plan_id"],
   [/vs\.\"renewalDate\"/g, "vs.renewal_date"],
@@ -19,6 +20,11 @@ const replacements = [
   [/v\.\"storeSlug\"/g, "v.store_slug"],
   [/v\.\"createdAt\"/g, "v.created_at"],
   [/v\.\"updatedAt\"/g, "v.updated_at"],
+  [/vp\.\"vendorId\"/g, "vp.vendor_id"],
+  [/vp\.\"storeName\"/g, "vp.store_name"],
+  [/vp\.\"storeSlug\"/g, "vp.store_slug"],
+  [/vp\.\"createdAt\"/g, "vp.created_at"],
+  [/vp\.\"updatedAt\"/g, "vp.updated_at"],
   [/oi\.\"productId\"/g, "oi.product_id"],
   [/oi\.\"vendorOrderId\"/g, "oi.vendor_order_id"],
   [/oi\.\"productName\"/g, "oi.product_name"],
@@ -46,7 +52,7 @@ const replacements = [
 
 const roots = [path.join(process.cwd(), "src"), path.join(process.cwd(), "scripts")];
 const extensions = new Set([".ts", ".tsx", ".js", ".cjs"]);
-const quotedLegacyColumn = /\b(?:p|vs|v|oi|vo|o|fd)\.\"[^\"]*[A-Z][^\"]*\"/;
+const quotedLegacyColumn = /\b(?:p|vs|v|vp|oi|vo|o|fd)\.\"[^\"]*[A-Z][^\"]*\"/;
 
 function walk(dir) {
   if (!fs.existsSync(dir)) return;
