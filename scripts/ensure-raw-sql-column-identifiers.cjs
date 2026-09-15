@@ -11,6 +11,7 @@ const replacements = [
   [/p\.\"comingSoon\"/g, "p.coming_soon"],
   [/p\.\"sponsoredAt\"/g, "p.sponsored_at"],
   [/p\.\"createdAt\"/g, "p.created_at"],
+  [/p\.\"avgRating\"/g, "p.avg_rating"],
   [/vs\.\"vendorId\"/g, "vs.vendor_id"],
   [/vs\.\"planId\"/g, "vs.plan_id"],
   [/vs\.\"renewalDate\"/g, "vs.renewal_date"],
