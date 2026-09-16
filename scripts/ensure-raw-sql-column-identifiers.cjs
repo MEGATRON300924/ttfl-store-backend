@@ -6,47 +6,25 @@ const path = require("node:path");
 // Rewriting quoted Prisma field names such as p."deletedAt" to p.deleted_at
 // changes valid SQL into references to columns that do not exist.
 //
-// Raw SQL should be written explicitly for the real database column name:
-//   p."deletedAt"  -> normal Prisma-generated column
-//   p.coming_soon   -> explicitly @map("coming_soon") column
-//   vs."planId"    -> normal Prisma-generated column
-//   v."storeName"  -> normal Prisma-generated column
+// This validator only inspects actual SQL strings passed to Prisma raw-query
+// APIs. It must not inspect normal TypeScript/Prisma expressions such as
+// p.comingSoon, because those are JavaScript property accesses, not SQL.
 
 const roots = [path.join(process.cwd(), "src"), path.join(process.cwd(), "scripts")];
 const extensions = new Set([".ts", ".tsx", ".js", ".cjs"]);
 
-// These are the database columns that are intentionally snake_case because
-// their Prisma fields explicitly use @map(...). They are allowed in raw SQL.
-const allowedMappedColumns = new Set([
-  "coming_soon",
-  "available_at",
-  "vendor_id",
-  "user_id",
-  "invited_at",
-  "accepted_at",
-  "created_at",
-  "updated_at",
-  "token_hash",
-  "expires_at",
-  "invited_by",
-  "last_error",
-  "available_at",
-  "sent_at",
-  "product_id",
-  "old_price",
-  "new_price",
-  "changed_at",
-  "target_price",
-  "notified_at",
-  "email_enabled",
-  "whatsapp_enabled",
-  "marketing_enabled",
-  "promotion_type",
-  "promotion_id",
-  "session_id",
-  "quantity",
-  "revenue",
-]);
+function validateSql(sql, filePath) {
+  // Remove template interpolations before checking identifiers. Expressions
+  // such as ${p.comingSoon} are JavaScript, not SQL identifiers.
+  const sqlText = sql.replace(/\$\{[\s\S]*?\}/g, "");
+  const rawCamelCaseIdentifier = /\b(?:p|vs|v|vp|oi|vo|o|fd)\.[A-Za-z_][A-Za-z0-9]*[A-Z][A-Za-z0-9_]*/;
+  const match = sqlText.match(rawCamelCaseIdentifier);
+  if (match) {
+    throw new Error(
+      `Unquoted camelCase raw SQL identifier found in ${path.relative(process.cwd(), filePath)}: ${match[0]}`
+    );
+  }
+}
 
 function walk(dir) {
   if (!fs.existsSync(dir)) return;
@@ -64,15 +42,22 @@ function walk(dir) {
     const source = fs.readFileSync(filePath, "utf8");
     if (!source.includes("$queryRaw") && !source.includes("$executeRaw")) continue;
 
-    // Fail the build only when a raw query contains an unquoted camelCase
-    // identifier. Quoted camelCase identifiers are valid PostgreSQL columns;
-    // snake_case identifiers are also valid when explicitly @map(...)'d.
-    const rawCamelCaseIdentifier = /\b(?:p|vs|v|vp|oi|vo|o|fd)\.[A-Za-z_][A-Za-z0-9]*[A-Z][A-Za-z0-9_]*/;
-    const match = source.match(rawCamelCaseIdentifier);
-    if (match) {
-      throw new Error(
-        `Unquoted camelCase raw SQL identifier found in ${path.relative(process.cwd(), filePath)}: ${match[0]}`
-      );
+    // Tagged template raw queries: prisma.$queryRaw`...`
+    const taggedTemplate = /\$(?:queryRaw|executeRaw)\s*`([\s\S]*?)`/g;
+    for (const match of source.matchAll(taggedTemplate)) {
+      validateSql(match[1], filePath);
+    }
+
+    // Unsafe raw queries using a template literal: prisma.$queryRawUnsafe(`...`)
+    const templateArgument = /\$(?:queryRawUnsafe|executeRawUnsafe)\s*\(\s*`([\s\S]*?)`/g;
+    for (const match of source.matchAll(templateArgument)) {
+      validateSql(match[1], filePath);
+    }
+
+    // Unsafe raw queries using a normal quoted string.
+    const quotedArgument = /\$(?:queryRawUnsafe|executeRawUnsafe)\s*\(\s*(["'])([\s\S]*?)\1/g;
+    for (const match of source.matchAll(quotedArgument)) {
+      validateSql(match[2], filePath);
     }
   }
 }
