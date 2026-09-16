@@ -27,19 +27,22 @@ export async function enqueueEmail(params: { to: string; subject: string; html: 
 }
 
 /**
- * Claiming is an atomic update. PostgreSQL will re-check the WHERE clause
- * after waiting on a concurrent update, so only one worker can claim a row.
- * RETRYING rows become claimable again only after the stale-claim window,
- * which also recovers jobs abandoned by a crashed instance.
+ * Claiming is an atomic update. A recent RETRYING row is only claimable by
+ * the in-process retry timer that owns it; other instances must wait for
+ * the stale-claim window. This prevents concurrent workers from sending the
+ * same email while still preserving the existing short retry backoff.
  */
-async function claimEmail(emailLogId: string) {
+async function claimEmail(emailLogId: string, allowRecentRetry = false) {
   const staleBefore = new Date(Date.now() - STALE_CLAIM_MS);
+  const retryCondition = allowRecentRetry
+    ? { status: "RETRYING" as const }
+    : { status: "RETRYING" as const, updatedAt: { lt: staleBefore } };
   const claimed = await prisma.emailLog.updateMany({
     where: {
       id: emailLogId,
       OR: [
         { status: "PENDING" },
-        { status: "RETRYING", updatedAt: { lt: staleBefore } },
+        retryCondition,
       ],
     },
     data: { status: "RETRYING", attempts: { increment: 1 } },
@@ -48,9 +51,9 @@ async function claimEmail(emailLogId: string) {
   return prisma.emailLog.findUnique({ where: { id: emailLogId } });
 }
 
-async function attemptDelivery(emailLogId: string) {
+async function attemptDelivery(emailLogId: string, allowRecentRetry = false) {
   try {
-    const log = await claimEmail(emailLogId);
+    const log = await claimEmail(emailLogId, allowRecentRetry);
     if (!log) return;
 
     const result = await deliverEmail({ to: log.to, subject: log.subject, html: log.body });
@@ -91,7 +94,7 @@ function scheduleRetry(emailLogId: string, attempts: number) {
   const delay = RETRY_BACKOFF_MS[Math.min(Math.max(attempts - 1, 0), RETRY_BACKOFF_MS.length - 1)];
   setTimeout(() => {
     retryTimers.delete(emailLogId);
-    void attemptDelivery(emailLogId);
+    void attemptDelivery(emailLogId, true);
   }, delay);
 }
 
