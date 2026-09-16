@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { AppError } from "@/utils/app-error";
 import { ensureAffiliateTables } from "./affiliates.service";
 
-export async function convertOrder(userId: string, orderNumber: string, code: string) {
+export async function convertOrder(userId: string, orderNumber: string, code: string, sessionId: string) {
   await ensureAffiliateTables();
   const order = await prisma.order.findUnique({ where: { orderNumber } });
   if (!order || order.customerId !== userId) throw AppError.notFound("Order not found");
@@ -16,9 +16,16 @@ export async function convertOrder(userId: string, orderNumber: string, code: st
   const affiliate = rows[0];
   if (!affiliate || affiliate.user_id === userId) return { converted: false };
 
+  // Attribution must be tied to the same browser/session that recorded the
+  // affiliate click. A recent click by somebody else must never be enough
+  // to assign commission to an unrelated customer's order.
   const recentClick = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
-    `SELECT id FROM affiliate_clicks WHERE affiliate_id = $1 AND created_at >= NOW() - INTERVAL '30 days' ORDER BY created_at DESC LIMIT 1`,
-    affiliate.id
+    `SELECT id FROM affiliate_clicks
+     WHERE affiliate_id = $1 AND session_id = $2
+       AND created_at >= NOW() - INTERVAL '30 days'
+     ORDER BY created_at DESC LIMIT 1`,
+    affiliate.id,
+    sessionId
   );
   if (!recentClick[0]) return { converted: false };
 
