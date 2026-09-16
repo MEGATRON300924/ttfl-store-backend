@@ -14,7 +14,7 @@ affiliatesRouter.get("/program", asyncHandler(async (_req, res) => {
 affiliatesRouter.post("/click", asyncHandler(async (req, res) => {
   const data = z.object({
     code: z.string().min(3).max(40),
-    sessionId: z.string().max(120).optional(),
+    sessionId: z.string().min(8).max(120),
     landingPath: z.string().max(500).optional(),
     source: z.string().max(80).optional(),
   }).parse(req.body);
@@ -31,6 +31,10 @@ affiliatesRouter.get("/dashboard", requireAuth, asyncHandler(async (req, res) =>
 }));
 
 affiliatesRouter.post("/convert", requireAuth, asyncHandler(async (req, res) => {
-  const data = z.object({ orderNumber: z.string().min(5).max(40), code: z.string().min(3).max(40) }).parse(req.body);
-  res.json(await convertOrder(req.user!.sub, data.orderNumber, data.code));
+  const data = z.object({
+    orderNumber: z.string().min(5).max(40),
+    code: z.string().min(3).max(40),
+    sessionId: z.string().min(8).max(120),
+  }).parse(req.body);
+  res.json(await convertOrder(req.user!.sub, data.orderNumber, data.code, data.sessionId));
 }));
