@@ -40,21 +40,11 @@ function addModel(model) {
   if (!schema.includes(`model ${match[1]} {`)) schema += `\n${model}\n`;
 }
 
-addEnumValues("AuditAction", [
-  "VENDOR_STAFF_INVITED",
-  "VENDOR_STAFF_UPDATED",
-  "VENDOR_STAFF_REMOVED",
-  "VENDOR_STAFF_ACCEPTED",
-  "ADMIN_FLASH_DEAL_CREATED",
-  "ADMIN_FLASH_DEAL_CANCELLED",
-  "ADMIN_FEATURED_PRODUCT_CREATED",
-  "ADMIN_FEATURED_STORE_CREATED",
-  "PRODUCT_AVAILABILITY_NOTIFIED",
-]);
-
+addEnumValues("AuditAction", ["VENDOR_STAFF_INVITED", "VENDOR_STAFF_UPDATED", "VENDOR_STAFF_REMOVED", "VENDOR_STAFF_ACCEPTED", "ADMIN_FLASH_DEAL_CREATED", "ADMIN_FLASH_DEAL_CANCELLED", "ADMIN_FEATURED_PRODUCT_CREATED", "ADMIN_FEATURED_STORE_CREATED", "PRODUCT_AVAILABILITY_NOTIFIED"]);
 addEnumValues("ReferralType", ["PRODUCT_VIEW"]);
 
 addField("VendorProfile", "  @@index([status])", "paystackSubaccountCode String?");
+addField("VendorProfile", "  @@index([status])", "paystackBankCode String?");
 addField("VendorProfile", "  @@index([status])", "paystackBankName String?");
 addField("VendorProfile", "  @@index([status])", "paystackAccountLast4 String?");
 addField("VendorProfile", "  @@index([status])", "paystackAccountName String?");
