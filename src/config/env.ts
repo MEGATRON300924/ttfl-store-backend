@@ -15,6 +15,20 @@ const corsOrigins = (process.env.CORS_ORIGIN ?? defaultCorsOrigin)
   .map((value) => value.trim())
   .filter(Boolean);
 
+const emailProvider = process.env.EMAIL_PROVIDER ?? (production ? "resend" : "console");
+if (!["resend", "smtp", "console"].includes(emailProvider)) {
+  throw new Error(`Unsupported EMAIL_PROVIDER: ${emailProvider}`);
+}
+if (production && emailProvider === "console") {
+  throw new Error("EMAIL_PROVIDER=console is not allowed in production");
+}
+if (production && emailProvider === "resend" && !process.env.RESEND_API_KEY) {
+  throw new Error("EMAIL_PROVIDER=resend requires RESEND_API_KEY in production");
+}
+if (production && emailProvider === "smtp" && (!process.env.EMAIL_HOST || !process.env.EMAIL_PORT || !process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD)) {
+  throw new Error("EMAIL_PROVIDER=smtp requires EMAIL_HOST, EMAIL_PORT, EMAIL_USER and EMAIL_PASSWORD in production");
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   isProd: production,
@@ -33,8 +47,8 @@ export const env = {
   corsOrigin: corsOrigins[0] ?? (production ? "https://ttflstore.name.ng" : "http://localhost:3000"),
   corsOrigins,
   email: {
-    from: process.env.EMAIL_FROM ?? "TTFL Store no-reply@thetronforge.com",
-    provider: process.env.EMAIL_PROVIDER ?? "console",
+    from: process.env.EMAIL_FROM ?? "TTFL Store <notifications@mail.ttflstore.name.ng>",
+    provider: emailProvider,
   },
   adminNotificationEmail: process.env.ADMIN_NOTIFICATION_EMAIL,
   maxAi: {
