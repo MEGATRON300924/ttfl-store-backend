@@ -64,11 +64,10 @@ async function isActiveVendorStaff(userId: string) {
 export function requireRole(...roles: Role[]) {
   return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) return next(AppError.unauthorized());
-    if (roles.includes(req.user.role)) return next();
     void (async () => {
       const currentUser = await getCurrentRole(req.user!.sub);
       if (!currentUser || currentUser.status === "DELETED") return next(AppError.unauthorized());
-      if (currentUser.status === "SUSPENDED") return next(AppError.forbidden("Your account is suspended"));
+      if (currentUser.status === "SUSPENDED") return next(AppError.forbidden("Your account is suspended", "ACCOUNT_DISABLED"));
       if (roles.includes(currentUser.role)) return next();
       if (!roles.includes("VENDOR")) return next(AppError.forbidden("Your account type can't access this"));
       const staff = await isActiveVendorStaff(req.user!.sub);
