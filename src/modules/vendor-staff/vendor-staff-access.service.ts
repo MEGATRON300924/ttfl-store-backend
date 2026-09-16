@@ -5,6 +5,7 @@ import { env } from "@/config/env";
 import { sendWhatsAppTemplate, emitMaxEvent } from "@/lib/whatsapp-notifications";
 import { createPublicTrackingToken, createDriverContactToken } from "../tracking/tracking.service";
 import { sendPushToUser } from "../notifications/notifications.service";
+import { sendEmail, orderStatusUpdateEmail } from "@/lib/email";
 import type { OrderStatus } from "@prisma/client";
 
 const FORWARD_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
@@ -52,6 +53,10 @@ async function notifyCustomerOrderStatus(vendorOrderId: string, status: OrderSta
     } catch {
       // Mobile push delivery must never block existing WhatsApp notifications.
     }
+  }
+
+  if (customer?.email) {
+    void sendEmail({ to: customer.email, ...orderStatusUpdateEmail(orderNumber, status as "PROCESSING" | "SHIPPED" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED") });
   }
 
   if (!vendorOrder.order.deliveryPhone) return;
