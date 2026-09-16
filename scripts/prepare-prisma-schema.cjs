@@ -22,7 +22,14 @@ function addField(modelName, marker, field) {
   const block = schema.slice(start, end);
   const fieldName = field.trim().split(/\s+/)[0];
   if (new RegExp(`^\\s*${fieldName}\\s+`, "m").test(block)) return;
-  const markerIndex = schema.indexOf(marker, start);
+  let markerIndex = schema.indexOf(marker, start);
+  if (markerIndex < 0 || markerIndex > end) {
+    const markerFieldName = marker.trim().split(/\s+/).pop();
+    if (markerFieldName) {
+      const fallback = block.match(new RegExp(`^\\s*${markerFieldName}\\s+[^\\n]*$`, "m"));
+      if (fallback?.index != null) markerIndex = start + fallback.index;
+    }
+  }
   if (markerIndex < 0 || markerIndex > end) throw new Error(`Could not insert ${fieldName} into ${modelName}`);
   schema = `${schema.slice(0, markerIndex)}  ${field}\n${schema.slice(markerIndex)}`;
 }
@@ -62,7 +69,7 @@ addField("Product", "  createdAt", "sponsored Boolean @default(false)");
 addField("Product", "  createdAt", "sponsoredAt DateTime?");
 addField("Product", "  createdAt", "tags String[] @default([])");
 
-addField("VendorOrder", "  items               OrderItem[]", "trackingEvents TrackingEvent[]");
+addField("VendorOrder", "  items OrderItem[]", "trackingEvents TrackingEvent[]");
 
 addModel(`model TrackingEvent {
   id String @id @default(uuid())
