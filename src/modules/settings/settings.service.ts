@@ -21,7 +21,7 @@ const DEFAULTS: Record<string, string> = {
   [SETTING_KEYS.WHATSAPP_ADMIN_NUMBERS]: "",
 };
 
-const EDITABLE_KEYS = new Set(Object.values(SETTING_KEYS));
+const EDITABLE_KEYS = new Set<string>(Object.values(SETTING_KEYS));
 
 export async function getSettingNumber(key: string): Promise<number> {
   const row = await prisma.platformSetting.findUnique({ where: { key } });
