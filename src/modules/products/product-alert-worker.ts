@@ -7,98 +7,141 @@ import { sendWhatsAppNotification } from "@/lib/whatsapp-notifications";
 let running = false;
 
 async function processBackInStock() {
-  const rows = await prisma.$queryRawUnsafe<Array<{ id: string; name: string; slug: string; email: string | null; whatsapp: string | null }>>(`
-    SELECT a.id,p.name,p.slug,a.email,a.whatsapp
-    FROM product_alerts a
-    JOIN products p ON p.id=a.product_id
-    WHERE a.type='BACK_IN_STOCK'
-      AND a.notified_at IS NULL
-      AND p."deletedAt" IS NULL
-      AND p.status='ACTIVE'
-      AND p.stock > 0
-    LIMIT 100
-  `);
+  const alerts = await prisma.productAlert.findMany({
+    where: {
+      type: "BACK_IN_STOCK",
+      notifiedAt: null,
+    },
+    select: {
+      id: true,
+      productId: true,
+      email: true,
+      whatsapp: true,
+    },
+    take: 100,
+  });
 
-  for (const row of rows) {
+  if (!alerts.length) return;
+
+  const products = await prisma.product.findMany({
+    where: {
+      id: { in: alerts.map((alert) => alert.productId) },
+      deletedAt: null,
+      status: "ACTIVE",
+      stock: { gt: 0 },
+    },
+    select: { id: true, name: true, slug: true },
+  });
+  const productById = new Map(products.map((product) => [product.id, product]));
+
+  for (const alert of alerts) {
+    const product = productById.get(alert.productId);
+    if (!product) continue;
+
     let delivered = false;
-    if (row.email) {
+    if (alert.email) {
       try {
         await sendEmail({
-          to: row.email,
-          subject: `${row.name} is back in stock`,
+          to: alert.email,
+          subject: `${product.name} is back in stock`,
           html: renderEmailLayout({
             heading: "Back in stock",
-            previewText: `${row.name} is available again.`,
-            bodyHtml: `<p><strong>${escapeHtml(row.name)}</strong> is back in stock on TTFL Store.</p>`,
+            previewText: `${product.name} is available again.`,
+            bodyHtml: `<p><strong>${escapeHtml(product.name)}</strong> is back in stock on TTFL Store.</p>`,
             ctaText: "Shop now",
-            ctaUrl: `${env.appUrl}/products/${row.slug}`,
+            ctaUrl: `${env.appUrl}/products/${product.slug}`,
           }),
           event: "product_back_in_stock",
         });
         delivered = true;
       } catch {}
     }
-    if (row.whatsapp) {
+    if (alert.whatsapp) {
       try {
         const result = await sendWhatsAppNotification({
-          to: row.whatsapp,
-          message: `${row.name} is back in stock on TTFL Store. ${env.appUrl}/products/${row.slug}`,
+          to: alert.whatsapp,
+          message: `${product.name} is back in stock on TTFL Store. ${env.appUrl}/products/${product.slug}`,
           event: "product_back_in_stock",
         });
         delivered = delivered || Boolean(result.delivered);
       } catch {}
     }
     if (delivered) {
-      await prisma.$executeRawUnsafe(`UPDATE product_alerts SET notified_at=NOW() WHERE id=$1`, row.id);
+      await prisma.productAlert.update({
+        where: { id: alert.id },
+        data: { notifiedAt: new Date() },
+      });
     }
   }
 }
 
 async function processPriceDrops() {
-  const rows = await prisma.$queryRawUnsafe<Array<{ id: string; name: string; slug: string; email: string | null; whatsapp: string | null; targetPrice: number; newPrice: number }>>(`
-    SELECT a.id,p.name,p.slug,a.email,a.whatsapp,a.target_price AS "targetPrice",p.price AS "newPrice"
-    FROM product_alerts a
-    JOIN products p ON p.id=a.product_id
-    WHERE a.type='PRICE_DROP'
-      AND a.notified_at IS NULL
-      AND p."deletedAt" IS NULL
-      AND p.status='ACTIVE'
-      AND a.target_price IS NOT NULL
-      AND p.price <= a.target_price
-    LIMIT 100
-  `);
+  const alerts = await prisma.productAlert.findMany({
+    where: {
+      type: "PRICE_DROP",
+      notifiedAt: null,
+      targetPrice: { not: null },
+    },
+    select: {
+      id: true,
+      productId: true,
+      email: true,
+      whatsapp: true,
+      targetPrice: true,
+    },
+    take: 100,
+  });
 
-  for (const row of rows) {
+  if (!alerts.length) return;
+
+  const products = await prisma.product.findMany({
+    where: {
+      id: { in: alerts.map((alert) => alert.productId) },
+      deletedAt: null,
+      status: "ACTIVE",
+    },
+    select: { id: true, name: true, slug: true, price: true },
+  });
+  const productById = new Map(products.map((product) => [product.id, product]));
+
+  for (const alert of alerts) {
+    const product = productById.get(alert.productId);
+    if (!product || alert.targetPrice == null) continue;
+    if (Number(product.price) > Number(alert.targetPrice)) continue;
+
     let delivered = false;
-    if (row.email) {
+    if (alert.email) {
       try {
         await sendEmail({
-          to: row.email,
-          subject: `Price drop: ${row.name}`,
+          to: alert.email,
+          subject: `Price drop: ${product.name}`,
           html: renderEmailLayout({
             heading: "Price dropped",
-            previewText: `${row.name} is now ₦${Number(row.newPrice).toLocaleString()}.`,
-            bodyHtml: `<p><strong>${escapeHtml(row.name)}</strong> is now <strong>₦${Number(row.newPrice).toLocaleString()}</strong>.</p>`,
+            previewText: `${product.name} is now ₦${Number(product.price).toLocaleString()}.`,
+            bodyHtml: `<p><strong>${escapeHtml(product.name)}</strong> is now <strong>₦${Number(product.price).toLocaleString()}</strong>.</p>`,
             ctaText: "View product",
-            ctaUrl: `${env.appUrl}/products/${row.slug}`,
+            ctaUrl: `${env.appUrl}/products/${product.slug}`,
           }),
           event: "product_price_drop",
         });
         delivered = true;
       } catch {}
     }
-    if (row.whatsapp) {
+    if (alert.whatsapp) {
       try {
         const result = await sendWhatsAppNotification({
-          to: row.whatsapp,
-          message: `Price drop! ${row.name} is now ₦${Number(row.newPrice).toLocaleString()} on TTFL Store. ${env.appUrl}/products/${row.slug}`,
+          to: alert.whatsapp,
+          message: `Price drop! ${product.name} is now ₦${Number(product.price).toLocaleString()} on TTFL Store. ${env.appUrl}/products/${product.slug}`,
           event: "product_price_drop",
         });
         delivered = delivered || Boolean(result.delivered);
       } catch {}
     }
     if (delivered) {
-      await prisma.$executeRawUnsafe(`UPDATE product_alerts SET notified_at=NOW() WHERE id=$1`, row.id);
+      await prisma.productAlert.update({
+        where: { id: alert.id },
+        data: { notifiedAt: new Date() },
+      });
     }
   }
 }
@@ -115,7 +158,14 @@ export async function processProductAlerts() {
 }
 
 export function startProductAlertWorker() {
-  void processProductAlerts();
-  const timer = setInterval(() => void processProductAlerts(), 60000);
+  void processProductAlerts().catch((error) => {
+    console.error("Product alert worker failed:", error);
+  });
+
+  const timer = setInterval(() => {
+    void processProductAlerts().catch((error) => {
+      console.error("Product alert worker failed:", error);
+    });
+  }, 60000);
   timer.unref();
 }
