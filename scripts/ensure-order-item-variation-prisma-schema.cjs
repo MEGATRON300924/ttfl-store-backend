@@ -9,13 +9,19 @@ function ensureOrderItemField(field) {
   if (modelStart < 0) throw new Error("OrderItem model not found in Prisma schema");
   const modelEnd = schema.indexOf("\n}", modelStart);
   if (modelEnd < 0) throw new Error("OrderItem model is malformed");
+
   const fieldName = field.trim().split(/\s+/)[0];
   const modelBlock = schema.slice(modelStart, modelEnd);
   if (new RegExp(`^\\s*${fieldName}\\s+`, "m").test(modelBlock)) return false;
-  const marker = "  createdAt DateTime @default(now())";
-  const markerIndex = schema.indexOf(marker, modelStart);
-  if (markerIndex < 0 || markerIndex > modelEnd) throw new Error(`Could not insert ${fieldName} into OrderItem`);
-  schema = `${schema.slice(0, markerIndex)}  ${field}\n${schema.slice(markerIndex)}`;
+
+  // Insert immediately before the first model index/attribute. This is more
+  // robust than depending on a particular createdAt line being present.
+  const attributeMatch = modelBlock.match(/^\s*@@(?:index|unique|map)/m);
+  let insertAt = attributeMatch?.index != null
+    ? modelStart + attributeMatch.index
+    : modelEnd;
+
+  schema = `${schema.slice(0, insertAt)}  ${field}\n${schema.slice(insertAt)}`;
   return true;
 }
 
