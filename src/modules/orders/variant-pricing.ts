@@ -11,16 +11,31 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
+function readVariationArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 export function getProductVariations(product: Product): StoredVariation[] {
   const specifications = asRecord(product.specifications);
-  const raw = specifications?._variations;
-  if (!Array.isArray(raw)) return [];
-  return raw.filter((item): item is Record<string, unknown> => Boolean(asRecord(item))).map((item) => ({
-    key: typeof item.key === "string" ? item.key : undefined,
-    label: typeof item.label === "string" ? item.label : undefined,
-    options: asRecord(item.options) ? Object.fromEntries(Object.entries(item.options as Record<string, unknown>).filter(([, value]) => typeof value === "string")) as Record<string, string> : undefined,
-    price: typeof item.price === "number" || typeof item.price === "string" ? item.price : null,
-  }));
+  return readVariationArray(specifications?._variations)
+    .filter((item): item is Record<string, unknown> => Boolean(asRecord(item)))
+    .map((item) => ({
+      key: typeof item.key === "string" ? item.key : undefined,
+      label: typeof item.label === "string" ? item.label : undefined,
+      options: asRecord(item.options)
+        ? Object.fromEntries(Object.entries(item.options as Record<string, unknown>).filter(([, value]) => typeof value === "string")) as Record<string, string>
+        : undefined,
+      price: typeof item.price === "number" || typeof item.price === "string" ? item.price : null,
+    }));
 }
 
 export function resolveProductVariant(product: Product, variantKey?: string) {
@@ -41,9 +56,7 @@ export function resolveProductVariant(product: Product, variantKey?: string) {
 
 export function resolveCheckoutUnitPrice(product: Product, variantKey: string | undefined, dealPrice?: number) {
   const variant = resolveProductVariant(product, variantKey);
-  if (variantKey && !variant) {
-    return { variant: null, unitPrice: null };
-  }
+  if (variantKey && !variant) return { variant: null, unitPrice: null };
   const basePrice = variant?.price ?? Number(product.price);
   return { variant, unitPrice: dealPrice ?? basePrice };
 }
