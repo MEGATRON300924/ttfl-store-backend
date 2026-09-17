@@ -22,15 +22,16 @@ function normalizeConfig(value: unknown): CategoryVariationConfig {
   const variations = Array.isArray(raw.variations) ? raw.variations : [];
   return {
     enabled: raw.enabled === true && variations.length > 0,
-    variations: variations.map((item) => {
+    variations: variations.map((item): CategoryVariation | null => {
       const v = item as Record<string, unknown>;
       const options = Array.isArray(v.options) ? v.options : [];
+      const type: CategoryVariationType = v.type === "CLOTHING" || v.type === "OTHER" ? v.type : "PRODUCT";
       return {
         id: String(v.id || crypto.randomUUID()), key: String(v.key || slugify(String(v.name || "option"))), name: String(v.name || "Option"),
-        type: v.type === "CLOTHING" || v.type === "OTHER" ? v.type : "PRODUCT",
-        options: options.map((option) => { const o = option as Record<string, unknown>; const valueText = String(o.value ?? o.label ?? "").trim(); return { id: String(o.id || crypto.randomUUID()), label: String(o.label || valueText), value: valueText }; }).filter((o) => o.value),
+        type,
+        options: options.map((option): CategoryVariationOption => { const o = option as Record<string, unknown>; const valueText = String(o.value ?? o.label ?? "").trim(); return { id: String(o.id || crypto.randomUUID()), label: String(o.label || valueText), value: valueText }; }).filter((o) => o.value),
       };
-    }).filter((v) => v.name.trim() && v.options.length),
+    }).filter((v): v is CategoryVariation => v !== null && v.name.trim() !== "" && v.options.length > 0),
   };
 }
 
