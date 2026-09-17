@@ -60,6 +60,9 @@ addField("Product", "  createdAt", "sponsoredAt DateTime?");
 addField("Product", "  createdAt", "tags String[] @default([])");
 
 addField("VendorOrder", "  items OrderItem[]", "trackingEvents TrackingEvent[]");
+addField("OrderItem", "  createdAt", "variantKey String?");
+addField("OrderItem", "  createdAt", "variantLabel String?");
+addField("OrderItem", "  createdAt", "variantOptions Json?");
 
 addModel(`model TrackingEvent {
   id String @id @default(uuid())
@@ -134,7 +137,7 @@ addModel(`model ProductAvailabilityNotification {
   whatsapp String?
   emailNotifiedAt DateTime? @map("email_notified_at")
   whatsappNotifiedAt DateTime? @map("whatsapp_notified_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt @map("updated_at")
   @@unique([productId, email], name: "product_availability_notifications_product_email_idx")
   @@unique([productId, whatsapp], name: "product_availability_notifications_product_whatsapp_idx")
@@ -188,7 +191,7 @@ addModel(`model PromotionEvent {
   quantity Int?
   revenue Decimal?
   source String?
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime @default(now())
   @@index([vendorId, createdAt(sort: Desc)], name: "promotion_events_vendor_idx")
   @@index([promotionType, promotionId, event], name: "promotion_events_promotion_created_idx")
   @@map("promotion_events")
