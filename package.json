@@ -40,11 +40,11 @@
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.7",
-    "@types/cors": "^2.4.7",
+    "@types/cors": "^2.8.17",
     "@types/jsonwebtoken": "^9.0.7",
     "@types/multer": "^2.2.0",
     "@types/node": "^20.14.15",
-    "@types/nodemailer": "^8.0.1",
+    "@types/nodemailer": "^8.1.0",
     "@types/uuid": "^9.0.0",
     "prisma": "^5.19.1",
     "tsc-alias": "^1.9.2",
