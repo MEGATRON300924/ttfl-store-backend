@@ -59,7 +59,7 @@ export const productSearchSchema = z.object({
   minPrice: z.coerce.number().nonnegative().optional(), maxPrice: z.coerce.number().positive().optional(),
   condition: z.enum(["NEW", "USED"]).optional(), sellingMethod: z.enum(["CHECKOUT", "EXTERNAL_LINK", "WHATSAPP"]).optional(),
   location: z.string().optional(), verifiedOnly: z.coerce.boolean().optional(), comingSoon: z.coerce.boolean().optional(),
-  sort: z.enum(["relevance", "price_asc", "price_desc", "newest", "rating"]).default("relevance"),
+  sort: z.enum(["relevance", "price_asc", "price_desc", "newest", "launched", "rating"]).default("relevance"),
   page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(48).default(24),
 });
 
