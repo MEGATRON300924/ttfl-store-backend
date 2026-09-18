@@ -59,8 +59,8 @@ export async function removeAlert(id: string, userId?: string) {
 
 
 export async function getMyWaitlist(userId: string) {
-  const rows = await prisma.$queryRawUnsafe<Array<{ id:string; productId:string; name:string; slug:string; price:string; image:string|null; launchAt:Date|null; seenAt:Date|null }>>(
-    `SELECT pa.id,pa.product_id AS "productId",p.name,p.slug,p.price::text,p.launched_at AS "launchAt",pa.waitlist_seen_at AS "seenAt",
+  const rows = await prisma.$queryRawUnsafe<Array<{ id:string; productId:string; name:string; slug:string; price:string; image:string|null; launchAt:Date|null; notifiedAt:Date|null; seenAt:Date|null }>>(
+    `SELECT pa.id,pa.product_id AS "productId",p.name,p.slug,p.price::text,p.launched_at AS "launchAt",pa.notified_at AS "notifiedAt",pa.waitlist_seen_at AS "seenAt",
       (SELECT pi.url FROM product_images pi WHERE pi.product_id=p.id AND pi.is_primary=true ORDER BY pi.position ASC LIMIT 1) AS image
      FROM product_alerts pa JOIN products p ON p.id=pa.product_id
      WHERE pa.user_id=$1 AND pa.type='WAITLIST'
