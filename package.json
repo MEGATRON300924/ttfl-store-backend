@@ -5,9 +5,9 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "node scripts/ensure-production-column-compatibility.cjs && node scripts/ensure-raw-sql-column-identifiers.cjs && node scripts/ensure-category-variation-prisma.cjs && node scripts/prepare-prisma-schema.cjs && prisma generate && tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
+    "build": "node scripts/ensure-production-column-compatibility.cjs && node scripts/ensure-raw-sql-column-identifiers.cjs && node scripts/ensure-category-variation-prisma.cjs && node scripts/ensure-coming-soon-schema.cjs && node scripts/prepare-prisma-schema.cjs && prisma generate && tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
     "typecheck": "node scripts/ensure-production-column-compatibility.cjs && node scripts/ensure-raw-sql-column-identifiers.cjs && node scripts/ensure-category-variation-prisma.cjs && node scripts/prepare-prisma-schema.cjs && prisma generate && tsc -p tsconfig.json --noEmit",
-    "prestart": "node scripts/ensure-production-column-compatibility.cjs && node scripts/ensure-category-variation-prisma.cjs && node scripts/ensure-order-item-vendor-column.cjs && node scripts/ensure-order-item-variation-columns.cjs && node scripts/ensure-vendor-order-column.cjs && node scripts/ensure-vendor-paystack-columns.cjs",
+    "prestart": "node scripts/ensure-production-column-compatibility.cjs && node scripts/ensure-category-variation-prisma.cjs && node scripts/ensure-coming-soon-schema.cjs && node scripts/ensure-order-item-vendor-column.cjs && node scripts/ensure-order-item-variation-columns.cjs && node scripts/ensure-vendor-order-column.cjs && node scripts/ensure-vendor-paystack-columns.cjs",
     "start": "node dist/server.js",
     "prisma:generate": "node scripts/ensure-production-column-compatibility.cjs && node scripts/ensure-category-variation-prisma.cjs && node scripts/prepare-prisma-schema.cjs && prisma generate",
     "prisma:migrate": "prisma migrate dev",
