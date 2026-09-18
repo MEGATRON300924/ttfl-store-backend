@@ -56,3 +56,25 @@ export async function removeAlert(id: string, userId?: string) {
   if (!result) throw AppError.notFound("Alert not found");
   return { ok: true };
 }
+
+
+export async function getMyWaitlist(userId: string) {
+  const rows = await prisma.$queryRawUnsafe<Array<{ id:string; productId:string; name:string; slug:string; price:string; image:string|null; launchAt:Date|null; seenAt:Date|null }>>(
+    `SELECT pa.id,pa.product_id AS "productId",p.name,p.slug,p.price::text,p.launched_at AS "launchAt",pa.waitlist_seen_at AS "seenAt",
+      (SELECT pi.url FROM product_images pi WHERE pi.product_id=p.id AND pi.is_primary=true ORDER BY pi.position ASC LIMIT 1) AS image
+     FROM product_alerts pa JOIN products p ON p.id=pa.product_id
+     WHERE pa.user_id=$1 AND pa.type='WAITLIST'
+     ORDER BY COALESCE(p.launched_at,pa.created_at) DESC`,
+    userId,
+  );
+  return rows;
+}
+
+export async function acknowledgeWaitlistLaunches(userId: string) {
+  await prisma.$executeRawUnsafe(
+    `UPDATE product_alerts SET waitlist_seen_at=NOW()
+     WHERE user_id=$1 AND type='WAITLIST' AND notified_at IS NOT NULL AND waitlist_seen_at IS NULL`,
+    userId,
+  );
+  return { ok: true };
+}
