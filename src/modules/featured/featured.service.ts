@@ -11,14 +11,47 @@ import type { FeaturedPlacement, VendorTier } from "@prisma/client";
 const PLACEMENT_SETTING_KEY: Record<FeaturedPlacement, string> = { HOMEPAGE: SETTING_KEYS.FEATURED_HOMEPAGE_PRICE_PER_DAY, TRENDING: SETTING_KEYS.FEATURED_TRENDING_PRICE_PER_DAY, CATEGORY: SETTING_KEYS.FEATURED_CATEGORY_PRICE_PER_DAY, SEARCH: SETTING_KEYS.FEATURED_SEARCH_PRICE_PER_DAY };
 async function pricePerDayFor(placement: FeaturedPlacement): Promise<number> { return getSettingNumber(PLACEMENT_SETTING_KEY[placement]); }
 const FEATURED_PRODUCT_PRICE = 5000;
+const ENTERPRISE_FREE_PROMOTIONS_PER_MONTH = 3;
+
+function currentMonthRange() {
+  const now = new Date();
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  return { start, end };
+}
+
+async function getEnterprisePromotionAllowance(vendorId: string, tier: VendorTier) {
+  if (tier !== "ENTERPRISE") return { freeLimit: 0, freeUsed: 0, freeRemaining: 0 };
+  const { start, end } = currentMonthRange();
+  const freeUsed = await prisma.featuredProduct.count({
+    where: { vendorId, price: 0, createdAt: { gte: start, lt: end } },
+  });
+  return {
+    freeLimit: ENTERPRISE_FREE_PROMOTIONS_PER_MONTH,
+    freeUsed,
+    freeRemaining: Math.max(0, ENTERPRISE_FREE_PROMOTIONS_PER_MONTH - freeUsed),
+  };
+}
 function priceFor(pricePerDay: number, durationDays: number) { return pricePerDay * durationDays; }
 async function assertPaidPromotionAccess(tier: VendorTier) { if (tier === "FREE") throw AppError.forbidden("Featured promotion is available on paid vendor plans. Upgrade to Pro or above.", "FEATURE_REQUIRES_PAID_PLAN"); }
 async function assertFeatureCapacity(vendorId: string, tier: VendorTier, kind: "product" | "store") { await assertPaidPromotionAccess(tier); const plan = await getPlanForTier(tier); const limits = kind === "product" ? { PRO: 2, BUSINESS: 8, ENTERPRISE: 20 } : { PRO: 0, BUSINESS: 2, ENTERPRISE: 10 }; const limit = limits[tier as keyof typeof limits] ?? 0; if (!limit) throw AppError.forbidden(`${plan.name} does not include self-service Featured Stores. Upgrade to Business or above.`, "FEATURE_REQUIRES_UPGRADE"); const where = { vendorId, status: "ACTIVE" as const, endDate: { gt: new Date() } }; const count = kind === "product" ? await prisma.featuredProduct.count({ where }) : await prisma.featuredStore.count({ where }); if (count >= limit) throw AppError.forbidden(`Your ${plan.name} plan allows up to ${limit} active featured ${kind}s. Upgrade for more capacity.`, "FEATURE_LIMIT_REACHED"); }
 function assertPaidAmount(verification: { amount: number; requested_amount?: number | null; currency: string }, expected: number) { if (verification.currency !== "NGN") throw AppError.badRequest("Payment currency does not match promotion price", "CURRENCY_MISMATCH"); const paidKobo = verification.requested_amount ?? verification.amount; if (Math.round(paidKobo) !== Math.round(expected * 100)) throw AppError.badRequest("Payment amount mismatch", "AMOUNT_MISMATCH"); }
 
-export async function purchaseFeaturedProduct(vendorId: string, vendorEmail: string, input: { productId: string; placement: FeaturedPlacement; durationDays: 1 | 7 | 14 | 30 }) { const product = await prisma.product.findUnique({ where: { id: input.productId } }); if (!product || product.vendorId !== vendorId) throw AppError.forbidden("You can only feature your own products"); const vendor = await prisma.vendorProfile.findUnique({ where: { id: vendorId }, select: { tier: true, status: true } }); if (!vendor || vendor.status !== "APPROVED") throw AppError.forbidden("Your store must be approved before purchasing promotion"); await assertFeatureCapacity(vendorId, vendor.tier, "product"); const price = FEATURED_PRODUCT_PRICE; const reference = `ttfl_feat_prod_${input.productId}_${Date.now()}`; const featured = await prisma.featuredProduct.create({ data: { productId: input.productId, vendorId, placement: input.placement, durationDays: input.durationDays, price, paymentReference: reference, status: "PENDING_PAYMENT" } }); const paystack = await initializeTransaction({ email: vendorEmail, amountNaira: price, reference, callbackUrl: `${env.appUrl}/vendor/dashboard/products/${input.productId}/promote/confirm`, metadata: { featuredProductId: featured.id, kind: "featured_product" } }); return { featured, checkoutUrl: paystack.authorization_url }; }
+export async function purchaseFeaturedProduct(vendorId: string, vendorEmail: string, input: { productId: string; placement: FeaturedPlacement; durationDays: 1 | 7 | 14 | 30 }) { const product = await prisma.product.findUnique({ where: { id: input.productId } }); if (!product || product.vendorId !== vendorId) throw AppError.forbidden("You can only feature your own products"); const vendor = await prisma.vendorProfile.findUnique({ where: { id: vendorId }, select: { tier: true, status: true } }); if (!vendor || vendor.status !== "APPROVED") throw AppError.forbidden("Your store must be approved before purchasing promotion"); await assertFeatureCapacity(vendorId, vendor.tier, "product"); const allowance = await getEnterprisePromotionAllowance(vendorId, vendor.tier);
+  const isFreeEnterprisePromotion = vendor.tier === "ENTERPRISE" && allowance.freeRemaining > 0;
+  const price = isFreeEnterprisePromotion ? 0 : FEATURED_PRODUCT_PRICE;
+  const reference = `ttfl_feat_prod_${input.productId}_${Date.now()}`;
+  const featured = await prisma.featuredProduct.create({ data: { productId: input.productId, vendorId, placement: input.placement, durationDays: input.durationDays, price, paymentReference: isFreeEnterprisePromotion ? `enterprise_free_${reference}` : reference, status: isFreeEnterprisePromotion ? "ACTIVE" : "PENDING_PAYMENT", ...(isFreeEnterprisePromotion ? { startDate: new Date(), endDate: new Date(Date.now() + input.durationDays * 86400000) } : {}) } });
+  if (isFreeEnterprisePromotion) return { featured, checkoutUrl: null, freePromotion: true, allowance: { ...allowance, freeUsed: allowance.freeUsed + 1, freeRemaining: Math.max(0, allowance.freeRemaining - 1) } };
+  const paystack = await initializeTransaction({ email: vendorEmail, amountNaira: price, reference, callbackUrl: `${env.appUrl}/vendor/dashboard/products/${input.productId}/promote/confirm`, metadata: { featuredProductId: featured.id, kind: "featured_product" } });
+  return { featured, checkoutUrl: paystack.authorization_url, freePromotion: false, allowance }; }
 
-export async function verifyFeaturedProductPayment(reference: string) { const featured = await prisma.featuredProduct.findUnique({ where: { paymentReference: reference } }); if (!featured) throw AppError.notFound("Featured listing not found"); if (featured.status !== "PENDING_PAYMENT") return featured; const verification = await verifyTransaction(reference); if (["ongoing","pending","processing","queued"].includes(verification.status)) return featured; if (verification.status !== "success") return prisma.featuredProduct.update({ where: { id: featured.id }, data: { status: "CANCELLED" } }); assertPaidAmount(verification, Number(featured.price)); const startDate = new Date(); const endDate = new Date(startDate.getTime() + featured.durationDays * 86400000); return prisma.featuredProduct.update({ where: { id: featured.id }, data: { status: "ACTIVE", startDate, endDate } }); }
+\nexport async function getFeaturedProductAllowance(vendorId: string) {
+  const vendor = await prisma.vendorProfile.findUnique({ where: { id: vendorId }, select: { tier: true } });
+  if (!vendor) throw AppError.notFound("Vendor profile not found");
+  return getEnterprisePromotionAllowance(vendorId, vendor.tier);
+}
+\nexport async function verifyFeaturedProductPayment(reference: string) { const featured = await prisma.featuredProduct.findUnique({ where: { paymentReference: reference } }); if (!featured) throw AppError.notFound("Featured listing not found"); if (featured.status !== "PENDING_PAYMENT") return featured; const verification = await verifyTransaction(reference); if (["ongoing","pending","processing","queued"].includes(verification.status)) return featured; if (verification.status !== "success") return prisma.featuredProduct.update({ where: { id: featured.id }, data: { status: "CANCELLED" } }); assertPaidAmount(verification, Number(featured.price)); const startDate = new Date(); const endDate = new Date(startDate.getTime() + featured.durationDays * 86400000); return prisma.featuredProduct.update({ where: { id: featured.id }, data: { status: "ACTIVE", startDate, endDate } }); }
 
 export async function handlePaystackFeaturedCharge(reference: string) { const featured = await prisma.featuredProduct.findUnique({ where: { paymentReference: reference } }); if (!featured || featured.status !== "PENDING_PAYMENT") return false; await verifyFeaturedProductPayment(reference); return true; }
 export async function getActiveFeaturedProducts(placement: FeaturedPlacement, limit = 10) { return prisma.featuredProduct.findMany({ where: { placement, status: "ACTIVE", endDate: { gt: new Date() }, product: { deletedAt: null, status: "ACTIVE", comingSoon: false } }, include: { product: { include: { images: { orderBy: { position: "asc" } }, vendor: true, category: true } } }, orderBy: { startDate: "desc" }, take: limit }); }
