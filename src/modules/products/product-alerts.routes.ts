@@ -1,13 +1,16 @@
 import { Router } from "express";
 import { z } from "zod";
 import { asyncHandler } from "@/middleware/error-handler";
-import { attachUser } from "@/middleware/auth";
+import { attachUser, requireAuth } from "@/middleware/auth";
 import * as service from "./product-alerts.service";
 
 export const productAlertsRouter = Router();
 productAlertsRouter.use(attachUser);
 const schema = z.object({ type: z.enum(["BACK_IN_STOCK", "PRICE_DROP"]), email: z.string().email().optional(), whatsapp: z.string().min(7).max(20).optional(), targetPrice: z.coerce.number().positive().optional() });
 const waitlistSchema = z.object({ email: z.string().email().optional(), whatsapp: z.string().min(7).max(20).optional() });
+
+productAlertsRouter.get("/waitlist/mine", requireAuth, asyncHandler(async (req, res) => { res.json({ items: await service.getMyWaitlist(req.user!.sub) }); }));
+productAlertsRouter.post("/waitlist/mine/ack", requireAuth, asyncHandler(async (req, res) => { res.json(await service.acknowledgeWaitlistLaunches(req.user!.sub)); }));
 
 productAlertsRouter.get("/:productId/waitlist", asyncHandler(async (req, res) => {
   res.json(await service.getWaitlistCount(req.params.productId));
