@@ -113,6 +113,12 @@ async function finalizePaystackSubaccountConstraint() {
 
 console.log("Checking Prisma schema changes for destructive database operations...");
 
+// Re-apply schema extensions that exist in production before calculating the Prisma diff.
+// This prevents compatibility scripts from creating real DB columns that Prisma later
+// interprets as columns to DROP because they are missing from the generated schema.
+runNodeScript(path.join(process.cwd(), "scripts", "prepare-prisma-schema.cjs"));
+runNodeScript(path.join(process.cwd(), "scripts", "ensure-launch-campaign-schema.cjs"));
+
 try {
   const productRepairScript = path.join(process.cwd(), "scripts", "ensure-products-schema.cjs");
   if (fs.existsSync(productRepairScript)) {
