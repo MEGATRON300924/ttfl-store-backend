@@ -743,3 +743,36 @@ model PlatformSetting {
   updatedAt DateTime @updatedAt
   @@map("platform_settings")
 }
+
+
+model LaunchCampaign {
+  id String @id
+  vendorId String @map("vendor_id")
+  productId String @map("product_id")
+  launchAt DateTime @map("launch_at")
+  status String @default("SCHEDULED")
+  homepage Boolean @default(false)
+  flashDealId String? @map("flash_deal_id")
+  launchDetails Json? @map("launch_details")
+  launchedAt DateTime? @map("launched_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@index([vendorId, status, launchAt])
+  @@index([productId, status])
+  @@map("launch_campaigns")
+}
+
+model ProductAlert {
+  id String @id
+  productId String @map("product_id")
+  userId String? @map("user_id")
+  email String?
+  whatsapp String?
+  type String
+  targetPrice Decimal? @map("target_price")
+  notifiedAt DateTime? @map("notified_at")
+  waitlistSeenAt DateTime? @map("waitlist_seen_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  @@index([productId, type, notifiedAt])
+  @@map("product_alerts")
+}
