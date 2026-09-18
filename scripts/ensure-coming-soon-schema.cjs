@@ -23,6 +23,7 @@ function addModel(model) {
 
 addProductField("comingSoon", "comingSoon Boolean @default(false) @map(\"coming_soon\")");
 addProductField("availableAt", "availableAt DateTime? @map(\"available_at\")");
+addProductField("launchedAt", "launchedAt DateTime? @map(\"launched_at\")");
 
 addModel(`model ProductAvailabilityNotification {
  id String @id
@@ -45,6 +46,7 @@ fs.writeFileSync(schemaPath, schema);
 const sql = [
   `ALTER TABLE products ADD COLUMN IF NOT EXISTS coming_soon BOOLEAN NOT NULL DEFAULT false`,
   `ALTER TABLE products ADD COLUMN IF NOT EXISTS available_at TIMESTAMPTZ`,
+  `ALTER TABLE products ADD COLUMN IF NOT EXISTS launched_at TIMESTAMPTZ`,
   `CREATE TABLE IF NOT EXISTS product_availability_notifications (id TEXT PRIMARY KEY, product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE, user_id TEXT REFERENCES users(id) ON DELETE SET NULL, email TEXT, whatsapp TEXT, email_notified_at TIMESTAMPTZ, whatsapp_notified_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), CHECK (email IS NOT NULL OR whatsapp IS NOT NULL))`,
   `DROP INDEX IF EXISTS product_availability_notifications_product_email_idx`,
   `DROP INDEX IF EXISTS product_availability_notifications_product_whatsapp_idx`,
