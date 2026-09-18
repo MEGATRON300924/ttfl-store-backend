@@ -11,7 +11,7 @@ jobs:
     steps:
       - name: Ping backend health endpoint
         env:
-          HEALTH_URL: https://YOUR-RENDER-SERVICE.onrender.com/health
+          HEALTH_URL: https://ttfl-store-backend.onrender.com/health
         run: |
           set -e
           echo "Pinging $HEALTH_URL"
