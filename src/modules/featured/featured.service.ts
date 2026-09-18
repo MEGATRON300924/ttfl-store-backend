@@ -46,12 +46,14 @@ export async function purchaseFeaturedProduct(vendorId: string, vendorEmail: str
   const paystack = await initializeTransaction({ email: vendorEmail, amountNaira: price, reference, callbackUrl: `${env.appUrl}/vendor/dashboard/products/${input.productId}/promote/confirm`, metadata: { featuredProductId: featured.id, kind: "featured_product" } });
   return { featured, checkoutUrl: paystack.authorization_url, freePromotion: false, allowance }; }
 
-\nexport async function getFeaturedProductAllowance(vendorId: string) {
+
+export async function getFeaturedProductAllowance(vendorId: string) {
   const vendor = await prisma.vendorProfile.findUnique({ where: { id: vendorId }, select: { tier: true } });
   if (!vendor) throw AppError.notFound("Vendor profile not found");
   return getEnterprisePromotionAllowance(vendorId, vendor.tier);
 }
-\nexport async function verifyFeaturedProductPayment(reference: string) { const featured = await prisma.featuredProduct.findUnique({ where: { paymentReference: reference } }); if (!featured) throw AppError.notFound("Featured listing not found"); if (featured.status !== "PENDING_PAYMENT") return featured; const verification = await verifyTransaction(reference); if (["ongoing","pending","processing","queued"].includes(verification.status)) return featured; if (verification.status !== "success") return prisma.featuredProduct.update({ where: { id: featured.id }, data: { status: "CANCELLED" } }); assertPaidAmount(verification, Number(featured.price)); const startDate = new Date(); const endDate = new Date(startDate.getTime() + featured.durationDays * 86400000); return prisma.featuredProduct.update({ where: { id: featured.id }, data: { status: "ACTIVE", startDate, endDate } }); }
+
+export async function verifyFeaturedProductPayment(reference: string) { const featured = await prisma.featuredProduct.findUnique({ where: { paymentReference: reference } }); if (!featured) throw AppError.notFound("Featured listing not found"); if (featured.status !== "PENDING_PAYMENT") return featured; const verification = await verifyTransaction(reference); if (["ongoing","pending","processing","queued"].includes(verification.status)) return featured; if (verification.status !== "success") return prisma.featuredProduct.update({ where: { id: featured.id }, data: { status: "CANCELLED" } }); assertPaidAmount(verification, Number(featured.price)); const startDate = new Date(); const endDate = new Date(startDate.getTime() + featured.durationDays * 86400000); return prisma.featuredProduct.update({ where: { id: featured.id }, data: { status: "ACTIVE", startDate, endDate } }); }
 
 export async function handlePaystackFeaturedCharge(reference: string) { const featured = await prisma.featuredProduct.findUnique({ where: { paymentReference: reference } }); if (!featured || featured.status !== "PENDING_PAYMENT") return false; await verifyFeaturedProductPayment(reference); return true; }
 export async function getActiveFeaturedProducts(placement: FeaturedPlacement, limit = 10) { return prisma.featuredProduct.findMany({ where: { placement, status: "ACTIVE", endDate: { gt: new Date() }, product: { deletedAt: null, status: "ACTIVE", comingSoon: false } }, include: { product: { include: { images: { orderBy: { position: "asc" } }, vendor: true, category: true } } }, orderBy: { startDate: "desc" }, take: limit }); }
