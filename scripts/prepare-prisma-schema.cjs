@@ -164,11 +164,11 @@ addModel(`model ProductAlert {
   type String
   targetPrice Decimal? @map("target_price")
   notifiedAt DateTime? @map("notified_at")
-  waitlistSeenAt DateTime? @map("waitlist_seen_at")
   createdAt DateTime @default(now()) @map("created_at")
   @@index([productId, type, notifiedAt])
   @@map("product_alerts")
 }`);
+addField("ProductAlert", "  notifiedAt", "waitlistSeenAt DateTime? @map(\"waitlist_seen_at\")");
 
 addModel(`model VendorNotificationPreference {
   id String @id
