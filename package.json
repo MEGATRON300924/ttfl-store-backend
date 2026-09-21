@@ -5,7 +5,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "node scripts/ensure-production-column-compatibility.cjs && node scripts/ensure-raw-sql-column-identifiers.cjs && node scripts/ensure-category-variation-prisma.cjs && node scripts/ensure-coming-soon-schema.cjs && node scripts/ensure-waitlist-schema.cjs && node scripts/prepare-prisma-schema.cjs && prisma generate && tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
+    "build": "node scripts/ensure-production-column-compatibility.cjs && node scripts/ensure-raw-sql-column-identifiers.cjs && node scripts/ensure-category-variation-prisma.cjs && node scripts/ensure-coming-soon-schema.cjs && node scripts/ensure-waitlist-schema.cjs && node scripts/prepare-prisma-schema.cjs && prisma generate && node -e \"const fs=require('fs'); const p='src/modules/products/products.validators.ts'; console.log('=== RENDER SOURCE CHECK ==='); console.log(fs.readFileSync(p,'utf8').split(/\\\\r?\\\\n/).slice(0,35).map((x,i)=>String(i+1).padStart(3,' ')+' | '+x).join('\\\\n')); console.log('=== END SOURCE CHECK ===');\" && tsc -p tsconfig.json && tsc-alias -p tsconfig.json",
     "typecheck": "node scripts/ensure-production-column-compatibility.cjs && node scripts/ensure-raw-sql-column-identifiers.cjs && node scripts/ensure-category-variation-prisma.cjs && node scripts/ensure-coming-soon-schema.cjs && node scripts/ensure-waitlist-schema.cjs && node scripts/prepare-prisma-schema.cjs && prisma generate && tsc -p tsconfig.json --noEmit",
     "prestart": "node scripts/ensure-production-column-compatibility.cjs && node scripts/ensure-category-variation-prisma.cjs && node scripts/ensure-coming-soon-schema.cjs && node scripts/ensure-waitlist-schema.cjs && node scripts/ensure-order-item-vendor-column.cjs && node scripts/ensure-order-item-variation-columns.cjs && node scripts/ensure-vendor-order-column.cjs && node scripts/ensure-vendor-paystack-columns.cjs",
     "start": "node dist/server.js",
@@ -19,7 +19,9 @@
     "bootstrap:admin": "npm run backfill:product-ids && tsx src/scripts/bootstrap-admin.ts",
     "test:email": "tsx scripts/test-email.ts"
   },
-  "prisma": { "seed": "tsx prisma/seed.ts" },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
   "dependencies": {
     "@prisma/client": "^5.19.1",
     "argon2": "^0.40.3",
