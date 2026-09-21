@@ -17,12 +17,35 @@ export function errorHandler(err: unknown, req: Request, res: Response, next: Ne
         code: "VALIDATION_ERROR",
         message: (() => {
           const flattened = err.flatten();
+          const labels: Record<string, string> = {
+            name: "Product name",
+            description: "Product description",
+            categorySlug: "Product category",
+            price: "Price",
+            previousPrice: "Previous price",
+            condition: "Condition",
+            stock: "Stock",
+            location: "Location",
+            tags: "Search tags",
+            images: "Product photos",
+            videos: "Product videos",
+            specifications: "Product details",
+            estimatedDeliveryDays: "Estimated delivery",
+            comingSoon: "Coming soon",
+            availableAt: "Expected availability",
+            sellingMethod: "How customers buy",
+            externalUrl: "External product link",
+            whatsappNumber: "WhatsApp number",
+          };
           const fieldMessages = Object.entries(flattened.fieldErrors)
-            .flatMap(([field, messages]) => (messages ?? []).map((message) => `${field}: ${message}`));
+            .flatMap(([field, messages]) =>
+              (messages ?? []).map((message) => `${labels[field] ?? field}: ${message}`)
+            );
           const formMessages = flattened.formErrors;
-          return [...fieldMessages, ...formMessages].length
-            ? `Please fix the following: ${[...fieldMessages, ...formMessages].join("; ")}`
-            : "One or more fields are invalid";
+          const problems = [...fieldMessages, ...formMessages];
+          return problems.length
+            ? `Your product could not be listed yet. Please check the following: ${problems.join("; ")}`
+            : "Your product could not be listed yet. Please check the information you entered and try again.";
         })(),
         details: err.flatten(),
       },
