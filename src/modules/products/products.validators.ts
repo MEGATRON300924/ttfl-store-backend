@@ -12,7 +12,9 @@ const baseProductFields = {
   condition: z.enum(["NEW", "USED"]).default("NEW"),
   stock: z.number().int().min(0).default(1),
   location: optionalString(z.string().max(120)),
-  tags: z.array(z.string().min(1).max(40)).max(20).optional(),
+  // Tags are vendor-defined search terms. Keep the number of tags bounded, but do not
+  // impose an arbitrary character limit on an individual tag.
+  tags: z.array(z.string().min(1)).max(20).optional(),
   images: z.array(z.string().url()).min(1, "At least one product image is required").max(10),
   videos: z.array(z.string().url()).max(3).optional(),
   specifications: z.record(z.string()).optional(),
