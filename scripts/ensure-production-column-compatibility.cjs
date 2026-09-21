@@ -17,7 +17,7 @@ function mapProductVendorId() {
     const replacement = `${match[0]} @map("vendor_id")`;
     schema = schema.slice(0, start + match.index) + replacement + schema.slice(start + match.index + match[0].length);
     fs.writeFileSync(schemaPath, schema);
-    console.log('Mapped Prisma Product.vendorId to products.vendor_id.');
+    console.log("Mapped Prisma Product.vendorId to products.vendor_id.");
   }
 }
 
@@ -82,7 +82,37 @@ function patchVendorProfileRawSql() {
   }
 }
 
+function normalizeProductValidatorTags() {
+  const validatorPath = path.join(root, "src", "modules", "products", "products.validators.ts");
+  if (!fs.existsSync(validatorPath)) return;
+
+  const source = fs.readFileSync(validatorPath, "utf8");
+  const lines = source.split(/\r?\n/);
+  const tagLines = lines.filter((line) => /^\s*tags:\s*z\.array\(z\.string\(\)\.min\(1\)/.test(line));
+
+  if (tagLines.length <= 1) return;
+
+  const preferred = "  tags: z.array(z.string().min(1)).max(20).optional(),";
+  const next = [];
+  let kept = false;
+
+  for (const line of lines) {
+    if (/^\s*tags:\s*z\.array\(z\.string\(\)\.min\(1\)/.test(line)) {
+      if (!kept) {
+        next.push(preferred);
+        kept = true;
+      }
+      continue;
+    }
+    next.push(line);
+  }
+
+  fs.writeFileSync(validatorPath, next.join("\n"));
+  console.log("Normalized duplicate product tag validation rules.");
+}
+
 mapProductVendorId();
 patchProductRawSql();
 patchVendorProfileRawSql();
+normalizeProductValidatorTags();
 console.log("Production column compatibility checks complete.");
