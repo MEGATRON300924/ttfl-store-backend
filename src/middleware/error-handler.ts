@@ -15,7 +15,15 @@ export function errorHandler(err: unknown, req: Request, res: Response, next: Ne
     return res.status(400).json({
       error: {
         code: "VALIDATION_ERROR",
-        message: "One or more fields are invalid",
+        message: (() => {
+          const flattened = err.flatten();
+          const fieldMessages = Object.entries(flattened.fieldErrors)
+            .flatMap(([field, messages]) => (messages ?? []).map((message) => `${field}: ${message}`));
+          const formMessages = flattened.formErrors;
+          return [...fieldMessages, ...formMessages].length
+            ? `Please fix the following: ${[...fieldMessages, ...formMessages].join("; ")}`
+            : "One or more fields are invalid";
+        })(),
         details: err.flatten(),
       },
     });
