@@ -11,6 +11,7 @@ export const checkoutSchema = z.object({
     )
     .min(1, "Cart is empty"),
   couponCode: z.string().min(1).max(30).optional(),
+  rewardPoints: z.number().int().min(0).max(1_000_000).optional(),
   adCampaignId: z.string().uuid().optional(),
   delivery: z.object({
     name: z.string().min(2).max(120),
