@@ -5,8 +5,11 @@ const schemaPath = path.join(process.cwd(), "prisma", "schema.prisma");
 let schema = fs.readFileSync(schemaPath, "utf8");
 
 function addEnumValues(enumName, values) {
-  const start = schema.indexOf(`enum ${enumName} {`);
-  if (start < 0) throw new Error(`${enumName} enum not found`);
+  let start = schema.indexOf(`enum ${enumName} {`);
+  if (start < 0) {
+    schema += `\\nenum ${enumName} {\\n${values.map((value) => `  ${value}`).join("\\n")}\\n}\\n`;
+    return;
+  }
   const end = schema.indexOf("\n}", start);
   if (end < 0) throw new Error(`${enumName} enum malformed`);
   const block = schema.slice(start, end);
@@ -201,10 +204,9 @@ addModel(`model PromotionEvent {
 
 addEnumValues("PartnerStatus", ["PENDING", "APPROVED", "SUSPENDED", "REJECTED"]);
 addEnumValues("EventAudience", ["VENDORS", "CUSTOMERS", "EVERYONE"]);
-addEnumValues("EventStatus", ["DRAFT", "PENDING_REVIEW", "PUBLISHED", "REJECTED", "CANCELLED"]);
+addEnumValues("EventStatus", ["PENDING_REVIEW", "PUBLISHED", "REJECTED", "CANCELLED"]);
 addEnumValues("PartnerEventPlan", ["FREE", "FEATURED", "PREMIUM", "ENTERPRISE"]);
 
-addField("User", "  supportConversations SupportConversation[]", "partnerProfile Partner?");
 
 addModel(`model Partner {
   id String @id @default(uuid())
