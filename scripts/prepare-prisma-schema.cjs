@@ -198,5 +198,67 @@ addModel(`model PromotionEvent {
   @@map("promotion_events")
 }`);
 
+
+addEnumValues("PartnerStatus", ["PENDING", "APPROVED", "SUSPENDED", "REJECTED"]);
+addEnumValues("EventAudience", ["VENDORS", "CUSTOMERS", "EVERYONE"]);
+addEnumValues("EventStatus", ["DRAFT", "PENDING_REVIEW", "PUBLISHED", "REJECTED", "CANCELLED"]);
+addEnumValues("PartnerEventPlan", ["FREE", "FEATURED", "PREMIUM", "ENTERPRISE"]);
+
+addField("User", "  supportConversations SupportConversation[]", "partnerProfile Partner?");
+
+addModel(`model Partner {
+  id String @id @default(uuid())
+  ownerUserId String @unique @map("owner_user_id")
+  owner User @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  organizationName String @map("organization_name")
+  slug String @unique
+  description String?
+  logoUrl String? @map("logo_url")
+  websiteUrl String? @map("website_url")
+  contactEmail String? @map("contact_email")
+  contactPhone String? @map("contact_phone")
+  status PartnerStatus @default(PENDING)
+  eventPlan PartnerEventPlan @default(FREE) @map("event_plan")
+  complimentaryAccess Boolean @default(false) @map("complimentary_access")
+  complimentaryAccessExpiresAt DateTime? @map("complimentary_access_expires_at")
+  complimentaryAccessReason String? @map("complimentary_access_reason")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  events PartnerEvent[]
+  @@index([status])
+  @@index([eventPlan])
+  @@map("partners")
+}`);
+
+addModel(`model PartnerEvent {
+  id String @id @default(uuid())
+  partnerId String @map("partner_id")
+  partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  title String
+  slug String @unique
+  description String
+  coverImageUrl String? @map("cover_image_url")
+  audience EventAudience @default(EVERYONE)
+  status EventStatus @default(PENDING_REVIEW)
+  eventPlan PartnerEventPlan @default(FREE) @map("event_plan")
+  startsAt DateTime @map("starts_at")
+  endsAt DateTime? @map("ends_at")
+  registrationDeadline DateTime? @map("registration_deadline")
+  eventType String @default("Virtual") @map("event_type")
+  location String?
+  registrationUrl String? @map("registration_url")
+  organizerName String? @map("organizer_name")
+  organizerEmail String? @map("organizer_email")
+  organizerPhone String? @map("organizer_phone")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  publishedAt DateTime? @map("published_at")
+  @@index([partnerId])
+  @@index([status])
+  @@index([audience])
+  @@index([startsAt])
+  @@map("partner_events")
+}`);
+
 fs.writeFileSync(schemaPath, schema);
 console.log("TTFL Prisma schema prepared for current backend modules.");
