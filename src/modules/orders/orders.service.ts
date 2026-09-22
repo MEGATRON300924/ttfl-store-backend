@@ -8,7 +8,7 @@ import { getCheckoutDeals, reserveForOrder, consumeForOrder, releaseForOrder } f
 import { sendEmail, orderConfirmationEmail, vendorNewOrderEmail, adminNewOrderEmail, orderRefundedEmail } from "@/lib/email";
 import { sendWhatsAppNotification, newOrderWhatsAppMessage } from "@/lib/whatsapp-notifications";
 import { recordAudit } from "@/lib/audit";
-import { recordPurchase, reversePurchase } from "@/modules/rewards/rewards.service";
+import { recordPurchase, reversePurchase, reservePointsForOrder, finalizeReservedPoints, releaseReservedPoints } from "@/modules/rewards/rewards.service";
 import { recordConversionEvent } from "@/modules/ads/ads.service";
 import { logger } from "@/lib/logger";
 import { resolveCheckoutUnitPrice } from "./variant-pricing";
@@ -53,7 +53,11 @@ export async function checkout(customerId: string, customerEmail: string, input:
   let discountAmount = 0, couponId: string | null = null, couponCode: string | null = null, couponVendorId: string | null = null, couponCategoryId: string | null = null, couponEligibleBase = 0;
   if (input.couponCode) { const result = await validateCoupon(input.couponCode, customerId, couponLines); discountAmount = result.discountAmount; couponId = result.coupon.id; couponCode = result.coupon.code; couponEligibleBase = result.eligibleBase; const coupon = await prisma.coupon.findUniqueOrThrow({ where: { id: couponId } }); couponVendorId = coupon.vendorId; couponCategoryId = coupon.categoryId; }
 
-  const totalAmount = Math.max(0, Math.round((subtotalAmount - discountAmount) * 100) / 100);
+  const rewardPointsRequested = Math.max(0, Math.floor(input.rewardPoints ?? 0));
+  const rewardMaxPercent = await (async()=>{ const rows=await prisma.$queryRawUnsafe<{value:string}[]>(`SELECT value FROM reward_settings WHERE key='maxOrderRedemptionPercent' LIMIT 1`); const value=Number(rows[0]?.value); return Number.isFinite(value)?Math.max(0,value):20; })();
+  const rewardMaxByOrder = Math.floor(subtotalAmount * rewardMaxPercent / 100);
+  const rewardPoints = Math.min(rewardPointsRequested, rewardMaxByOrder);
+  const totalAmount = Math.max(0, Math.round((subtotalAmount - discountAmount - rewardPoints) * 100) / 100);
   for (const [vendorId, group] of groups) { const originalSubtotal = group.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0); if (!discountAmount || !couponEligibleBase) { vendorSubtotals.set(vendorId, originalSubtotal); continue; } const eligibleForVendor = couponLines.filter((line) => line.vendorId === vendorId).filter((line) => !couponVendorId || line.vendorId === couponVendorId).filter((line) => !couponCategoryId || line.categoryId === couponCategoryId).reduce((sum, line) => sum + line.lineTotal, 0); const allocation = couponVendorId || couponCategoryId ? discountAmount * (eligibleForVendor / couponEligibleBase) : discountAmount * (originalSubtotal / subtotalAmount); vendorSubtotals.set(vendorId, Math.max(0, Math.round((originalSubtotal - allocation) * 100) / 100)); }
   const calculatedVendorSubtotal = Array.from(vendorSubtotals.values()).reduce((sum, value) => sum + value, 0);
   const subtotalDrift = Math.round((totalAmount - calculatedVendorSubtotal) * 100) / 100;
@@ -68,8 +72,8 @@ export async function checkout(customerId: string, customerEmail: string, input:
 
   const orderNumber = await generateOrderNumber();
   const paymentReference = `ttfl_${orderNumber}_${Date.now()}`;
-  const order = await prisma.order.create({ data: { orderNumber, customerId, totalAmount, subtotalAmount, discountAmount, couponCode, paymentReference, deliveryName: input.delivery.name, deliveryPhone: input.delivery.phone, deliveryLine1: input.delivery.line1, deliveryLine2: input.delivery.line2, deliveryCity: input.delivery.city, deliveryState: input.delivery.state, deliveryCountry: input.delivery.country, vendorOrders: { create: vendorOrderData } }, include: { vendorOrders: { include: { items: true } } } });
-  try { await prisma.$transaction(async (tx) => { await reserveForOrder(tx, order.id, order.vendorOrders.flatMap((vendorOrder) => vendorOrder.items.map((item) => ({ productId: item.productId, quantity: item.quantity })))); }); } catch (error) { await releaseForOrder(order.id, "RELEASED"); throw error; }
+  const order = await prisma.order.create({ data: { orderNumber, customerId, totalAmount, subtotalAmount, discountAmount: discountAmount + rewardPoints, couponCode, paymentReference, deliveryName: input.delivery.name, deliveryPhone: input.delivery.phone, deliveryLine1: input.delivery.line1, deliveryLine2: input.delivery.line2, deliveryCity: input.delivery.city, deliveryState: input.delivery.state, deliveryCountry: input.delivery.country, vendorOrders: { create: vendorOrderData } }, include: { vendorOrders: { include: { items: true } } } });
+  try { await prisma.$transaction(async (tx) => { await reserveForOrder(tx, order.id, order.vendorOrders.flatMap((vendorOrder) => vendorOrder.items.map((item) => ({ productId: item.productId, quantity: item.quantity })))); }); if(rewardPoints>0) await reservePointsForOrder(customerId,order.id,rewardPoints); } catch (error) { await releaseForOrder(order.id, "RELEASED"); await releaseReservedPoints(order.id); throw error; }
   if (couponId) await recordRedemption(couponId, customerId, order.id, discountAmount);
   const splitCode = await createOrderSplitCode(order);
   let paystack;
@@ -84,7 +88,7 @@ export async function verifyAndFinalizePayment(reference: string) {
   if (order.paymentStatus === "PAID") return order;
   const verification = await verifyTransaction(reference);
   if (["ongoing", "pending", "processing", "queued"].includes(verification.status)) return order;
-  if (verification.status !== "success") { await releaseForOrder(order.id, "FAILED"); await prisma.$transaction([prisma.payment.upsert({ where: { reference }, create: { orderId: order.id, reference, amount: order.totalAmount, status: "FAILED", gatewayResponse: verification as unknown as Prisma.InputJsonValue }, update: { status: "FAILED", gatewayResponse: verification as unknown as Prisma.InputJsonValue } }), prisma.order.update({ where: { id: order.id }, data: { paymentStatus: "FAILED" } })]); throw AppError.badRequest("Payment was not successful", "PAYMENT_FAILED"); }
+  if (verification.status !== "success") { await releaseForOrder(order.id, "FAILED"); await releaseReservedPoints(order.id); await prisma.$transaction([prisma.payment.upsert({ where: { reference }, create: { orderId: order.id, reference, amount: order.totalAmount, status: "FAILED", gatewayResponse: verification as unknown as Prisma.InputJsonValue }, update: { status: "FAILED", gatewayResponse: verification as unknown as Prisma.InputJsonValue } }), prisma.order.update({ where: { id: order.id }, data: { paymentStatus: "FAILED" } })]); throw AppError.badRequest("Payment was not successful", "PAYMENT_FAILED"); }
   if (verification.currency !== "NGN") throw AppError.badRequest("Payment currency does not match this order", "CURRENCY_MISMATCH");
   const requestedAmountKobo = verification.requested_amount ?? verification.amount;
   const requestedAmountNaira = requestedAmountKobo / 100;
@@ -105,6 +109,7 @@ export async function verifyAndFinalizePayment(reference: string) {
   const metadata = (verification as any)?.metadata;
   const adCampaignId = typeof metadata?.adCampaignId === "string" ? metadata.adCampaignId : undefined;
   if (adCampaignId) void recordConversionEvent(adCampaignId, "PURCHASE", { orderId: order.id, orderNumber: order.orderNumber, amount: Number(order.totalAmount), stage: "PAID" }).catch(() => undefined);
+  await finalizeReservedPoints(order.id);
   const customer = await prisma.user.findUnique({ where: { id: order.customerId } });
   if (customer) { void sendEmail({ to: customer.email, ...orderConfirmationEmail(order.orderNumber) }); void recordPurchase(customer.id, order.id, Number(order.totalAmount)).catch(() => undefined); }
   for (const vendorOrder of order.vendorOrders) { const vendor = await prisma.vendorProfile.findUnique({ where: { id: vendorOrder.vendorId }, include: { user: true } }); if (vendor) void sendEmail({ to: vendor.user.email, ...vendorNewOrderEmail(order.orderNumber, vendorOrder.items.length) }); }
