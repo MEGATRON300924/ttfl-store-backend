@@ -221,8 +221,8 @@ addModel(`model Partner {
   websiteUrl String? @map("website_url")
   contactEmail String? @map("contact_email")
   contactPhone String? @map("contact_phone")
-  status PartnerStatus @default(PENDING)
-  eventPlan PartnerEventPlan @default(FREE) @map("event_plan")
+  status String @default("PENDING")
+  eventPlan String @default("FREE") @map("event_plan")
   complimentaryAccess Boolean @default(false) @map("complimentary_access")
   complimentaryAccessExpiresAt DateTime? @map("complimentary_access_expires_at")
   complimentaryAccessReason String? @map("complimentary_access_reason")
@@ -242,9 +242,9 @@ addModel(`model PartnerEvent {
   slug String @unique
   description String
   coverImageUrl String? @map("cover_image_url")
-  audience EventAudience @default(EVERYONE)
-  status EventStatus @default(PENDING_REVIEW)
-  eventPlan PartnerEventPlan @default(FREE) @map("event_plan")
+  audience String @default("EVERYONE")
+  status String @default("PENDING_REVIEW")
+  eventPlan String @default("FREE") @map("event_plan")
   startsAt DateTime @map("starts_at")
   endsAt DateTime? @map("ends_at")
   registrationDeadline DateTime? @map("registration_deadline")
