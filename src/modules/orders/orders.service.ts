@@ -96,10 +96,10 @@ export async function verifyAndFinalizePayment(reference: string) {
   const verification = await verifyTransaction(reference);
   if (["ongoing", "pending", "processing", "queued"].includes(verification.status)) return order;
   if (verification.status !== "success") { await releaseForOrder(order.id, "FAILED"); await releaseReservedPoints(order.id); await prisma.$transaction([prisma.payment.upsert({ where: { reference }, create: { orderId: order.id, reference, amount: order.totalAmount, status: "FAILED", gatewayResponse: verification as unknown as Prisma.InputJsonValue }, update: { status: "FAILED", gatewayResponse: verification as unknown as Prisma.InputJsonValue } }), prisma.order.update({ where: { id: order.id }, data: { paymentStatus: "FAILED" } })]); throw AppError.badRequest("Payment was not successful", "PAYMENT_FAILED"); }
-  if (verification.currency !== "NGN") throw AppError.badRequest("Payment currency does not match this order", "CURRENCY_MISMATCH");
+  if (verification.currency !== "NGN") { await releaseReservedPoints(order.id); throw AppError.badRequest("Payment currency does not match this order", "CURRENCY_MISMATCH"); }
   const requestedAmountKobo = verification.requested_amount ?? verification.amount;
   const requestedAmountNaira = requestedAmountKobo / 100;
-  if (Math.round(requestedAmountNaira * 100) !== Math.round(Number(order.totalAmount) * 100)) throw AppError.badRequest("Payment amount does not match order total", "AMOUNT_MISMATCH");
+  if (Math.round(requestedAmountNaira * 100) !== Math.round(Number(order.totalAmount) * 100)) { await releaseReservedPoints(order.id); throw AppError.badRequest("Payment amount does not match order total", "AMOUNT_MISMATCH"); }
   let alreadyFinalized = false;
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${reference}))`;
