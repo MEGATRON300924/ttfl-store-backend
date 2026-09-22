@@ -240,6 +240,7 @@ model User {
   wishlistItems WishlistItem[]
   supportConversations SupportConversation[]
   supportMessages SupportMessage[]
+  partnerProfile Partner?
   @@index([role])
   @@index([status])
   @@map("users")
