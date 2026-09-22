@@ -208,6 +208,8 @@ addEnumValues("EventStatus", ["PENDING_REVIEW", "PUBLISHED", "REJECTED", "CANCEL
 addEnumValues("PartnerEventPlan", ["FREE", "FEATURED", "PREMIUM", "ENTERPRISE"]);
 
 
+addField("User", "  updatedAt", "partnerProfile Partner?");
+
 addModel(`model Partner {
   id String @id @default(uuid())
   ownerUserId String @unique @map("owner_user_id")
