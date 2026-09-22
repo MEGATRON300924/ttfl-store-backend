@@ -7,7 +7,7 @@ let schema = fs.readFileSync(schemaPath, "utf8");
 function addEnumValues(enumName, values) {
   let start = schema.indexOf(`enum ${enumName} {`);
   if (start < 0) {
-    schema += `\\nenum ${enumName} {\\n${values.map((value) => `  ${value}`).join("\\n")}\\n}\\n`;
+    schema += `\nenum ${enumName} {\n${values.map((value) => `  ${value}`).join("\n")}\n}\n`;
     return;
   }
   const end = schema.indexOf("\n}", start);
