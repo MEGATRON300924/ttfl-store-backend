@@ -8,7 +8,7 @@ import { AppError } from "@/utils/app-error";
 import { slugify } from "@/utils/slugify";
 import { sendEmail, verificationEmail, passwordResetEmail, vendorApplicationReceivedEmail, adminNewVendorEmail } from "@/lib/email";
 import { sendWhatsAppNotification, newVendorApplicationWhatsAppMessage } from "@/lib/whatsapp-notifications";
-import { awardSignup } from "@/modules/rewards/rewards.service";
+import { awardSignup, awardProfile } from "@/modules/rewards/rewards.service";
 import { setStoreCategory } from "@/modules/vendors/store-category.service";
 import { ensureStoreProfileTables } from "@/modules/store-profile/store-profile.service";
 import type { RegisterCustomerInput, RegisterVendorInput, LoginInput } from "./auth.validators";
@@ -30,5 +30,5 @@ export async function changePassword(userId:string,currentPassword:string,newPas
 export async function disableAccount(userId:string){await prisma.$transaction([prisma.user.update({where:{id:userId},data:{status:"SUSPENDED"}}),prisma.vendorProfile.updateMany({where:{userId},data:{status:"SUSPENDED"}}),prisma.session.updateMany({where:{userId,revoked:false},data:{revoked:true,revokedAt:new Date()}})]);}
 export async function deleteAccount(userId:string){await prisma.$transaction([prisma.user.update({where:{id:userId},data:{status:"DELETED",deletedAt:new Date(),email:`deleted+${userId}@ttflstore.invalid`}}),prisma.vendorProfile.updateMany({where:{userId},data:{status:"SUSPENDED"}}),prisma.session.updateMany({where:{userId,revoked:false},data:{revoked:true,revokedAt:new Date()}})]);}
 export async function getCurrentUser(userId:string){const user=await prisma.user.findUnique({where:{id:userId},include:{vendorProfile:true}});if(!user)throw AppError.notFound("User not found");return publicUser(user);}
-export async function updateProfile(userId:string,input:{firstName?:string;lastName?:string;phone?:string}){const user=await prisma.user.update({where:{id:userId},data:input});return publicUser(user);}
+export async function updateProfile(userId:string,input:{firstName?:string;lastName?:string;phone?:string}){const user=await prisma.user.update({where:{id:userId},data:input});if(user.firstName.trim()&&user.lastName.trim()&&user.phone?.trim())void awardProfile(user.id).catch(()=>undefined);return publicUser(user);}
 export async function setAvatar(userId:string,avatarUrl:string){const user=await prisma.user.update({where:{id:userId},data:{avatarUrl}});return publicUser(user);}
