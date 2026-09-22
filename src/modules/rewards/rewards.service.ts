@@ -44,23 +44,23 @@ async function ensureWelcomeReward(userId: string) {
 async function expirePoints(userId: string) {
   await ensureWallet(userId);
   const expired = await prisma.$queryRawUnsafe<Array<{ id: string; points: number }>>(
-    \`SELECT l.id, l.points FROM reward_ledger l
+    `SELECT l.id, l.points FROM reward_ledger l
      WHERE l.user_id=$1 AND l.points>0 AND l.expires_at IS NOT NULL AND l.expires_at<=NOW()
        AND NOT EXISTS (SELECT 1 FROM reward_ledger e WHERE e.user_id=l.user_id AND e.type='EXPIRATION' AND e.reference_type='EXPIRATION' AND e.reference_id=l.id)
-     ORDER BY l.expires_at ASC, l.created_at ASC\`, userId
+     ORDER BY l.expires_at ASC, l.created_at ASC`, userId
   );
   for (const entry of expired) {
     await prisma.$transaction(async(tx)=>{
-      const current=await tx.$queryRawUnsafe<Array<{pointsBalance:number}>>(\`SELECT points_balance AS "pointsBalance" FROM reward_wallets WHERE user_id=$1 FOR UPDATE\`,userId);
+      const current=await tx.$queryRawUnsafe<Array<{pointsBalance:number}>>(`SELECT points_balance AS "pointsBalance" FROM reward_wallets WHERE user_id=$1 FOR UPDATE`,userId);
       const amount=Math.max(0,Math.min(Number(current[0]?.pointsBalance??0),Math.floor(entry.points)));
       if(amount<=0)return;
       const inserted=await tx.$queryRawUnsafe<{id:string}[]>(
-        \`INSERT INTO reward_ledger(id,user_id,type,points,description,reference_type,reference_id,idempotency_key,expires_at,created_at)
+        `INSERT INTO reward_ledger(id,user_id,type,points,description,reference_type,reference_id,idempotency_key,expires_at,created_at)
          VALUES($1,$2,'EXPIRATION',$3,'Expired TTFL Rewards points','EXPIRATION',$4,$5,NULL,NOW())
-         ON CONFLICT(idempotency_key) DO NOTHING RETURNING id\`,
-        randomUUID(),userId,-amount,entry.id,\`expiration:\${entry.id}\`
+         ON CONFLICT(idempotency_key) DO NOTHING RETURNING id`,
+        randomUUID(),userId,-amount,entry.id,`expiration:${entry.id}`
       );
-      if(inserted.length) await tx.$executeRawUnsafe(\`UPDATE reward_wallets SET points_balance=GREATEST(0,points_balance-$1),updated_at=NOW() WHERE user_id=$2\`,amount,userId);
+      if(inserted.length) await tx.$executeRawUnsafe(`UPDATE reward_wallets SET points_balance=GREATEST(0,points_balance-$1),updated_at=NOW() WHERE user_id=$2`,amount,userId);
     });
   }
 }
@@ -87,11 +87,11 @@ export async function awardReferral(userId:string,referralId:string){return awar
 
 export async function redeem(userId:string,points:number,kind:"ORDER_DISCOUNT"|"DELIVERY_DISCOUNT",referenceId?:string){if(!Number.isInteger(points)||points<=0)throw AppError.badRequest("Enter a valid number of reward points","INVALID_REWARD_POINTS");const wallet=await getWallet(userId);if(points>Number(wallet.pointsBalance))throw AppError.badRequest("You do not have enough TTFL Rewards points","INSUFFICIENT_REWARD_POINTS");return{pointsRedeemed:points,nairaValue:points,kind,referenceId:referenceId??null,message:"Points are applied and deducted when you complete a qualifying checkout."};}
 
-export async function reservePointsForOrder(userId:string,orderId:string,points:number){if(!Number.isInteger(points)||points<=0)return;await getWallet(userId);await prisma.$transaction(async(tx)=>{const updated=await tx.$executeRawUnsafe(\`UPDATE reward_wallets SET points_balance=points_balance-$1,updated_at=NOW() WHERE user_id=$2 AND points_balance >= $1\`,points,userId);if(updated!==1)throw AppError.badRequest("Your reward balance changed. Please try again","REWARD_BALANCE_CHANGED");await tx.$executeRawUnsafe(\`INSERT INTO reward_ledger(id,user_id,type,points,description,reference_type,reference_id,idempotency_key,expires_at,created_at) VALUES($1,$2,'REWARD_RESERVATION',$3,'TTFL Rewards points reserved for checkout','ORDER',$4,$5,NULL,NOW()) ON CONFLICT(idempotency_key) DO NOTHING\`,randomUUID(),userId,-points,orderId,\`reward-reserve:\${orderId}\`);});}
+export async function reservePointsForOrder(userId:string,orderId:string,points:number){if(!Number.isInteger(points)||points<=0)return;await getWallet(userId);await prisma.$transaction(async(tx)=>{const updated=await tx.$executeRawUnsafe(`UPDATE reward_wallets SET points_balance=points_balance-$1,updated_at=NOW() WHERE user_id=$2 AND points_balance >= $1`,points,userId);if(updated!==1)throw AppError.badRequest("Your reward balance changed. Please try again","REWARD_BALANCE_CHANGED");await tx.$executeRawUnsafe(`INSERT INTO reward_ledger(id,user_id,type,points,description,reference_type,reference_id,idempotency_key,expires_at,created_at) VALUES($1,$2,'REWARD_RESERVATION',$3,'TTFL Rewards points reserved for checkout','ORDER',$4,$5,NULL,NOW()) ON CONFLICT(idempotency_key) DO NOTHING`,randomUUID(),userId,-points,orderId,`reward-reserve:${orderId}`);});}
 
-export async function finalizeReservedPoints(orderId:string){const rows=await prisma.$queryRawUnsafe<Array<{userId:string;points:number}>>(\`SELECT user_id AS "userId",(-points)::int AS points FROM reward_ledger WHERE type='REWARD_RESERVATION' AND reference_type='ORDER' AND reference_id=$1 LIMIT 1\`,orderId);if(!rows.length)return;const{userId,points}=rows[0];await prisma.$transaction(async(tx)=>{const changed=await tx.$executeRawUnsafe(\`UPDATE reward_ledger SET type='REDEEM',description='TTFL Rewards order discount' WHERE user_id=$1 AND type='REWARD_RESERVATION' AND reference_type='ORDER' AND reference_id=$2\`,userId,orderId);if(changed)await tx.$executeRawUnsafe(\`UPDATE reward_wallets SET lifetime_redeemed=lifetime_redeemed+$1,updated_at=NOW() WHERE user_id=$2\`,points,userId);});}
+export async function finalizeReservedPoints(orderId:string){const rows=await prisma.$queryRawUnsafe<Array<{userId:string;points:number}>>(`SELECT user_id AS "userId",(-points)::int AS points FROM reward_ledger WHERE type='REWARD_RESERVATION' AND reference_type='ORDER' AND reference_id=$1 LIMIT 1`,orderId);if(!rows.length)return;const{userId,points}=rows[0];await prisma.$transaction(async(tx)=>{const changed=await tx.$executeRawUnsafe(`UPDATE reward_ledger SET type='REDEEM',description='TTFL Rewards order discount' WHERE user_id=$1 AND type='REWARD_RESERVATION' AND reference_type='ORDER' AND reference_id=$2`,userId,orderId);if(changed)await tx.$executeRawUnsafe(`UPDATE reward_wallets SET lifetime_redeemed=lifetime_redeemed+$1,updated_at=NOW() WHERE user_id=$2`,points,userId);});}
 
-export async function releaseReservedPoints(orderId:string){const rows=await prisma.$queryRawUnsafe<Array<{id:string;userId:string;points:number}>>(\`SELECT id,user_id AS "userId",(-points)::int AS points FROM reward_ledger WHERE type='REWARD_RESERVATION' AND reference_type='ORDER' AND reference_id=$1 LIMIT 1\`,orderId);if(!rows.length)return;const{userId,points}=rows[0];await prisma.$transaction(async(tx)=>{const changed=await tx.$executeRawUnsafe(\`UPDATE reward_ledger SET type='RESERVATION_RELEASED',description='TTFL Rewards reservation released',points=$1 WHERE id=$2 AND type='REWARD_RESERVATION'\`,points,rows[0].id);if(changed)await tx.$executeRawUnsafe(\`UPDATE reward_wallets SET points_balance=points_balance+$1,updated_at=NOW() WHERE user_id=$2\`,points,userId);});}
+export async function releaseReservedPoints(orderId:string){const rows=await prisma.$queryRawUnsafe<Array<{id:string;userId:string;points:number}>>(`SELECT id,user_id AS "userId",(-points)::int AS points FROM reward_ledger WHERE type='REWARD_RESERVATION' AND reference_type='ORDER' AND reference_id=$1 LIMIT 1`,orderId);if(!rows.length)return;const{userId,points}=rows[0];await prisma.$transaction(async(tx)=>{const changed=await tx.$executeRawUnsafe(`UPDATE reward_ledger SET type='RESERVATION_RELEASED',description='TTFL Rewards reservation released',points=$1 WHERE id=$2 AND type='REWARD_RESERVATION'`,points,rows[0].id);if(changed)await tx.$executeRawUnsafe(`UPDATE reward_wallets SET points_balance=points_balance+$1,updated_at=NOW() WHERE user_id=$2`,points,userId);});}
 
 export async function refreshLevel(userId:string){await ensureWallet(userId);const rows=await prisma.$queryRawUnsafe<any[]>(`SELECT points_balance AS "pointsBalance", lifetime_spend AS "lifetimeSpend", completed_orders AS "completedOrders" FROM reward_wallets WHERE user_id=$1`,userId);const w=rows[0];const level=levelFor(Number(w.pointsBalance),Number(w.lifetimeSpend),Number(w.completedOrders));await prisma.$executeRawUnsafe(`UPDATE reward_wallets SET level=$1,updated_at=NOW() WHERE user_id=$2`,level,userId);return level;}
 export async function recordPurchase(userId:string,orderId:string,totalAmount:number){await ensureWallet(userId);const claimed=await prisma.$queryRawUnsafe<{id:string}[]>(`INSERT INTO reward_purchase_claims(id,order_id,user_id,amount,created_at) VALUES($1,$2,$3,$4,NOW()) ON CONFLICT(order_id) DO NOTHING RETURNING id`,randomUUID(),orderId,userId,totalAmount);if(!claimed.length)return;await prisma.$executeRawUnsafe(`UPDATE reward_wallets SET lifetime_spend=lifetime_spend+$1,completed_orders=completed_orders+1,updated_at=NOW() WHERE user_id=$2`,totalAmount,userId);await awardPurchase(userId,orderId,totalAmount);await refreshLevel(userId);}
