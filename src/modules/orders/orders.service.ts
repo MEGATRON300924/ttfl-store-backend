@@ -55,10 +55,17 @@ export async function checkout(customerId: string, customerEmail: string, input:
 
   const rewardPointsRequested = Math.max(0, Math.floor(input.rewardPoints ?? 0));
   const rewardMaxPercent = await (async()=>{ const rows=await prisma.$queryRawUnsafe<{value:string}[]>(`SELECT value FROM reward_settings WHERE key='maxOrderRedemptionPercent' LIMIT 1`); const value=Number(rows[0]?.value); return Number.isFinite(value)?Math.max(0,value):20; })();
-  const rewardMaxByOrder = Math.floor(subtotalAmount * rewardMaxPercent / 100);
+  const rewardEligibleBase = Math.max(0, subtotalAmount - discountAmount);
+  const rewardMaxByOrder = Math.floor(rewardEligibleBase * rewardMaxPercent / 100);
   const rewardPoints = Math.min(rewardPointsRequested, rewardMaxByOrder);
   const totalAmount = Math.max(0, Math.round((subtotalAmount - discountAmount - rewardPoints) * 100) / 100);
   for (const [vendorId, group] of groups) { const originalSubtotal = group.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0); if (!discountAmount || !couponEligibleBase) { vendorSubtotals.set(vendorId, originalSubtotal); continue; } const eligibleForVendor = couponLines.filter((line) => line.vendorId === vendorId).filter((line) => !couponVendorId || line.vendorId === couponVendorId).filter((line) => !couponCategoryId || line.categoryId === couponCategoryId).reduce((sum, line) => sum + line.lineTotal, 0); const allocation = couponVendorId || couponCategoryId ? discountAmount * (eligibleForVendor / couponEligibleBase) : discountAmount * (originalSubtotal / subtotalAmount); vendorSubtotals.set(vendorId, Math.max(0, Math.round((originalSubtotal - allocation) * 100) / 100)); }
+  if (rewardPoints > 0 && rewardEligibleBase > 0) {
+    for (const [vendorId, value] of vendorSubtotals) {
+      const allocation = rewardPoints * (value / rewardEligibleBase);
+      vendorSubtotals.set(vendorId, Math.max(0, Math.round((value - allocation) * 100) / 100));
+    }
+  }
   const calculatedVendorSubtotal = Array.from(vendorSubtotals.values()).reduce((sum, value) => sum + value, 0);
   const subtotalDrift = Math.round((totalAmount - calculatedVendorSubtotal) * 100) / 100;
   if (groups.size && Math.abs(subtotalDrift) >= 0.01) { const firstVendorId = groups.keys().next().value as string; vendorSubtotals.set(firstVendorId, Math.max(0, Math.round(((vendorSubtotals.get(firstVendorId) ?? 0) + subtotalDrift) * 100) / 100)); }
