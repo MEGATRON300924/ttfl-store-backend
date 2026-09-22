@@ -182,6 +182,70 @@ partnerEventsRouter.patch("/admin/partners/:id/event-access", requireAuth, requi
   res.json({ partner, message: data.complimentary ? "Complimentary event-plan access granted." : "Event-plan access updated." });
 }));
 
+partnerEventsRouter.post("/admin/events/test", requireAuth, requireRole("ADMIN"), asyncHandler(async (req, res) => {
+  const now = new Date();
+  const startsAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  startsAt.setMinutes(0, 0, 0);
+  const endsAt = new Date(startsAt.getTime() + 60 * 60 * 1000);
+  const registrationDeadline = new Date(startsAt.getTime() - 24 * 60 * 60 * 1000);
+
+  let partner = await prisma.partner.findFirst({ orderBy: { createdAt: "asc" } });
+  if (!partner) {
+    const admin = await prisma.user.findUnique({ where: { id: req.user!.sub } });
+    if (!admin) throw AppError.notFound("Admin user not found");
+    partner = await prisma.partner.create({
+      data: {
+        ownerUserId: admin.id,
+        organizationName: "TTFL Store Test Partner",
+        slug: "ttfl-store-test-partner",
+        description: "Internal partner profile used for TTFL Store event testing.",
+        contactEmail: admin.email,
+        status: "APPROVED",
+        eventPlan: "ENTERPRISE",
+        complimentaryAccess: true,
+        complimentaryAccessReason: "Internal test event",
+      },
+    });
+  }
+
+  const existing = await prisma.partnerEvent.findUnique({ where: { slug: "ttfl-store-test-event" } });
+  const data = {
+    partnerId: partner.id,
+    title: "TTFL Store Test Event",
+    description: "TEST EVENT — This is a real published event created from the TTFL Store admin page so you can preview the public event experience.",
+    coverImageUrl: null,
+    audience: "EVERYONE",
+    status: "PUBLISHED",
+    eventPlan: "FREE",
+    startsAt,
+    endsAt,
+    registrationDeadline,
+    eventType: "Virtual",
+    location: "Online — TTFL Store",
+    registrationUrl: null,
+    organizerName: "TTFL Store",
+    organizerEmail: null,
+    organizerPhone: null,
+    publishedAt: now,
+  };
+
+  const event = existing
+    ? await prisma.partnerEvent.update({ where: { id: existing.id }, data })
+    : await prisma.partnerEvent.create({ data: { id: randomUUID(), slug: "ttfl-store-test-event", ...data } });
+
+  res.status(existing ? 200 : 201).json({
+    event,
+    message: "Test event published. Open the homepage or Events page to preview it.",
+  });
+}));
+
+partnerEventsRouter.delete("/admin/events/test", requireAuth, requireRole("ADMIN"), asyncHandler(async (_req, res) => {
+  const existing = await prisma.partnerEvent.findUnique({ where: { slug: "ttfl-store-test-event" } });
+  if (!existing) return res.json({ message: "No test event exists." });
+  await prisma.partnerEvent.delete({ where: { id: existing.id } });
+  res.json({ message: "Test event removed." });
+}));
+
 partnerEventsRouter.patch("/admin/events/:id/status", requireAuth, requireRole("ADMIN"), asyncHandler(async (req, res) => {
   const status = z.object({ status: z.enum(["PUBLISHED", "REJECTED", "CANCELLED"]) }).parse(req.body).status;
   const event = await prisma.partnerEvent.update({
