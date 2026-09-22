@@ -32,7 +32,39 @@ async function settingNumber(key: string, fallback: number) {
 
 export async function getAppDownloadPoints() { return settingNumber("appDownloadPoints", DEFAULTS.appDownloadPoints); }
 
+let rewardsSchemaReady: Promise<void> | null = null;
+async function ensureRewardsSchema() {
+  if (!rewardsSchemaReady) rewardsSchemaReady = (async()=>{
+    await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS reward_wallets (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      points_balance INTEGER NOT NULL DEFAULT 0, lifetime_earned INTEGER NOT NULL DEFAULT 0,
+      lifetime_redeemed INTEGER NOT NULL DEFAULT 0, lifetime_spend NUMERIC(12,2) NOT NULL DEFAULT 0,
+      completed_orders INTEGER NOT NULL DEFAULT 0, level TEXT NOT NULL DEFAULT 'BRONZE', updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+    await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS reward_ledger (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      type TEXT NOT NULL, points INTEGER NOT NULL, description TEXT NOT NULL,
+      reference_type TEXT, reference_id TEXT, idempotency_key TEXT UNIQUE,
+      expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS reward_ledger_user_created_idx ON reward_ledger(user_id,created_at DESC)`);
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS reward_ledger_expiry_idx ON reward_ledger(user_id,expires_at)`);
+    await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS reward_purchase_claims (
+      id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE REFERENCES orders(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, amount NUMERIC(12,2) NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+    await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS reward_settings (
+      key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+    const defaults=Object.entries(DEFAULTS);
+    for(const [key,value] of defaults) await prisma.$executeRawUnsafe(`INSERT INTO reward_settings(key,value,updated_at) VALUES($1,$2,NOW()) ON CONFLICT(key) DO NOTHING`,key,String(value));
+  })().catch(error=>{rewardsSchemaReady=null;throw error;});
+  return rewardsSchemaReady;
+}
+
 export async function ensureWallet(userId: string) {
+  await ensureRewardsSchema();
   await prisma.$executeRawUnsafe(`INSERT INTO reward_wallets(id,user_id,points_balance,lifetime_earned,lifetime_redeemed,lifetime_spend,completed_orders,level,updated_at) VALUES($1,$2,0,0,0,0,0,'BRONZE',NOW()) ON CONFLICT(user_id) DO NOTHING`, randomUUID(), userId);
 }
 
