@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/utils/app-error";
 import { ensureAffiliateTables } from "./affiliates.service";
+import { awardReferral } from "@/modules/rewards/rewards.service";
 
 export async function convertOrder(userId: string, orderNumber: string, code: string, sessionId: string) {
   await ensureAffiliateTables();
@@ -49,6 +50,7 @@ export async function convertOrder(userId: string, orderNumber: string, code: st
       `UPDATE affiliates SET conversions = conversions + 1, pending_earnings = pending_earnings + $2, updated_at = NOW() WHERE id = $1`,
       affiliate.id, amount
     );
+    void awardReferral(affiliate.user_id, order.id).catch(() => undefined);
     return { converted: true, alreadyRecorded: false };
   });
 }
