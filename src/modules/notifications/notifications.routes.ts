@@ -14,17 +14,10 @@ const registerSchema = z.object({
   deviceName: z.string().max(120).optional(),
 });
 
-notificationsRouter.post("/devices", asyncHandler(async (req, res) => {
-  const input = registerSchema.parse(req.body);
-  res.status(201).json({ device: await service.registerDevice(req.user!.sub, input) });
-}));
+notificationsRouter.post("/devices", asyncHandler(async (req,res)=>{const input=registerSchema.parse(req.body);res.status(201).json({device:await service.registerDevice(req.user!.sub,input)});}));
+notificationsRouter.delete("/devices", asyncHandler(async(req,res)=>{const token=z.string().min(10).max(300).parse(req.body?.expoPushToken);await service.unregisterDevice(req.user!.sub,token);res.status(204).send();}));
+notificationsRouter.get("/devices", asyncHandler(async(req,res)=>{res.json({devices:await service.listDevices(req.user!.sub)});}));
 
-notificationsRouter.delete("/devices", asyncHandler(async (req, res) => {
-  const token = z.string().min(10).max(300).parse(req.body?.expoPushToken);
-  await service.unregisterDevice(req.user!.sub, token);
-  res.status(204).send();
-}));
-
-notificationsRouter.get("/devices", asyncHandler(async (req, res) => {
-  res.json({ devices: await service.listDevices(req.user!.sub) });
-}));
+notificationsRouter.get("/", asyncHandler(async(req,res)=>{const limit=Math.min(Number(req.query.limit??30)||30,100);res.json({notifications:await service.listNotifications(req.user!.sub,limit)});}));
+notificationsRouter.patch("/:id/read", asyncHandler(async(req,res)=>{const id=z.string().min(1).parse(req.params.id);res.json({notification:await service.markRead(req.user!.sub,id)});}));
+notificationsRouter.post("/read-all", asyncHandler(async(req,res)=>{await service.markAllRead(req.user!.sub);res.status(204).send();}));
