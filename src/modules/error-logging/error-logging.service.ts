@@ -43,7 +43,9 @@ export async function recordError(input: {
     const body = input.req.body && typeof input.req.body === "object" ? input.req.body as Record<string, unknown> : {};
     const params = input.req.params ?? {};
     const productId = input.productId || safeString(params.productId) || safeString(body.productId) || (Array.isArray(body.items) && typeof body.items[0] === "object" && body.items[0] ? safeString((body.items[0] as Record<string, unknown>).productId) : undefined);
-    const orderNumber = input.orderNumber || safeString(params.orderNumber) || safeString(body.orderNumber);\n    const orderIdHint = safeString(params.orderId) || safeString(body.orderId);\n    const paymentReference = safeString(body.paymentReference) || safeString(body.reference);
+    const orderNumber = input.orderNumber || safeString(params.orderNumber) || safeString(body.orderNumber);
+    const orderIdHint = safeString(params.orderId) || safeString(body.orderId);
+    const paymentReference = safeString(body.paymentReference) || safeString(body.reference);
 
     let orderId: string | undefined = orderIdHint;
     let resolvedOrderNumber = orderNumber;
@@ -52,9 +54,9 @@ export async function recordError(input: {
     let vendorId: string | undefined;
     let vendorName: string | undefined;
 
-    if (orderNumber) {
+    if (orderNumber || orderIdHint || paymentReference) {
       const order = await prisma.order.findFirst({
-        where: { orderNumber },
+        where: orderNumber ? { orderNumber } : orderIdHint ? { id: orderIdHint } : { paymentReference },
         select: {
           id: true,
           orderNumber: true,
