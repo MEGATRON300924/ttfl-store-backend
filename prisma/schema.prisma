@@ -864,7 +864,7 @@ model PartnerEvent {
 
 model ErrorLog {
   id String @id
-  referenceCode String @unique(map: "error_logs_reference_code_idx") @map("reference_code")
+  referenceCode String @unique(map: "error_logs_reference_code_key") @map("reference_code")
   severity String @default("ERROR")
   httpStatus Int @map("http_status")
   errorCode String @map("error_code")
