@@ -30,7 +30,30 @@ CREATE TABLE IF NOT EXISTS error_logs (
 
 ALTER TABLE error_logs ADD COLUMN IF NOT EXISTS ip_address TEXT;
 
-DROP INDEX IF EXISTS error_logs_reference_code_idx;
+-- The original bootstrap created the reference_code UNIQUE constraint with
+-- the legacy name error_logs_reference_code_idx. Rename the constraint in
+-- place so Prisma can use its canonical error_logs_reference_code_key name.
+-- This preserves the unique constraint and does not touch any error-log data.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'error_logs'::regclass
+      AND conname = 'error_logs_reference_code_idx'
+  ) AND NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conrelid = 'error_logs'::regclass
+      AND conname = 'error_logs_reference_code_key'
+  ) THEN
+    ALTER TABLE error_logs
+      RENAME CONSTRAINT error_logs_reference_code_idx
+      TO error_logs_reference_code_key;
+  END IF;
+END
+$$;
+
 CREATE INDEX IF NOT EXISTS error_logs_error_code_idx ON error_logs(error_code);
 CREATE INDEX IF NOT EXISTS error_logs_order_number_idx ON error_logs(order_number);
 CREATE INDEX IF NOT EXISTS error_logs_product_id_idx ON error_logs(product_id);
