@@ -5,9 +5,9 @@ import { requireAuth, requireRole } from "@/middleware/auth";
 import * as supportService from "./support.service";
 
 export const supportRouter = Router();
-const startSchema = z.object({ message: z.string().min(1).max(2000), orderNumber: z.string().optional() });
+const startSchema = z.object({ message: z.string().min(1).max(2000), orderNumber: z.string().optional(), errorReferenceCode: z.string().trim().max(80).optional() });
 
-supportRouter.post("/conversations", requireAuth, requireRole("CUSTOMER"), asyncHandler(async (req, res) => { const { message, orderNumber } = startSchema.parse(req.body); const conversation = await supportService.startConversation(req.user!.sub, message, orderNumber); res.status(201).json({ conversation }); }));
+supportRouter.post("/conversations", requireAuth, requireRole("CUSTOMER"), asyncHandler(async (req, res) => { const { message, orderNumber } = startSchema.parse(req.body); const conversation = await supportService.startConversation(req.user!.sub, message, orderNumber, errorReferenceCode); res.status(201).json({ conversation }); }));
 supportRouter.get("/conversations/me", requireAuth, requireRole("CUSTOMER"), asyncHandler(async (req, res) => { res.json({ conversations: await supportService.getMyConversations(req.user!.sub) }); }));
 supportRouter.get("/conversations/:id", requireAuth, asyncHandler(async (req, res) => { res.json({ conversation: await supportService.getConversation(req.params.id, req.user!.sub, req.user!.role) }); }));
 const messageSchema = z.object({ body: z.string().min(1).max(2000) });
