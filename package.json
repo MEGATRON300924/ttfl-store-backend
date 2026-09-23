@@ -12,7 +12,7 @@
     "prisma:generate": "node scripts/ensure-production-column-compatibility.cjs && node scripts/ensure-category-variation-prisma.cjs && node scripts/prepare-prisma-schema.cjs && prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
-    "prisma:safe-push": "node scripts/ensure-vendor-store-category-prisma.cjs && node scripts/ensure-category-variation-prisma.cjs && node scripts/ensure-coming-soon-schema.cjs && node scripts/ensure-waitlist-schema.cjs && node scripts/ensure-order-item-vendor-column.cjs && node scripts/ensure-order-item-variation-columns.cjs && node scripts/ensure-order-item-variation-prisma-schema.cjs && node scripts/ensure-vendor-order-column.cjs && node scripts/ensure-vendor-paystack-columns.cjs && node scripts/ensure-raw-marketplace-prisma.cjs && node scripts/ensure-flash-deal-reservations-prisma.cjs && node scripts/safe-prisma-push.cjs",
+    "prisma:safe-push": "node scripts/ensure-vendor-store-category-prisma.cjs && node scripts/ensure-category-variation-prisma.cjs && node scripts/ensure-coming-soon-schema.cjs && node scripts/ensure-waitlist-schema.cjs && node scripts/ensure-order-item-vendor-column.cjs && node scripts/ensure-order-item-variation-columns.cjs && node scripts/ensure-order-item-variation-prisma-schema.cjs && node scripts/ensure-vendor-order-column.cjs && node scripts/ensure-vendor-paystack-columns.cjs && node scripts/ensure-raw-marketplace-prisma.cjs && node scripts/ensure-flash-deal-reservations-prisma.cjs && node scripts/ensure-error-logs-schema.cjs && node scripts/safe-prisma-push.cjs",
     "prisma:studio": "prisma studio",
     "seed:admin": "tsx prisma/seed.ts",
     "backfill:product-ids": "node scripts/backfill-product-ids.cjs",
