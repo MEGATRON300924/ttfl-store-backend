@@ -268,7 +268,7 @@ addModel(`model PartnerEvent {
 
 addModel(`model ErrorLog {
   id String @id
-  referenceCode String @unique @map("reference_code")
+  referenceCode String @unique(map: "error_logs_reference_code_idx") @map("reference_code")
   severity String @default("ERROR")
   httpStatus Int @map("http_status")
   errorCode String @map("error_code")
@@ -288,7 +288,6 @@ addModel(`model ErrorLog {
   stack String?
   ipAddress String? @map("ip_address")
   createdAt DateTime @default(now()) @map("created_at")
-  @@index([referenceCode], map: "error_logs_reference_code_idx")
   @@index([errorCode])
   @@index([orderNumber])
   @@index([productId])
