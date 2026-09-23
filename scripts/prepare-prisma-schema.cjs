@@ -209,6 +209,7 @@ addEnumValues("PartnerEventPlan", ["FREE", "FEATURED", "PREMIUM", "ENTERPRISE"])
 
 
 addField("User", "  updatedAt", "partnerProfile Partner?");
+addField("User", "  updatedAt", "errorLogs ErrorLog[] @relation(\"ErrorLogUser\")");
 
 addModel(`model Partner {
   id String @id @default(uuid())
@@ -266,3 +267,33 @@ addModel(`model PartnerEvent {
 
 fs.writeFileSync(schemaPath, schema);
 console.log("TTFL Prisma schema prepared for current backend modules.");
+
+addModel(`model ErrorLog {
+  id String @id
+  referenceCode String @unique @map("reference_code")
+  severity String @default("ERROR")
+  httpStatus Int @map("http_status")
+  errorCode String @map("error_code")
+  message String
+  explanation String
+  method String
+  path String
+  userId String? @map("user_id")
+  user User? @relation("ErrorLogUser", fields: [userId], references: [id], onDelete: SetNull)
+  orderId String? @map("order_id")
+  orderNumber String? @map("order_number")
+  productId String? @map("product_id")
+  productName String? @map("product_name")
+  vendorId String? @map("vendor_id")
+  vendorName String? @map("vendor_name")
+  metadata Json?
+  stack String?
+  ipAddress String? @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+  @@index([errorCode])
+  @@index([orderNumber])
+  @@index([productId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("error_logs")
+}`);
