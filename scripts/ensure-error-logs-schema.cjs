@@ -24,8 +24,11 @@ CREATE TABLE IF NOT EXISTS error_logs (
   vendor_name TEXT,
   metadata JSONB,
   stack TEXT,
+  ip_address TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE error_logs ADD COLUMN IF NOT EXISTS ip_address TEXT;
 
 CREATE INDEX IF NOT EXISTS error_logs_reference_code_idx ON error_logs(reference_code);
 CREATE INDEX IF NOT EXISTS error_logs_error_code_idx ON error_logs(error_code);
