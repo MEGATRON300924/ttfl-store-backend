@@ -30,7 +30,8 @@ async function notifyCustomerReply(conversationId: string, body: string) {
 }
 
 export async function startConversation(customerId: string, initialMessage: string, orderNumber?: string, errorReferenceCode?: string) {
-  const body = errorReferenceCode ? `Error code: ${errorReferenceCode.trim()}\\n\\n${initialMessage}` : initialMessage;\n  const conversation = await prisma.supportConversation.create({ data: { customerId, orderNumber, messages: { create: { senderId: customerId, senderType: "CUSTOMER", body } } }, include: { messages: true, customer: { select: { email: true, firstName: true } } } });
+  const body = errorReferenceCode ? `Error code: ${errorReferenceCode.trim()}\n\n${initialMessage}` : initialMessage;
+  const conversation = await prisma.supportConversation.create({ data: { customerId, orderNumber, messages: { create: { senderId: customerId, senderType: "CUSTOMER", body } } }, include: { messages: true, customer: { select: { email: true, firstName: true } } } });
   void notifyAdminNewReport(conversation, body);
   return conversation;
 }
