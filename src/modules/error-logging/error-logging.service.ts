@@ -42,10 +42,10 @@ export async function recordError(input: {
   try {
     const body = input.req.body && typeof input.req.body === "object" ? input.req.body as Record<string, unknown> : {};
     const params = input.req.params ?? {};
-    const productId = input.productId || safeString(params.productId) || safeString(body.productId);
-    const orderNumber = input.orderNumber || safeString(params.orderNumber) || safeString(body.orderNumber);
+    const productId = input.productId || safeString(params.productId) || safeString(body.productId) || (Array.isArray(body.items) && typeof body.items[0] === "object" && body.items[0] ? safeString((body.items[0] as Record<string, unknown>).productId) : undefined);
+    const orderNumber = input.orderNumber || safeString(params.orderNumber) || safeString(body.orderNumber);\n    const orderIdHint = safeString(params.orderId) || safeString(body.orderId);\n    const paymentReference = safeString(body.paymentReference) || safeString(body.reference);
 
-    let orderId: string | undefined;
+    let orderId: string | undefined = orderIdHint;
     let resolvedOrderNumber = orderNumber;
     let resolvedProductId = productId;
     let productName: string | undefined;
