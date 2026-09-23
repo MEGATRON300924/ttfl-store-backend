@@ -288,6 +288,7 @@ addModel(`model ErrorLog {
   stack String?
   ipAddress String? @map("ip_address")
   createdAt DateTime @default(now()) @map("created_at")
+  @@index([referenceCode], map: "error_logs_reference_code_idx")
   @@index([errorCode])
   @@index([orderNumber])
   @@index([productId])
