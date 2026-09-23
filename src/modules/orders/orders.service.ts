@@ -11,6 +11,7 @@ import { recordAudit } from "@/lib/audit";
 import { recordPurchase, reversePurchase, reservePointsForOrder, finalizeReservedPoints, releaseReservedPoints } from "@/modules/rewards/rewards.service";
 import { recordConversionEvent } from "@/modules/ads/ads.service";
 import { logger } from "@/lib/logger";
+import { createNotification } from "@/modules/notifications/notifications.service";
 import { resolveCheckoutUnitPrice } from "./variant-pricing";
 import type { CheckoutInput } from "./orders.validators";
 import type { Prisma, OrderStatus, Product } from "@prisma/client";
@@ -86,6 +87,7 @@ export async function checkout(customerId: string, customerEmail: string, input:
   let paystack;
   try { paystack = await initializeTransaction({ email: customerEmail, amountNaira: totalAmount, reference: paymentReference, callbackUrl: `${env.appUrl}/orders/${order.orderNumber}/confirm`, metadata: { orderId: order.id, orderNumber: order.orderNumber, ...(input.adCampaignId ? { adCampaignId: input.adCampaignId } : {}) }, splitCode }); } catch (error) { await releaseForOrder(order.id, "RELEASED"); throw error; }
   if (input.adCampaignId) void recordConversionEvent(input.adCampaignId, "PURCHASE", { stage: "CHECKOUT_START", orderId: order.id }).catch(() => undefined);
+  void createNotification(customerId,{title:"Order placed",body:`Order ${order.orderNumber} is ready for payment.`,type:"ORDER",url:`/orders/${order.orderNumber}`}).catch(()=>undefined);
   return { order, checkoutUrl: paystack.authorization_url };
 }
 
@@ -118,7 +120,7 @@ export async function verifyAndFinalizePayment(reference: string) {
   if (adCampaignId) void recordConversionEvent(adCampaignId, "PURCHASE", { orderId: order.id, orderNumber: order.orderNumber, amount: Number(order.totalAmount), stage: "PAID" }).catch(() => undefined);
   await finalizeReservedPoints(order.id);
   const customer = await prisma.user.findUnique({ where: { id: order.customerId } });
-  if (customer) { void sendEmail({ to: customer.email, ...orderConfirmationEmail(order.orderNumber) }); void recordPurchase(customer.id, order.id, Number(order.totalAmount)).catch(() => undefined); }
+  if (customer) { void sendEmail({ to: customer.email, ...orderConfirmationEmail(order.orderNumber) }); void recordPurchase(customer.id, order.id, Number(order.totalAmount)).catch(() => undefined); void createNotification(customer.id,{title:"Payment confirmed",body:`Your payment for ${order.orderNumber} was confirmed.`,type:"ORDER",url:`/orders/${order.orderNumber}`}).catch(()=>undefined); }
   for (const vendorOrder of order.vendorOrders) { const vendor = await prisma.vendorProfile.findUnique({ where: { id: vendorOrder.vendorId }, include: { user: true } }); if (vendor) void sendEmail({ to: vendor.user.email, ...vendorNewOrderEmail(order.orderNumber, vendorOrder.items.length) }); }
   if (env.adminNotificationEmail) void sendEmail({ to: env.adminNotificationEmail, ...adminNewOrderEmail(order.orderNumber, Number(order.totalAmount)) });
   if (env.whatsapp.adminNumber) void sendWhatsAppNotification({ to: env.whatsapp.adminNumber, message: newOrderWhatsAppMessage(order.orderNumber, Number(order.totalAmount)), event: "admin_new_order" });
