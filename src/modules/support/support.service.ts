@@ -29,9 +29,9 @@ async function notifyCustomerReply(conversationId: string, body: string) {
   }).catch((error) => console.error("Failed to send support reply notification:", error));
 }
 
-export async function startConversation(customerId: string, initialMessage: string, orderNumber?: string) {
-  const conversation = await prisma.supportConversation.create({ data: { customerId, orderNumber, messages: { create: { senderId: customerId, senderType: "CUSTOMER", body: initialMessage } } }, include: { messages: true, customer: { select: { email: true, firstName: true } } } });
-  void notifyAdminNewReport(conversation, initialMessage);
+export async function startConversation(customerId: string, initialMessage: string, orderNumber?: string, errorReferenceCode?: string) {
+  const body = errorReferenceCode ? `Error code: ${errorReferenceCode.trim()}\\n\\n${initialMessage}` : initialMessage;\n  const conversation = await prisma.supportConversation.create({ data: { customerId, orderNumber, messages: { create: { senderId: customerId, senderType: "CUSTOMER", body } } }, include: { messages: true, customer: { select: { email: true, firstName: true } } } });
+  void notifyAdminNewReport(conversation, body);
   return conversation;
 }
 
