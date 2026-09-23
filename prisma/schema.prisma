@@ -882,6 +882,7 @@ model ErrorLog {
   vendorName String? @map("vendor_name")
   metadata Json?
   stack String?
+  ipAddress String? @map("ip_address")
   createdAt DateTime @default(now()) @map("created_at")
   @@index([errorCode])
   @@index([orderNumber])
