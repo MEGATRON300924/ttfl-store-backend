@@ -49,7 +49,7 @@ export async function recordError(input: {
   try {
     const body = input.req.body && typeof input.req.body === "object" ? input.req.body as Record<string, unknown> : {};
     const params = input.req.params ?? {};
-    const productId = input.productId || safeString(params.productId) || safeString(body.productId) || (Array.isArray(body.items) && typeof body.items[0] === "object" && body.items[0] ? safeString((body.items[0] as Record<string, unknown>).productId) : undefined);
+    const productId = input.productId || safeString(params.productId) || safeString(body.productId) || safeString(params.id) || (Array.isArray(body.items) && typeof body.items[0] === "object" && body.items[0] ? safeString((body.items[0] as Record<string, unknown>).productId) : undefined);
     const orderNumber = input.orderNumber || safeString(params.orderNumber) || safeString(body.orderNumber);
     const orderIdHint = safeString(params.orderId) || safeString(body.orderId);
     const paymentReference = safeString(body.paymentReference) || safeString(body.reference);
@@ -89,7 +89,7 @@ export async function recordError(input: {
 
     if (resolvedProductId) {
       const product = await prisma.product.findFirst({
-        where: { id: resolvedProductId },
+        where: { OR: [{ id: resolvedProductId }, { slug: resolvedProductId }] },
         select: { id: true, name: true, vendor: { select: { id: true, storeName: true } } },
       });
       if (product) {
