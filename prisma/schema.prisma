@@ -241,6 +241,7 @@ model User {
   supportConversations SupportConversation[]
   supportMessages SupportMessage[]
   partnerProfile Partner?
+  errorLogs ErrorLog[] @relation("ErrorLogUser")
   @@index([role])
   @@index([status])
   @@map("users")
