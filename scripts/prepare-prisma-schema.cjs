@@ -265,8 +265,6 @@ addModel(`model PartnerEvent {
   @@map("partner_events")
 }`);
 
-fs.writeFileSync(schemaPath, schema);
-console.log("TTFL Prisma schema prepared for current backend modules.");
 
 addModel(`model ErrorLog {
   id String @id
@@ -297,3 +295,7 @@ addModel(`model ErrorLog {
   @@index([createdAt])
   @@map("error_logs")
 }`);
+
+fs.writeFileSync(schemaPath, schema);
+console.log("TTFL Prisma schema prepared for current backend modules.");
+
