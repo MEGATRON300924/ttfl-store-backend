@@ -385,6 +385,9 @@ model Product {
   reviews Review[]
   wishlistedBy WishlistItem[]
   featuredEntries FeaturedProduct[]
+  comingSoon Boolean @default(false) @map("coming_soon")
+  availableAt DateTime? @map("available_at")
+  launchedAt DateTime? @map("launched_at")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   deletedAt DateTime?
@@ -890,4 +893,21 @@ model ErrorLog {
   @@index([userId])
   @@index([createdAt])
   @@map("error_logs")
+}
+
+
+model ProductAvailabilityNotification {
+  id String @id
+  productId String @map("product_id")
+  userId String? @map("user_id")
+  email String?
+  whatsapp String?
+  emailNotifiedAt DateTime? @map("email_notified_at")
+  whatsappNotifiedAt DateTime? @map("whatsapp_notified_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@unique([productId, email], name: "product_availability_notifications_product_email_idx")
+  @@unique([productId, whatsapp], name: "product_availability_notifications_product_whatsapp_idx")
+  @@index([productId], name: "product_availability_notifications_product_idx")
+  @@map("product_availability_notifications")
 }
