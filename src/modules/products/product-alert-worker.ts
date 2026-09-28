@@ -4,32 +4,19 @@ import { sendEmail } from "@/lib/email";
 import { renderEmailLayout, escapeHtml } from "@/lib/email-layout";
 import { sendWhatsAppNotification } from "@/lib/whatsapp-notifications";
 
+const MAINTENANCE_INTERVAL_MS = 10 * 60 * 1000;
 let running = false;
 
 async function processBackInStock() {
   const alerts = await prisma.productAlert.findMany({
-    where: {
-      type: "BACK_IN_STOCK",
-      notifiedAt: null,
-    },
-    select: {
-      id: true,
-      productId: true,
-      email: true,
-      whatsapp: true,
-    },
+    where: { type: "BACK_IN_STOCK", notifiedAt: null },
+    select: { id: true, productId: true, email: true, whatsapp: true },
     take: 100,
   });
-
   if (!alerts.length) return;
 
   const products = await prisma.product.findMany({
-    where: {
-      id: { in: alerts.map((alert) => alert.productId) },
-      deletedAt: null,
-      status: "ACTIVE",
-      stock: { gt: 0 },
-    },
+    where: { id: { in: alerts.map((alert) => alert.productId) }, deletedAt: null, status: "ACTIVE", stock: { gt: 0 } },
     select: { id: true, name: true, slug: true },
   });
   const productById = new Map(products.map((product) => [product.id, product]));
@@ -37,7 +24,6 @@ async function processBackInStock() {
   for (const alert of alerts) {
     const product = productById.get(alert.productId);
     if (!product) continue;
-
     let delivered = false;
     if (alert.email) {
       try {
@@ -66,49 +52,27 @@ async function processBackInStock() {
         delivered = delivered || Boolean(result.delivered);
       } catch {}
     }
-    if (delivered) {
-      await prisma.productAlert.update({
-        where: { id: alert.id },
-        data: { notifiedAt: new Date() },
-      });
-    }
+    if (delivered) await prisma.productAlert.update({ where: { id: alert.id }, data: { notifiedAt: new Date() } });
   }
 }
 
 async function processPriceDrops() {
   const alerts = await prisma.productAlert.findMany({
-    where: {
-      type: "PRICE_DROP",
-      notifiedAt: null,
-      targetPrice: { not: null },
-    },
-    select: {
-      id: true,
-      productId: true,
-      email: true,
-      whatsapp: true,
-      targetPrice: true,
-    },
+    where: { type: "PRICE_DROP", notifiedAt: null, targetPrice: { not: null } },
+    select: { id: true, productId: true, email: true, whatsapp: true, targetPrice: true },
     take: 100,
   });
-
   if (!alerts.length) return;
 
   const products = await prisma.product.findMany({
-    where: {
-      id: { in: alerts.map((alert) => alert.productId) },
-      deletedAt: null,
-      status: "ACTIVE",
-    },
+    where: { id: { in: alerts.map((alert) => alert.productId) }, deletedAt: null, status: "ACTIVE" },
     select: { id: true, name: true, slug: true, price: true },
   });
   const productById = new Map(products.map((product) => [product.id, product]));
 
   for (const alert of alerts) {
     const product = productById.get(alert.productId);
-    if (!product || alert.targetPrice == null) continue;
-    if (Number(product.price) > Number(alert.targetPrice)) continue;
-
+    if (!product || alert.targetPrice == null || Number(product.price) > Number(alert.targetPrice)) continue;
     let delivered = false;
     if (alert.email) {
       try {
@@ -137,12 +101,7 @@ async function processPriceDrops() {
         delivered = delivered || Boolean(result.delivered);
       } catch {}
     }
-    if (delivered) {
-      await prisma.productAlert.update({
-        where: { id: alert.id },
-        data: { notifiedAt: new Date() },
-      });
-    }
+    if (delivered) await prisma.productAlert.update({ where: { id: alert.id }, data: { notifiedAt: new Date() } });
   }
 }
 
@@ -158,14 +117,8 @@ export async function processProductAlerts() {
 }
 
 export function startProductAlertWorker() {
-  void processProductAlerts().catch((error) => {
-    console.error("Product alert worker failed:", error);
-  });
-
-  const timer = setInterval(() => {
-    void processProductAlerts().catch((error) => {
-      console.error("Product alert worker failed:", error);
-    });
-  }, 60000);
-  timer.unref();
+  void processProductAlerts().catch((error) => console.error("Product alert worker failed:", error));
+  setInterval(() => {
+    void processProductAlerts().catch((error) => console.error("Product alert worker failed:", error));
+  }, MAINTENANCE_INTERVAL_MS).unref();
 }
