@@ -58,6 +58,7 @@ addField("Product", "  createdAt", "publicProductId String? @unique");
 addField("Product", "  createdAt", "estimatedDeliveryDays Int @default(7)");
 addField("Product", "  createdAt", "comingSoon Boolean @default(false) @map(\"coming_soon\")");
 addField("Product", "  createdAt", "availableAt DateTime? @map(\"available_at\")");
+addField("Product", "  createdAt", "launchedAt DateTime? @map(\"launched_at\")");
 addField("Product", "  createdAt", "sponsored Boolean @default(false)");
 addField("Product", "  createdAt", "sponsoredAt DateTime?");
 addField("Product", "  createdAt", "tags String[] @default([])");
@@ -140,7 +141,7 @@ addModel(`model ProductAvailabilityNotification {
   whatsapp String?
   emailNotifiedAt DateTime? @map("email_notified_at")
   whatsappNotifiedAt DateTime? @map("whatsapp_notified_at")
-  createdAt DateTime @default(now())
+  createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   @@unique([productId, email], name: "product_availability_notifications_product_email_idx")
   @@unique([productId, whatsapp], name: "product_availability_notifications_product_whatsapp_idx")
@@ -268,7 +269,7 @@ addModel(`model PartnerEvent {
 
 addModel(`model ErrorLog {
   id String @id
-  referenceCode String @unique(map: "error_logs_reference_code_idx") @map("reference_code")
+  referenceCode String @unique(map: "error_logs_reference_code_key") @map("reference_code")
   severity String @default("ERROR")
   httpStatus Int @map("http_status")
   errorCode String @map("error_code")
