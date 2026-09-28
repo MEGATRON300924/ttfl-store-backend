@@ -4,6 +4,8 @@ import { env } from "@/config/env";
 import { logger } from "@/lib/logger";
 import type { Prisma } from "@prisma/client";
 
+const MAINTENANCE_INTERVAL_MS = 10 * 60 * 1000;
+
 export async function queueMaxEvent(event: string, payload: Record<string, unknown>) {
   const jsonPayload = JSON.parse(JSON.stringify(payload)) as Prisma.InputJsonValue;
   const row = await prisma.maxEventOutbox.create({ data: { id: randomUUID(), event, payload: jsonPayload } });
@@ -38,5 +40,5 @@ export async function flushMaxEventOutbox(limit = 25) {
 export function startMaxEventOutboxWorker() {
   if (!env.maxAi.eventWebhookUrl) return;
   void flushMaxEventOutbox();
-  setInterval(() => void flushMaxEventOutbox(), 60_000).unref();
+  setInterval(() => void flushMaxEventOutbox(), MAINTENANCE_INTERVAL_MS).unref();
 }
