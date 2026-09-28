@@ -5,6 +5,7 @@ import { logger } from "@/lib/logger";
 const MAX_ATTEMPTS = 5;
 const RETRY_BACKOFF_MS = [5_000, 30_000, 120_000, 600_000, 1_800_000];
 const STALE_CLAIM_MS = 2 * 60 * 1000;
+const MAINTENANCE_INTERVAL_MS = 10 * 60 * 1000;
 
 let workerStarted = false;
 const retryTimers = new Set<string>();
@@ -98,7 +99,7 @@ function scheduleRetry(emailLogId: string, attempts: number) {
   }, delay);
 }
 
-async function sweepStuckEmails() {
+export async function sweepStuckEmails() {
   try {
     const staleBefore = new Date(Date.now() - STALE_CLAIM_MS);
     const stuck = await prisma.emailLog.findMany({
@@ -119,7 +120,7 @@ async function sweepStuckEmails() {
       }
     }
   } catch (err) {
-    logger.error("Email queue sweep failed — will retry on the next interval", {
+    logger.error("Email queue sweep failed — will retry on the next maintenance interval", {
       error: err instanceof Error ? err.message : err,
     });
   }
@@ -129,5 +130,5 @@ export function startEmailWorker() {
   if (workerStarted) return;
   workerStarted = true;
   setTimeout(() => void sweepStuckEmails(), 10_000);
-  setInterval(() => void sweepStuckEmails(), 60_000);
+  setInterval(() => void sweepStuckEmails(), MAINTENANCE_INTERVAL_MS).unref();
 }
