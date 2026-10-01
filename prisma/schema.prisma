@@ -193,6 +193,24 @@ enum PayoutStatus {
   PAID
 }
 
+enum StoreReportReason {
+  SCAM_FRAUD
+  COUNTERFEIT
+  MISLEADING_LISTING
+  PAYMENT_OFF_PLATFORM
+  NON_DELIVERY
+  HARASSMENT_ABUSE
+  SUSPICIOUS_ACTIVITY
+  OTHER
+}
+
+enum StoreReportStatus {
+  OPEN
+  UNDER_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
 enum SupportConversationStatus {
   OPEN
   ASSIGNED
@@ -239,6 +257,7 @@ model User {
   reviews Review[]
   wishlistItems WishlistItem[]
   supportConversations SupportConversation[]
+  storeReports StoreReport[] @relation("StoreReportReporter")
   supportMessages SupportMessage[]
   partnerProfile Partner?
   errorLogs ErrorLog[] @relation("ErrorLogUser")
@@ -337,6 +356,7 @@ model VendorProfile {
   featuredProducts FeaturedProduct[]
   featuredStores FeaturedStore[]
   coupons Coupon[]
+  storeReports StoreReport[] @relation("StoreReportVendor")
   payouts Payout[]
   @@index([status])
   @@index([tier])
@@ -770,6 +790,28 @@ model SupportMessage {
   createdAt DateTime @default(now())
   @@index([conversationId])
   @@map("support_messages")
+}
+
+model StoreReport {
+  id String @id @default(uuid())
+  reporterId String @map("reporter_id")
+  reporter User @relation("StoreReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  vendorId String @map("vendor_id")
+  vendor VendorProfile @relation("StoreReportVendor", fields: [vendorId], references: [id], onDelete: Cascade)
+  reason StoreReportReason
+  description String
+  evidenceLinks String[] @default([]) @map("evidence_links")
+  orderNumber String? @map("order_number")
+  status StoreReportStatus @default(OPEN)
+  adminNotes String? @map("admin_notes")
+  resolvedAt DateTime? @map("resolved_at")
+  resolvedById String? @map("resolved_by_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@index([vendorId, status])
+  @@index([reporterId, createdAt])
+  @@index([status, createdAt])
+  @@map("store_reports")
 }
 
 model PlatformSetting {
