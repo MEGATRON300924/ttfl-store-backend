@@ -7,6 +7,10 @@ const redeemSchema = z.object({ points: z.number().int().positive().max(1_000_00
 const settingsSchema = z.record(z.number().finite().nonnegative());
 
 export const me = asyncHandler(async (req: Request, res: Response) => { res.json({ wallet: await rewards.getWallet(req.user!.sub), history: await rewards.getHistory(req.user!.sub), appDownloadPoints: await rewards.getAppDownloadPoints() }); });
+export const appDownload = asyncHandler(async (req: Request, res: Response) => {
+  const platform = z.enum(["ANDROID", "IOS"]).parse(req.body?.platform);
+  res.json({ reward: await rewards.claimAppDownload(req.user!.sub, platform) });
+});
 export const redeem = asyncHandler(async (req: Request, res: Response) => { const body=redeemSchema.parse(req.body); res.json({ redemption: await rewards.redeem(req.user!.sub, body.points, body.kind, body.referenceId) }); });
 export const adminSettings = asyncHandler(async (_req: Request, res: Response) => { res.json({ settings: await rewards.getSettings() }); });
 export const updateAdminSettings = asyncHandler(async (req: Request, res: Response) => { res.json({ settings: await rewards.updateSettings(settingsSchema.parse(req.body)) }); });
