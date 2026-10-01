@@ -113,7 +113,7 @@ async function getReviewHealth(storeId: string) {
   const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
   const rows = await prisma.$queryRawUnsafe<Array<{ recentReviews: bigint; badReviews: bigint; averageRating: number | null }>>(
     `SELECT
-       COUNT(*) FILTER (WHERE r."createdAt">=$2 AND r.status='VISIBLE') AS "recentReviews",
+       COUNT(*) FILTER (WHERE r."createdAt">=$2 AND r.status='VISIBLE') AS "recentReviews", (SELECT COUNT(*) FROM vendor_orders vo WHERE vo.vendor_id=$1 AND vo."createdAt">=$2) AS "recentOrders", (SELECT COUNT(*) FROM vendor_orders vo WHERE vo.vendor_id=$1 AND vo."createdAt">=$2 AND vo.status IN ('CANCELLED','FAILED','REFUNDED')) AS "problemOrders",
        COUNT(*) FILTER (WHERE r."createdAt">=$2 AND r.status='VISIBLE' AND (r.rating<=2 OR ((CASE WHEN r.delivery_rating='BAD' THEN 1 ELSE 0 END)+(CASE WHEN r.customer_service_rating='BAD' THEN 1 ELSE 0 END)+(CASE WHEN r.product_quality_rating='BAD' THEN 1 ELSE 0 END)+(CASE WHEN r.description_accuracy_rating='BAD' THEN 1 ELSE 0 END)+(CASE WHEN r.value_for_money_rating='BAD' THEN 1 ELSE 0 END))>=2)) AS "badReviews",
        AVG(r.rating) FILTER (WHERE r.status='VISIBLE') AS "averageRating"
      FROM reviews r
@@ -127,6 +127,8 @@ async function getReviewHealth(storeId: string) {
   return {
     averageRating: row?.averageRating == null ? null : Number(row.averageRating),
     recentReviews: Number(row?.recentReviews ?? 0),
+    recentOrders: Number(row?.recentOrders ?? 0),
+    problemOrders: Number(row?.problemOrders ?? 0),
     badReviews,
     caution: badReviews >= 3,
     threshold: 3,
