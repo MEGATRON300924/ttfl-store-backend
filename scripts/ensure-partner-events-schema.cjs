@@ -59,6 +59,12 @@ CREATE INDEX IF NOT EXISTS partner_events_partner_id_idx ON partner_events(partn
 CREATE INDEX IF NOT EXISTS partner_events_status_idx ON partner_events(status);
 CREATE INDEX IF NOT EXISTS partner_events_audience_idx ON partner_events(audience);
 CREATE INDEX IF NOT EXISTS partner_events_starts_at_idx ON partner_events(starts_at);
+
+ALTER TABLE partners ALTER COLUMN status TYPE "PartnerStatus" USING status::"PartnerStatus";
+ALTER TABLE partners ALTER COLUMN event_plan TYPE "PartnerEventPlan" USING event_plan::"PartnerEventPlan";
+ALTER TABLE partner_events ALTER COLUMN audience TYPE "EventAudience" USING audience::"EventAudience";
+ALTER TABLE partner_events ALTER COLUMN status TYPE "EventStatus" USING status::"EventStatus";
+ALTER TABLE partner_events ALTER COLUMN event_plan TYPE "PartnerEventPlan" USING event_plan::"PartnerEventPlan";
 `;
 
 execFileSync(prismaBin, ["db", "execute", "--stdin", "--schema", schemaPath], {
