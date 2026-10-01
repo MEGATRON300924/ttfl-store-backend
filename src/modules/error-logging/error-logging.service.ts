@@ -49,57 +49,12 @@ export async function recordError(input: {
   try {
     const body = input.req.body && typeof input.req.body === "object" ? input.req.body as Record<string, unknown> : {};
     const params = input.req.params ?? {};
-    const productId = input.productId || safeString(params.productId) || safeString(body.productId) || safeString(params.id) || (Array.isArray(body.items) && typeof body.items[0] === "object" && body.items[0] ? safeString((body.items[0] as Record<string, unknown>).productId) : undefined);
+    const productId = input.productId || safeString(params.productId) || safeString(body.productId) || safeString(params.id);
     const orderNumber = input.orderNumber || safeString(params.orderNumber) || safeString(body.orderNumber);
-    const orderIdHint = safeString(params.orderId) || safeString(body.orderId);
-    const paymentReference = safeString(body.paymentReference) || safeString(body.reference);
 
-    let orderId: string | undefined = orderIdHint;
-    let resolvedOrderNumber = orderNumber;
-    let resolvedProductId = productId;
-    let productName: string | undefined;
-    let vendorId: string | undefined;
-    let vendorName: string | undefined;
-
-    if (orderNumber || orderIdHint || paymentReference) {
-      const order = await prisma.order.findFirst({
-        where: orderNumber ? { orderNumber } : orderIdHint ? { id: orderIdHint } : { paymentReference },
-        select: {
-          id: true,
-          orderNumber: true,
-          vendorOrders: {
-            select: {
-              vendor: { select: { id: true, storeName: true } },
-              items: { select: { productId: true, productName: true } },
-            },
-          },
-        },
-      });
-      if (order) {
-        orderId = order.id;
-        resolvedOrderNumber = order.orderNumber;
-        const firstItem = order.vendorOrders.flatMap((vendorOrder) => vendorOrder.items)[0];
-        const firstVendor = order.vendorOrders[0]?.vendor;
-        resolvedProductId = resolvedProductId || firstItem?.productId;
-        productName = firstItem?.productName;
-        vendorId = firstVendor?.id;
-        vendorName = firstVendor?.storeName;
-      }
-    }
-
-    if (resolvedProductId) {
-      const product = await prisma.product.findFirst({
-        where: { OR: [{ id: resolvedProductId }, { slug: resolvedProductId }] },
-        select: { id: true, name: true, vendor: { select: { id: true, storeName: true } } },
-      });
-      if (product) {
-        resolvedProductId = product.id;
-        productName = product.name;
-        vendorId = product.vendor?.id;
-        vendorName = product.vendor?.storeName;
-      }
-    }
-
+    // Error logging must never turn one application error into several more
+    // database queries. Persist only request context already available here;
+    // support/admin tooling can resolve related records separately.
     await prisma.errorLog.create({
       data: {
         id: randomBytes(16).toString("hex"),
@@ -112,18 +67,20 @@ export async function recordError(input: {
         method: input.req.method,
         path: input.req.path,
         userId: input.userId || null,
-        orderId: orderId || null,
-        orderNumber: resolvedOrderNumber || null,
-        productId: resolvedProductId || null,
-        productName: productName || null,
-        vendorId: vendorId || null,
-        vendorName: vendorName || null,
+        orderId: safeString(params.orderId) || safeString(body.orderId) || null,
+        orderNumber: orderNumber || null,
+        productId: productId || null,
+        productName: safeString(body.productName) || null,
+        vendorId: safeString(body.vendorId) || null,
+        vendorName: safeString(body.vendorName) || null,
         metadata: input.metadata ? JSON.parse(JSON.stringify(input.metadata)) : undefined,
         stack: input.stack || null,
         ipAddress: input.req.ip || null,
       },
     });
   } catch (loggingError) {
+    // Database outages must not recurse into error handling or break the
+    // customer response. The server log is the fallback sink.
     console.error("Failed to persist TTFL error log:", loggingError);
   }
 }
