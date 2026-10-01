@@ -31,8 +31,8 @@ async function finalizeRefund(orderId: string, adminId?: string) {
   // transaction that changed PAID -> REFUNDED performs side effects.
   if (!finalized) return prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { vendorOrders: { include: { items: true } } } });
 
-  void reversePurchase(order.id).catch((error) => logger.warn("Failed to reverse purchase rewards after refund", { orderId: order.id, error }));
-  void reverseRedemption(order.id).catch((error) => logger.warn("Failed to return redeemed rewards after refund", { orderId: order.id, error }));
+  await reversePurchase(order.id).catch((error) => logger.warn("Failed to reverse purchase rewards after refund", { orderId: order.id, error }));
+  await reverseRedemption(order.id).catch((error) => logger.warn("Failed to return redeemed rewards after refund", { orderId: order.id, error }));
   const customer = await prisma.user.findUnique({ where: { id: order.customerId } });
   if (customer) void sendEmail({ to: customer.email, ...orderRefundedEmail(order.orderNumber) });
   if (adminId) await recordAudit({ actorId: adminId, action: "ORDER_REFUNDED", targetType: "Order", targetId: order.id });
