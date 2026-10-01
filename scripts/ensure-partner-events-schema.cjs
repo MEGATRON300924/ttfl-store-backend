@@ -5,6 +5,10 @@ const schemaPath = path.join(process.cwd(), "prisma", "schema.prisma");
 const prismaBin = path.join(process.cwd(), "node_modules", ".bin", process.platform === "win32" ? "prisma.cmd" : "prisma");
 
 const sql = `
+DO $ BEGIN CREATE TYPE "PartnerStatus" AS ENUM ('PENDING','APPROVED','SUSPENDED','REJECTED'); EXCEPTION WHEN duplicate_object THEN NULL; END $;
+DO $ BEGIN CREATE TYPE "EventAudience" AS ENUM ('VENDORS','CUSTOMERS','EVERYONE'); EXCEPTION WHEN duplicate_object THEN NULL; END $;
+DO $ BEGIN CREATE TYPE "EventStatus" AS ENUM ('DRAFT','PENDING_REVIEW','PUBLISHED','REJECTED','CANCELLED'); EXCEPTION WHEN duplicate_object THEN NULL; END $;
+DO $ BEGIN CREATE TYPE "PartnerEventPlan" AS ENUM ('FREE','FEATURED','PREMIUM','ENTERPRISE'); EXCEPTION WHEN duplicate_object THEN NULL; END $;
 CREATE TABLE IF NOT EXISTS partners (
   id TEXT PRIMARY KEY,
   owner_user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
