@@ -26,6 +26,11 @@ const createSchema = z.object({
   rating: z.number().int().min(1).max(5),
   comment: z.string().max(2000).optional(),
   images: z.array(z.string().url()).max(6).optional(),
+  deliveryRating: z.enum(["EXCELLENT", "GOOD", "BAD"]),
+  customerServiceRating: z.enum(["EXCELLENT", "GOOD", "BAD"]),
+  productQualityRating: z.enum(["EXCELLENT", "GOOD", "BAD"]),
+  descriptionAccuracyRating: z.enum(["EXCELLENT", "GOOD", "BAD"]),
+  valueForMoneyRating: z.enum(["EXCELLENT", "GOOD", "BAD"]),
 });
 
 reviewsRouter.post("/", requireAuth, requireRole("CUSTOMER"), asyncHandler(async (req, res) => {
