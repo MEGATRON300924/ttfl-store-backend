@@ -103,7 +103,7 @@ export async function verifyAndFinalizePaymentSafely(reference: string) {
     const customer = await prisma.user.findUnique({ where: { id: order.customerId } });
     if (customer) {
       void sendEmail({ to: customer.email, ...orderConfirmationEmail(order.orderNumber) });
-      void recordPurchase(customer.id, order.id, Number(order.totalAmount)).catch(() => undefined);
+      await recordPurchase(customer.id, order.id, Number(order.totalAmount)).catch((error) => logger.warn("Failed to record purchase rewards", { orderId: order.id, error }));
     }
     for (const vo of order.vendorOrders) {
       const vendor = await prisma.vendorProfile.findUnique({ where: { id: vo.vendorId }, include: { user: true } });
