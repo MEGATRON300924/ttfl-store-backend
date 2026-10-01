@@ -256,6 +256,7 @@ model Address {
   line2 String?
   city String
   state String
+  digitalPostcode String? @map("digital_postcode")
   country String @default("Nigeria")
   isDefault Boolean @default(false)
   createdAt DateTime @default(now())
@@ -466,6 +467,7 @@ model Order {
   deliveryLine2 String?
   deliveryCity String
   deliveryState String
+  deliveryPostcode String? @map("delivery_postcode")
   deliveryCountry String @default("Nigeria")
   vendorOrders VendorOrder[]
   payments Payment[]
