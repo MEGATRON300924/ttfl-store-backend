@@ -60,11 +60,26 @@ CREATE INDEX IF NOT EXISTS partner_events_status_idx ON partner_events(status);
 CREATE INDEX IF NOT EXISTS partner_events_audience_idx ON partner_events(audience);
 CREATE INDEX IF NOT EXISTS partner_events_starts_at_idx ON partner_events(starts_at);
 
+-- The bootstrap tables were originally created with TEXT columns. PostgreSQL
+-- will not always cast a TEXT default while changing the column type, so remove
+-- the defaults first, convert the existing values, then restore enum defaults.
+ALTER TABLE partners ALTER COLUMN status DROP DEFAULT;
+ALTER TABLE partners ALTER COLUMN event_plan DROP DEFAULT;
+ALTER TABLE partner_events ALTER COLUMN audience DROP DEFAULT;
+ALTER TABLE partner_events ALTER COLUMN status DROP DEFAULT;
+ALTER TABLE partner_events ALTER COLUMN event_plan DROP DEFAULT;
+
 ALTER TABLE partners ALTER COLUMN status TYPE "PartnerStatus" USING status::"PartnerStatus";
 ALTER TABLE partners ALTER COLUMN event_plan TYPE "PartnerEventPlan" USING event_plan::"PartnerEventPlan";
 ALTER TABLE partner_events ALTER COLUMN audience TYPE "EventAudience" USING audience::"EventAudience";
 ALTER TABLE partner_events ALTER COLUMN status TYPE "EventStatus" USING status::"EventStatus";
 ALTER TABLE partner_events ALTER COLUMN event_plan TYPE "PartnerEventPlan" USING event_plan::"PartnerEventPlan";
+
+ALTER TABLE partners ALTER COLUMN status SET DEFAULT 'PENDING'::"PartnerStatus";
+ALTER TABLE partners ALTER COLUMN event_plan SET DEFAULT 'FREE'::"PartnerEventPlan";
+ALTER TABLE partner_events ALTER COLUMN audience SET DEFAULT 'EVERYONE'::"EventAudience";
+ALTER TABLE partner_events ALTER COLUMN status SET DEFAULT 'PENDING_REVIEW'::"EventStatus";
+ALTER TABLE partner_events ALTER COLUMN event_plan SET DEFAULT 'FREE'::"PartnerEventPlan";
 `;
 
 execFileSync(prismaBin, ["db", "execute", "--stdin", "--schema", schemaPath], {
