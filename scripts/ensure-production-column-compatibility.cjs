@@ -39,6 +39,12 @@ function patchProductRawSql() {
     if (!/(FROM|JOIN)\s+products\s+p\b/i.test(source)) continue;
     const next = source
       .replace(/p\."vendorId"/g, "p.vendor_id")
+      .replace(/p\.vendorId\b/g, "p.vendor_id")
+      .replace(/p\.avg_rating\b/g, 'p."avgRating"')
+      .replace(/p\.review_count\b/g, 'p."reviewCount"')
+      .replace(/p\.view_count\b/g, 'p."viewCount"')
+      .replace(/p\.created_at\b/g, 'p."createdAt"')
+      .replace(/p\.updated_at\b/g, 'p."updatedAt"')
       .replace(/p\.deleted_at\b/g, 'p."deletedAt"');
     if (next !== source) {
       fs.writeFileSync(file, next);
