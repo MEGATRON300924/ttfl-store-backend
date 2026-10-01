@@ -17,6 +17,7 @@ export async function createAddress(
     city: string;
     state: string;
     country?: string;
+    digitalPostcode?: string;
     isDefault?: boolean;
   }
 ) {
@@ -47,6 +48,7 @@ export async function updateAddress(
     city: string;
     state: string;
     country: string;
+    digitalPostcode: string;
     isDefault: boolean;
   }>
 ) {
