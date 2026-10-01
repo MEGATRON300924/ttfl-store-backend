@@ -21,6 +21,7 @@ const createSchema = z.object({
   line2: z.string().max(200).optional(),
   city: z.string().min(2).max(80),
   state: z.string().min(2).max(80),
+  digitalPostcode: z.string().trim().min(3).max(32).optional(),
   country: z.string().min(2).max(80).optional(),
   isDefault: z.boolean().optional(),
 });
