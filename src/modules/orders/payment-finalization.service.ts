@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { verifyTransaction } from "@/lib/paystack";
 import { releaseForOrder, consumeForOrder } from "@/modules/flash-deals/flash-deals.service";
-import { recordPurchase } from "@/modules/rewards/rewards.service";
+import { recordPurchase, finalizeReservedPoints, releaseReservedPoints } from "@/modules/rewards/rewards.service";
 import { recordConversionEvent } from "@/modules/ads/ads.service";
 import { sendEmail, orderConfirmationEmail, orderPaymentFailedEmail, vendorNewOrderEmail, adminNewOrderEmail } from "@/lib/email";
 import { sendWhatsAppNotification, newOrderWhatsAppMessage } from "@/lib/whatsapp-notifications";
@@ -25,6 +25,7 @@ export async function verifyAndFinalizePaymentSafely(reference: string) {
 
   if (verification.status !== "success") {
     if (initialOrder.paymentStatus !== "PAID") {
+      await releaseReservedPoints(initialOrder.id);
       await releaseForOrder(initialOrder.id, "FAILED");
       await prisma.$transaction([
         prisma.payment.upsert({
@@ -40,11 +41,11 @@ export async function verifyAndFinalizePaymentSafely(reference: string) {
     throw AppError.badRequest("Payment was not successful", "PAYMENT_FAILED");
   }
 
-  if (verification.currency !== "NGN") throw AppError.badRequest("Payment currency does not match this order", "CURRENCY_MISMATCH");
+  if (verification.currency !== "NGN") { await releaseReservedPoints(initialOrder.id); throw AppError.badRequest("Payment currency does not match this order", "CURRENCY_MISMATCH"); }
 
   const requestedAmountKobo = verification.requested_amount ?? verification.amount;
   const requestedAmountNaira = requestedAmountKobo / 100;
-  if (Math.round(requestedAmountNaira * 100) !== Math.round(Number(initialOrder.totalAmount) * 100)) throw AppError.badRequest("Payment amount does not match order total", "AMOUNT_MISMATCH");
+  if (Math.round(requestedAmountNaira * 100) !== Math.round(Number(initialOrder.totalAmount) * 100)) { await releaseReservedPoints(initialOrder.id); throw AppError.badRequest("Payment amount does not match order total", "AMOUNT_MISMATCH"); }
 
   await prisma.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${reference}))`;
@@ -88,6 +89,8 @@ export async function verifyAndFinalizePaymentSafely(reference: string) {
       return prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { vendorOrders: { include: { items: true } } } });
     }
   }
+
+  await finalizeReservedPoints(order.id);
 
   const metadata = (verification as any)?.metadata;
   const adCampaignId = typeof metadata?.adCampaignId === "string" ? metadata.adCampaignId : undefined;
