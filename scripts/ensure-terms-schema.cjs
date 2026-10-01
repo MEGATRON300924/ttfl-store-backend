@@ -1,10 +1,9 @@
-const { Client } = require("pg");
+const { PrismaClient } = require("@prisma/client");
 
 async function main() {
-  const client = new Client({ connectionString: process.env.DATABASE_URL });
-  await client.connect();
+  const prisma = new PrismaClient();
   try {
-    await client.query(`
+    await prisma.$executeRawUnsafe(`
       ALTER TABLE users
         ADD COLUMN IF NOT EXISTS terms_accepted_version TEXT,
         ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMPTZ,
@@ -12,7 +11,7 @@ async function main() {
     `);
     console.log("Terms acceptance columns are ready.");
   } finally {
-    await client.end();
+    await prisma.$disconnect();
   }
 }
 
