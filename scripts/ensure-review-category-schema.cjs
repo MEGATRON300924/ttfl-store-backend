@@ -1,10 +1,9 @@
-const { Client } = require("pg");
+const { PrismaClient } = require("@prisma/client");
 
 async function main() {
-  const client = new Client({ connectionString: process.env.DATABASE_URL });
-  await client.connect();
+  const prisma = new PrismaClient();
   try {
-    await client.query(`
+    await prisma.$executeRawUnsafe(`
       ALTER TABLE reviews
         ADD COLUMN IF NOT EXISTS delivery_rating TEXT,
         ADD COLUMN IF NOT EXISTS customer_service_rating TEXT,
@@ -12,13 +11,13 @@ async function main() {
         ADD COLUMN IF NOT EXISTS description_accuracy_rating TEXT,
         ADD COLUMN IF NOT EXISTS value_for_money_rating TEXT
     `);
-    await client.query(`
+    await prisma.$executeRawUnsafe(`
       CREATE INDEX IF NOT EXISTS reviews_created_at_status_idx
       ON reviews ("createdAt", status)
     `);
     console.log("Review category columns are ready.");
   } finally {
-    await client.end();
+    await prisma.$disconnect();
   }
 }
 
