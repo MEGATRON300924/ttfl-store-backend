@@ -1,18 +1,16 @@
-const { Client } = require("pg");
+const { execFileSync } = require("node:child_process");
+const path = require("node:path");
 
-async function main() {
-  const client = new Client({ connectionString: process.env.DATABASE_URL });
-  await client.connect();
-  try {
-    await client.query('ALTER TABLE addresses ADD COLUMN IF NOT EXISTS digital_postcode TEXT');
-    await client.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_postcode TEXT');
-    console.log("Digital postcode columns are ready.");
-  } finally {
-    await client.end();
-  }
-}
+const schemaPath = path.join(process.cwd(), "prisma", "schema.prisma");
+const prismaBin = path.join(process.cwd(), "node_modules", ".bin", process.platform === "win32" ? "prisma.cmd" : "prisma");
 
-main().catch((error) => {
-  console.error("Digital postcode schema check failed:", error);
-  process.exitCode = 1;
+const sql = [
+  "ALTER TABLE addresses ADD COLUMN IF NOT EXISTS digital_postcode TEXT;",
+  "ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_postcode TEXT;",
+].join("\n");
+
+execFileSync(prismaBin, ["db", "execute", "--stdin", "--schema", schemaPath], {
+  input: sql,
+  stdio: ["pipe", "inherit", "inherit"],
 });
+console.log("Digital postcode columns are ready.");
