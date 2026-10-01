@@ -247,6 +247,9 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   deletedAt DateTime?
+  termsAcceptedVersion String? @map("terms_accepted_version")
+  termsAcceptedAt DateTime? @map("terms_accepted_at")
+  termsAcceptedIp String? @map("terms_accepted_ip")
   sessions Session[]
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens PasswordResetToken[]
@@ -670,6 +673,11 @@ model Review {
   images String[] @default([])
   status ReviewStatus @default(VISIBLE)
   reportCount Int @default(0)
+  deliveryRating String? @map("delivery_rating")
+  customerServiceRating String? @map("customer_service_rating")
+  productQualityRating String? @map("product_quality_rating")
+  descriptionAccuracyRating String? @map("description_accuracy_rating")
+  valueForMoneyRating String? @map("value_for_money_rating")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@unique([productId, customerId])
