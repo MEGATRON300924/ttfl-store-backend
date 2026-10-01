@@ -148,7 +148,7 @@ export async function getWallet(userId: string) {
   return rows[0];
 }
 
-export async function getHistory(userId: string, limit = 50) { await ensureWallet(userId); await expirePoints(userId); await ensureWelcomeReward(userId); return prisma.$queryRawUnsafe<any[]>(`SELECT id,type,points,description,reference_type AS "referenceType",reference_id AS "referenceId",expires_at AS "expiresAt",created_at AS "createdAt" FROM reward_ledger WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`, userId, Math.min(Math.max(limit, 1), 100)); }
+export async function getHistory(userId: string, limit = 50) { await ensureWallet(userId); await releaseExpiredReservations(userId); await expirePoints(userId); await ensureWelcomeReward(userId); return prisma.$queryRawUnsafe<any[]>(`SELECT id,type,points,description,reference_type AS "referenceType",reference_id AS "referenceId",expires_at AS "expiresAt",created_at AS "createdAt" FROM reward_ledger WHERE user_id=$1 ORDER BY created_at DESC LIMIT $2`, userId, Math.min(Math.max(limit, 1), 100)); }
 
 async function award(userId: string, points: number, type: string, description: string, referenceType?: string, referenceId?: string, idempotencyKey?: string) {
   if (points <= 0) return false; await ensureWallet(userId); const days = await settingNumber("expirationDays", DEFAULTS.expirationDays);
