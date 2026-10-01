@@ -110,7 +110,7 @@ async function getStoreReviewHealth(vendorId: string) {
     valueForMoneyBad: bigint;
   }>>(
     `SELECT
-       COUNT(*) FILTER (WHERE r."createdAt" >= $2 AND r.status = 'VISIBLE') AS "recentReviews",
+       COUNT(*) FILTER (WHERE r."createdAt" >= $2 AND r.status = 'VISIBLE') AS "recentReviews", (SELECT COUNT(*) FROM vendor_orders vo WHERE vo.vendor_id=$1 AND vo."createdAt">=$2) AS "recentOrders", (SELECT COUNT(*) FROM vendor_orders vo WHERE vo.vendor_id=$1 AND vo."createdAt">=$2 AND vo.status IN ('CANCELLED','FAILED','REFUNDED')) AS "problemOrders",
        COUNT(*) FILTER (
          WHERE r."createdAt" >= $2
            AND r.status = 'VISIBLE'
@@ -142,6 +142,8 @@ async function getStoreReviewHealth(vendorId: string) {
   return {
     windowDays: BAD_REVIEW_DAYS,
     recentReviews: Number(row?.recentReviews ?? 0),
+    recentOrders: Number(row?.recentOrders ?? 0),
+    problemOrders: Number(row?.problemOrders ?? 0),
     badReviews,
     caution: badReviews >= BAD_REVIEW_THRESHOLD,
     threshold: BAD_REVIEW_THRESHOLD,
