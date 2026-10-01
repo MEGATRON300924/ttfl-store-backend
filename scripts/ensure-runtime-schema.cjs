@@ -9,6 +9,7 @@ const checks = [
   "ensure-digital-postcode-schema.cjs",
   "ensure-store-reports-schema.cjs",
   "ensure-review-category-schema.cjs",
+  "ensure-terms-schema.cjs",
   "ensure-waitlist-schema.cjs",
   "ensure-partner-events-schema.cjs",
   "ensure-error-logs-schema.cjs",
