@@ -54,6 +54,7 @@ export const env = {
   maxAi: {
     eventWebhookUrl: process.env.MAX_AI_EVENT_WEBHOOK_URL,
     eventWebhookSecret: process.env.MAX_AI_EVENT_WEBHOOK_SECRET,
+    analyticsApiKey: process.env.MAX_AI_ANALYTICS_API_KEY,
   },
   whatsapp: {
     apiToken: process.env.WHATSAPP_API_TOKEN,
