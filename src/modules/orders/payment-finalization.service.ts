@@ -100,7 +100,6 @@ export async function verifyAndFinalizePaymentSafely(reference: string) {
   // more than once. Only the first successful finalization sends transactional
   // emails/rewards/WhatsApp so customers never receive duplicate confirmations.
   if (!paymentWasAlreadyPaid) {
-    await finalizeReservedPoints(order.id);
     const customer = await prisma.user.findUnique({ where: { id: order.customerId } });
     if (customer) {
       void sendEmail({ to: customer.email, ...orderConfirmationEmail(order.orderNumber) });
