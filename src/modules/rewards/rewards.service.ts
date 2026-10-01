@@ -31,6 +31,17 @@ async function settingNumber(key: string, fallback: number) {
 }
 
 export async function getAppDownloadPoints() { return settingNumber("appDownloadPoints", DEFAULTS.appDownloadPoints); }
+export async function ensureRewardsReady() { await ensureRewardsSchema(); }
+export async function claimAppDownload(userId: string, platform: "ANDROID" | "IOS") {
+  await ensureWallet(userId);
+  const existing = await prisma.$queryRawUnsafe<{ id: string }[]>(
+    `SELECT id FROM reward_ledger WHERE user_id=$1 AND type='APP_DOWNLOAD' LIMIT 1`, userId
+  );
+  if (existing.length) return { claimed: false, points: 0 };
+  const points = await getAppDownloadPoints();
+  const claimed = await award(userId, points, "APP_DOWNLOAD", `TTFL Store app download reward (${platform})`, "USER", userId, `app-download:${userId}`);
+  return { claimed, points: claimed ? points : 0 };
+}
 
 let rewardsSchemaReady: Promise<void> | null = null;
 async function ensureRewardsSchema() {
