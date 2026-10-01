@@ -6,6 +6,7 @@ const path = require("node:path");
 // instead of causing Render to crash-loop the service.
 const checks = [
   "ensure-coming-soon-schema.cjs",
+  "ensure-digital-postcode-schema.cjs",
   "ensure-waitlist-schema.cjs",
   "ensure-partner-events-schema.cjs",
   "ensure-error-logs-schema.cjs",
