@@ -55,6 +55,7 @@ export async function checkout(customerId: string, customerEmail: string, input:
   if (input.couponCode) { const result = await validateCoupon(input.couponCode, customerId, couponLines); discountAmount = result.discountAmount; couponId = result.coupon.id; couponCode = result.coupon.code; couponEligibleBase = result.eligibleBase; const coupon = await prisma.coupon.findUniqueOrThrow({ where: { id: couponId } }); couponVendorId = coupon.vendorId; couponCategoryId = coupon.categoryId; }
 
   const rewardPointsRequested = Math.max(0, Math.floor(input.rewardPoints ?? 0));
+  await (await import("@/modules/rewards/rewards.service")).ensureRewardsReady();
   const rewardMaxPercent = await (async()=>{ const rows=await prisma.$queryRawUnsafe<{value:string}[]>(`SELECT value FROM reward_settings WHERE key='maxOrderRedemptionPercent' LIMIT 1`); const value=Number(rows[0]?.value); return Number.isFinite(value)?Math.max(0,value):20; })();
   const rewardEligibleBase = Math.max(0, subtotalAmount - discountAmount);
   const rewardMaxByOrder = Math.floor(rewardEligibleBase * rewardMaxPercent / 100);
