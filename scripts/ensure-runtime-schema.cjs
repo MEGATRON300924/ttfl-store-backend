@@ -23,15 +23,37 @@ const checks = [
 let failures = 0;
 for (const script of checks) {
   console.log("Running runtime schema check: " + script);
-  const result = spawnSync(process.execPath, [path.join(__dirname, script)], {
-    cwd: process.cwd(),
-    env: process.env,
-    stdio: "inherit",
-  });
+  let result;
+  let succeeded = false;
 
-  if (result.status !== 0) {
+  // Neon can briefly close an idle/startup connection. Retry schema checks so
+  // a transient database connection does not leave the production schema
+  // partially upgraded (which can break otherwise healthy API requests).
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    result = spawnSync(process.execPath, [path.join(__dirname, script)], {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: "inherit",
+    });
+
+    if (result.status === 0) {
+      succeeded = true;
+      break;
+    }
+
+    if (attempt < 3) {
+      const delayMs = attempt * 1500;
+      console.warn(
+        "Runtime schema check failed for " + script +
+        " (attempt " + attempt + "/3). Retrying in " + delayMs + "ms..."
+      );
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+    }
+  }
+
+  if (!succeeded) {
     failures += 1;
-    console.warn("Runtime schema check skipped after failure: " + script);
+    console.warn("Runtime schema check skipped after retries: " + script);
   }
 }
 
