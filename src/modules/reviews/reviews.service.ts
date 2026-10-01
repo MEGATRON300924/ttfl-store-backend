@@ -102,6 +102,8 @@ async function getStoreReviewHealth(vendorId: string) {
   const cutoff = new Date(Date.now() - BAD_REVIEW_DAYS * 24 * 60 * 60 * 1000);
   const rows = await prisma.$queryRawUnsafe<Array<{
     recentReviews: bigint;
+    recentOrders: bigint;
+    problemOrders: bigint;
     badReviews: bigint;
     deliveryBad: bigint;
     customerServiceBad: bigint;
