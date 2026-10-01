@@ -33,7 +33,6 @@ async function settingNumber(key: string, fallback: number) {
 export async function getAppDownloadPoints() { return settingNumber("appDownloadPoints", DEFAULTS.appDownloadPoints); }
 
 export async function ensureRewardsReady() { await ensureRewardsSchema(); }
-export async function ensureRewardsReady() { await ensureRewardsSchema(); }
 export async function claimAppDownload(userId: string, platform: "ANDROID" | "IOS") {
   await ensureWallet(userId);
   const existing = await prisma.$queryRawUnsafe<{ id: string }[]>(
