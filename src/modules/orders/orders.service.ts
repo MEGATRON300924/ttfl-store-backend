@@ -86,7 +86,7 @@ export async function checkout(customerId: string, customerEmail: string, input:
   if (couponId) await recordRedemption(couponId, customerId, order.id, discountAmount);
   const splitCode = await createOrderSplitCode(order);
   let paystack;
-  try { paystack = await initializeTransaction({ email: customerEmail, amountNaira: totalAmount, reference: paymentReference, callbackUrl: `${env.appUrl}/orders/${order.orderNumber}/confirm`, metadata: { orderId: order.id, orderNumber: order.orderNumber, ...(input.adCampaignId ? { adCampaignId: input.adCampaignId } : {}) }, splitCode }); } catch (error) { await releaseForOrder(order.id, "RELEASED"); throw error; }
+  try { paystack = await initializeTransaction({ email: customerEmail, amountNaira: totalAmount, reference: paymentReference, callbackUrl: `${env.appUrl}/orders/${order.orderNumber}/confirm`, metadata: { orderId: order.id, orderNumber: order.orderNumber, ...(input.adCampaignId ? { adCampaignId: input.adCampaignId } : {}) }, splitCode }); } catch (error) { await releaseForOrder(order.id, "RELEASED"); await releaseReservedPoints(order.id); throw error; }
   if (input.adCampaignId) void recordConversionEvent(input.adCampaignId, "PURCHASE", { stage: "CHECKOUT_START", orderId: order.id }).catch(() => undefined);
   void createNotification(customerId,{title:"Order placed",body:`Order ${order.orderNumber} is ready for payment.`,type:"ORDER",url:`/orders/${order.orderNumber}`}).catch(()=>undefined);
   return { order, checkoutUrl: paystack.authorization_url };
