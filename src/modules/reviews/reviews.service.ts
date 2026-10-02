@@ -199,7 +199,9 @@ export async function getEligibleStoreReviews(storeSlug: string, customerId: str
     where: { storeSlug },
     select: { id: true, storeName: true, storeSlug: true, status: true },
   });
-  if (!vendor || vendor.status !== "APPROVED") throw AppError.notFound("Store not found");
+  if (!vendor || vendor.status !== "APPROVED") {
+    throw AppError.notFound("Store not found");
+  }
 
   const vendorOrders = await prisma.vendorOrder.findMany({
     where: {
@@ -208,37 +210,70 @@ export async function getEligibleStoreReviews(storeSlug: string, customerId: str
       order: { customerId, paymentStatus: "PAID" },
     },
     include: {
-      order: { select: { orderNumber: true, createdAt: true } },
-      items: {
-        include: {
-          product: { select: { id: true, name: true, slug: true, images: { orderBy: { position: "asc" }, take: 1, select: { url: true } } } },
-        },
-      },
+      order: { select: { orderNumber: true } },
+      items: true,
     },
     orderBy: { createdAt: "desc" },
   });
 
-  const productIds = vendorOrders.flatMap((vendorOrder) => vendorOrder.items.map((item) => item.productId));
-  const existingReviews = productIds.length
-    ? await prisma.review.findMany({ where: { customerId, productId: { in: productIds } }, select: { productId: true } })
-    : [];
-  const reviewedProductIds = new Set(existingReviews.map((review) => review.productId));
-
-  return vendorOrders.flatMap((vendorOrder) =>
-    vendorOrder.items
-      .filter((item) => !reviewedProductIds.has(item.productId))
-      .map((item) => ({
-        orderItemId: item.id,
-        orderNumber: vendorOrder.order.orderNumber,
-        deliveredAt: vendorOrder.updatedAt,
-        product: {
-          id: item.product.id,
-          name: item.product.name,
-          slug: item.product.slug,
-          image: item.product.images[0]?.url ?? null,
-        },
-      })),
+  const orderItems = vendorOrders.flatMap((vendorOrder) =>
+    vendorOrder.items.map((item) => ({
+      item,
+      orderNumber: vendorOrder.order.orderNumber,
+      deliveredAt: vendorOrder.updatedAt,
+    })),
   );
+
+  if (orderItems.length === 0) return [];
+
+  const productIds = [...new Set(orderItems.map(({ item }) => item.productId))];
+
+  const [products, existingReviews] = await Promise.all([
+    prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        images: {
+          orderBy: { position: "asc" },
+          take: 1,
+          select: { url: true },
+        },
+      },
+    }),
+    prisma.review.findMany({
+      where: {
+        customerId,
+        productId: { in: productIds },
+      },
+      select: { productId: true },
+    }),
+  ]);
+
+  const productMap = new Map(products.map((product) => [product.id, product]));
+  const reviewedProductIds = new Set(
+    existingReviews.map((review) => review.productId),
+  );
+
+  return orderItems.flatMap(({ item, orderNumber, deliveredAt }) => {
+    if (reviewedProductIds.has(item.productId)) return [];
+
+    const product = productMap.get(item.productId);
+    if (!product) return [];
+
+    return [{
+      orderItemId: item.id,
+      orderNumber,
+      deliveredAt,
+      product: {
+        id: product.id,
+        name: product.name,
+        slug: product.slug,
+        image: product.images[0]?.url ?? null,
+      },
+    }];
+  });
 }
 
 export async function reportReview(reviewId: string) {
