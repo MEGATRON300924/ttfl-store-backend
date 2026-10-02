@@ -13,6 +13,7 @@ const checks = [
   "ensure-store-hours-schema.cjs",
   "ensure-waitlist-schema.cjs",
   "ensure-partner-events-schema.cjs",
+  "ensure-sound-category.cjs",
   "ensure-error-logs-schema.cjs",
   "ensure-order-item-vendor-column.cjs",
   "ensure-order-item-variation-columns.cjs",
