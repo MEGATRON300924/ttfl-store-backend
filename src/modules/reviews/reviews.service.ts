@@ -193,6 +193,54 @@ export async function getStoreReviews(storeSlug: string, page: number, limit: nu
   };
 }
 
+
+export async function getEligibleStoreReviews(storeSlug: string, customerId: string) {
+  const vendor = await prisma.vendorProfile.findUnique({
+    where: { storeSlug },
+    select: { id: true, storeName: true, storeSlug: true, status: true },
+  });
+  if (!vendor || vendor.status !== "APPROVED") throw AppError.notFound("Store not found");
+
+  const vendorOrders = await prisma.vendorOrder.findMany({
+    where: {
+      vendorId: vendor.id,
+      status: "DELIVERED",
+      order: { customerId, paymentStatus: "PAID" },
+    },
+    include: {
+      order: { select: { orderNumber: true, createdAt: true } },
+      items: {
+        include: {
+          product: { select: { id: true, name: true, slug: true, images: { orderBy: { position: "asc" }, take: 1, select: { url: true } } } },
+        },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const productIds = vendorOrders.flatMap((vendorOrder) => vendorOrder.items.map((item) => item.productId));
+  const existingReviews = productIds.length
+    ? await prisma.review.findMany({ where: { customerId, productId: { in: productIds } }, select: { productId: true } })
+    : [];
+  const reviewedProductIds = new Set(existingReviews.map((review) => review.productId));
+
+  return vendorOrders.flatMap((vendorOrder) =>
+    vendorOrder.items
+      .filter((item) => !reviewedProductIds.has(item.productId))
+      .map((item) => ({
+        orderItemId: item.id,
+        orderNumber: vendorOrder.order.orderNumber,
+        deliveredAt: vendorOrder.updatedAt,
+        product: {
+          id: item.product.id,
+          name: item.product.name,
+          slug: item.product.slug,
+          image: item.product.images[0]?.url ?? null,
+        },
+      })),
+  );
+}
+
 export async function reportReview(reviewId: string) {
   const review = await prisma.review.findUnique({ where: { id: reviewId } });
   if (!review) throw AppError.notFound("Review not found", "REVIEW_NOT_FOUND");
