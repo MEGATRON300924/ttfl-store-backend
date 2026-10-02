@@ -20,6 +20,11 @@ reviewsRouter.get("/store/:storeSlug", asyncHandler(async (req, res) => {
   res.json(result);
 }));
 
+reviewsRouter.get("/store/:storeSlug/eligible", requireAuth, requireRole("CUSTOMER"), asyncHandler(async (req, res) => {
+  const items = await reviewsService.getEligibleStoreReviews(req.params.storeSlug, req.user!.sub);
+  res.json({ items });
+}));
+
 const createSchema = z.object({
   productId: z.string().uuid(),
   orderItemId: z.string().uuid(),
@@ -44,7 +49,7 @@ reviewsRouter.post("/:id/report", requireAuth, asyncHandler(async (req, res) => 
   res.json({ review });
 }));
 
-reviewsRouter.get("/admin/reported", requireAuth, requireRole("ADMIN"), asyncHandler(async (_req, res) => {
+reviewsRouter.get("/admin/reported", requireAuth, requireRole("ADMIN"), asyncHandler(async (req, res) => {
   const reviews = await reviewsService.adminListReported();
   res.json({ reviews });
 }));
