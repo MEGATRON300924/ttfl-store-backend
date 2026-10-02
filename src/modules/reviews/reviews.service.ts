@@ -100,61 +100,64 @@ export async function getProductReviews(productId: string, page: number, limit: 
 
 async function getStoreReviewHealth(vendorId: string) {
   const cutoff = new Date(Date.now() - BAD_REVIEW_DAYS * 24 * 60 * 60 * 1000);
-  const rows = await prisma.$queryRawUnsafe<Array<{
-    recentReviews: bigint;
-    recentOrders: bigint;
-    problemOrders: bigint;
-    badReviews: bigint;
-    deliveryBad: bigint;
-    customerServiceBad: bigint;
-    productQualityBad: bigint;
-    descriptionAccuracyBad: bigint;
-    valueForMoneyBad: bigint;
-  }>>(
-    `SELECT
-       COUNT(*) FILTER (WHERE r."createdAt" >= $2 AND r.status = 'VISIBLE') AS "recentReviews", (SELECT COUNT(*) FROM vendor_orders vo WHERE vo.vendor_id=$1 AND vo."createdAt">=$2) AS "recentOrders", (SELECT COUNT(*) FROM vendor_orders vo WHERE vo.vendor_id=$1 AND vo."createdAt">=$2 AND vo.status IN ('CANCELLED','FAILED','REFUNDED')) AS "problemOrders",
-       COUNT(*) FILTER (
-         WHERE r."createdAt" >= $2
-           AND r.status = 'VISIBLE'
-           AND (
-             r.rating <= 2
-             OR (
-               (CASE WHEN r.delivery_rating = 'BAD' THEN 1 ELSE 0 END) +
-               (CASE WHEN r.customer_service_rating = 'BAD' THEN 1 ELSE 0 END) +
-               (CASE WHEN r.product_quality_rating = 'BAD' THEN 1 ELSE 0 END) +
-               (CASE WHEN r.description_accuracy_rating = 'BAD' THEN 1 ELSE 0 END) +
-               (CASE WHEN r.value_for_money_rating = 'BAD' THEN 1 ELSE 0 END)
-             ) >= 2
-           )
-       ) AS "badReviews",
-       COUNT(*) FILTER (WHERE r."createdAt" >= $2 AND r.status = 'VISIBLE' AND r.delivery_rating = 'BAD') AS "deliveryBad",
-       COUNT(*) FILTER (WHERE r."createdAt" >= $2 AND r.status = 'VISIBLE' AND r.customer_service_rating = 'BAD') AS "customerServiceBad",
-       COUNT(*) FILTER (WHERE r."createdAt" >= $2 AND r.status = 'VISIBLE' AND r.product_quality_rating = 'BAD') AS "productQualityBad",
-       COUNT(*) FILTER (WHERE r."createdAt" >= $2 AND r.status = 'VISIBLE' AND r.description_accuracy_rating = 'BAD') AS "descriptionAccuracyBad",
-       COUNT(*) FILTER (WHERE r."createdAt" >= $2 AND r.status = 'VISIBLE' AND r.value_for_money_rating = 'BAD') AS "valueForMoneyBad"
-     FROM reviews r
-     INNER JOIN products p ON p.id = r."productId"
-     WHERE p.vendor_id = $1`,
-    vendorId,
-    cutoff,
-  );
 
-  const row = rows[0];
-  const badReviews = Number(row?.badReviews ?? 0);
+  const [recentReviews, recentOrders, problemOrders] = await Promise.all([
+    prisma.review.findMany({
+      where: {
+        createdAt: { gte: cutoff },
+        status: "VISIBLE",
+        product: { vendorId },
+      },
+      select: {
+        rating: true,
+        deliveryRating: true,
+        customerServiceRating: true,
+        productQualityRating: true,
+        descriptionAccuracyRating: true,
+        valueForMoneyRating: true,
+      },
+    }),
+    prisma.vendorOrder.count({
+      where: {
+        vendorId,
+        createdAt: { gte: cutoff },
+      },
+    }),
+    prisma.vendorOrder.count({
+      where: {
+        vendorId,
+        createdAt: { gte: cutoff },
+        status: { in: ["CANCELLED", "FAILED", "REFUNDED"] },
+      },
+    }),
+  ]);
+
+  const badReviews = recentReviews.filter((review) => {
+    const badCategoryCount = [
+      review.deliveryRating,
+      review.customerServiceRating,
+      review.productQualityRating,
+      review.descriptionAccuracyRating,
+      review.valueForMoneyRating,
+    ].filter((rating) => rating === "BAD").length;
+
+    return review.rating <= 2 || badCategoryCount >= 2;
+  }).length;
+
   return {
     windowDays: BAD_REVIEW_DAYS,
-    recentReviews: Number(row?.recentReviews ?? 0),
-    recentOrders: Number(row?.recentOrders ?? 0),
-    problemOrders: Number(row?.problemOrders ?? 0),
+    recentReviews: recentReviews.length,
+    recentOrders,
+    problemOrders,
     badReviews,
     caution: badReviews >= BAD_REVIEW_THRESHOLD,
     threshold: BAD_REVIEW_THRESHOLD,
     categories: {
-      delivery: Number(row?.deliveryBad ?? 0),
-      customerService: Number(row?.customerServiceBad ?? 0),
-      productQuality: Number(row?.productQualityBad ?? 0),
-      descriptionAccuracy: Number(row?.descriptionAccuracyBad ?? 0),
-      valueForMoney: Number(row?.valueForMoneyBad ?? 0),
+      delivery: recentReviews.filter((review) => review.deliveryRating === "BAD").length,
+      customerService: recentReviews.filter((review) => review.customerServiceRating === "BAD").length,
+      productQuality: recentReviews.filter((review) => review.productQualityRating === "BAD").length,
+      descriptionAccuracy: recentReviews.filter((review) => review.descriptionAccuracyRating === "BAD").length,
+      valueForMoney: recentReviews.filter((review) => review.valueForMoneyRating === "BAD").length,
     },
   };
 }
