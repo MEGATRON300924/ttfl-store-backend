@@ -20,7 +20,7 @@ analyticsRouter.get("/vendor/traffic-sources", requireAuth, requireRole("VENDOR"
 analyticsRouter.get("/max-ai/store/:storeId", asyncHandler(async (req, res) => {
   const storeId = req.params.storeId;
   const apiKey = typeof req.headers.authorization === "string" && req.headers.authorization.startsWith("Bearer ") ? req.headers.authorization.slice(7) : "";
-  const authenticatedVendor = req.user?.role === "VENDOR" ? await getVendorProfileForUser(req.user.sub).catch(() => null) : null;
+  const authenticatedVendor = req.user ? await getVendorProfileForUser(req.user.sub).catch(() => null) : null;
   if (authenticatedVendor) {
     if (authenticatedVendor.id !== storeId) throw AppError.forbidden("You can only view analytics for your own store");
   } else if (!env.maxAi.analyticsApiKey || apiKey !== env.maxAi.analyticsApiKey) {
