@@ -383,7 +383,7 @@ model Category {
 
 model Product {
   id String @id @default(uuid())
-  vendorId String
+  vendorId String @map("vendor_id")
   vendor VendorProfile @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   categoryId String
   category Category @relation(fields: [categoryId], references: [id])
@@ -424,11 +424,11 @@ model Product {
 
 model ProductImage {
   id String @id @default(uuid())
-  productId String
+  productId String @map("product_id")
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
   url String
   position Int @default(0)
-  isPrimary Boolean @default(false)
+  isPrimary Boolean @default(false) @map("is_primary")
   createdAt DateTime @default(now())
   @@index([productId])
   @@map("product_images")
