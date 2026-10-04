@@ -504,7 +504,7 @@ model Order {
 
 model VendorOrder {
   id String @id @default(uuid())
-  orderId String
+  orderId String @map("order_id")
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
   vendorId String
   vendor VendorProfile @relation(fields: [vendorId], references: [id])
@@ -547,7 +547,7 @@ model OrderItem {
 
 model Payment {
   id String @id @default(uuid())
-  orderId String
+  orderId String @map("order_id")
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
   reference String @unique
   amount Decimal @db.Decimal(12, 2)
@@ -727,7 +727,7 @@ model CouponRedemption {
   couponId String
   coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
   userId String
-  orderId String @unique
+  orderId String @unique @map("order_id")
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
   discountAmount Decimal @db.Decimal(12, 2)
   createdAt DateTime @default(now())
