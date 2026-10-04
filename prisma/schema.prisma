@@ -532,7 +532,7 @@ model VendorOrder {
 
 model OrderItem {
   id String @id @default(uuid())
-  vendorOrderId String
+  vendorOrderId String @map("vendor_order_id")
   vendorOrder VendorOrder @relation(fields: [vendorOrderId], references: [id], onDelete: Cascade)
   productId String
   productName String
