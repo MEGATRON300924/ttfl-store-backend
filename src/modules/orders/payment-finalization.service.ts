@@ -112,6 +112,7 @@ export async function verifyAndFinalizePaymentSafely(reference: string) {
       if (vendor) {
         const itemCount = vo.items.reduce((sum, item) => sum + item.quantity, 0);
         void sendEmail({ to: vendor.user.email, ...vendorNewOrderEmail(order.orderNumber, itemCount) });
+        void createNotification(vendor.user.id, { title: "New order", body: `You received order ${order.orderNumber} with ${itemCount} item(s).`, type: "ORDER", url: "/vendor/dashboard/orders", data: { type: "order.new", orderNumber: order.orderNumber } }).catch((error) => logger.warn("Failed to create vendor order notification", { orderId: order.id, vendorId: vendor.id, error }));
       }
     }
     if (env.adminNotificationEmail) void sendEmail({ to: env.adminNotificationEmail, ...adminNewOrderEmail(order.orderNumber, Number(order.totalAmount)) });
