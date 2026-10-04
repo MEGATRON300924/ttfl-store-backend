@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { AppError } from "@/utils/app-error";
 import { getVendorProfileForUser } from "@/lib/vendor-access";
 import { env } from "@/config/env";
+import { sendEmail, orderTrackingCheckpointEmail } from "@/lib/email";
+import { createNotification } from "@/modules/notifications/notifications.service";
+import { logger } from "@/lib/logger";
 
 export const CHECKPOINTS = [
   { checkpoint: 1, title: "Order confirmed" },
@@ -99,6 +102,47 @@ export async function updateCheckpoint(userId: string, vendorOrderId: string, ch
   const definition = CHECKPOINTS.find((item) => item.checkpoint === checkpoint); if (!definition) throw AppError.badRequest("Checkpoint must be between 1 and 5", "INVALID_CHECKPOINT"); const vendor = await getVendorProfileForUser(userId);
   const order = await prisma.vendorOrder.findUnique({ where: { id: vendorOrderId }, include: { trackingEvents: true } }); if (!order || order.vendorId !== vendor.id) throw AppError.notFound("Order not found"); if (order.status === "CANCELLED" || order.status === "DELIVERED") throw AppError.badRequest("A cancelled or delivered order cannot have its tracking changed", "TRACKING_LOCKED");
   if (checkpoint === 5 && !description?.trim() && !trackingUrl?.trim() && !riderName?.trim() && !riderPhone?.trim()) throw AppError.badRequest("Add rider details or a tracking link for the delivery checkpoint", "DELIVERY_DETAILS_REQUIRED");
+  const existingEvent = order.trackingEvents.find((existing) => existing.checkpoint === checkpoint);
   const event = await prisma.trackingEvent.upsert({ where: { vendorOrderId_checkpoint: { vendorOrderId, checkpoint } }, create: { vendorOrderId, checkpoint, title: definition.title, description: description?.trim() || null, avatar: avatar || "package", trackingUrl: trackingUrl?.trim() || null, riderName: riderName?.trim() || null, riderPhone: riderPhone?.trim() || null }, update: { description: description?.trim() || null, avatar: avatar || "package", trackingUrl: trackingUrl?.trim() || null, riderName: riderName?.trim() || null, riderPhone: riderPhone?.trim() || null } });
-  const highestCheckpoint = Math.max(checkpoint, ...order.trackingEvents.map((existing) => existing.checkpoint)); const updated = await prisma.vendorOrder.update({ where: { id: vendorOrderId }, data: { status: checkpointToStatus(highestCheckpoint) }, include: { trackingEvents: { orderBy: { checkpoint: "asc" } } } }); return { order: updated, event };
+  const highestCheckpoint = Math.max(checkpoint, ...order.trackingEvents.map((existing) => existing.checkpoint));
+  const updated = await prisma.vendorOrder.update({ where: { id: vendorOrderId }, data: { status: checkpointToStatus(highestCheckpoint) }, include: { trackingEvents: { orderBy: { checkpoint: "asc" } } } });
+
+  if (!existingEvent) {
+    const parentOrder = await prisma.order.findUnique({
+      where: { id: order.orderId },
+      select: { orderNumber: true, customerId: true }
+    });
+    if (parentOrder) {
+      const customer = await prisma.user.findUnique({ where: { id: parentOrder.customerId }, select: { email: true } });
+      if (customer) {
+        void sendEmail({
+          to: customer.email,
+          ...orderTrackingCheckpointEmail(parentOrder.orderNumber, checkpoint as 1 | 2 | 3 | 4 | 5, description)
+        }).catch((error) => logger.warn("Failed to send order checkpoint email", {
+          orderId: order.orderId,
+          vendorOrderId,
+          checkpoint,
+          error
+        }));
+      }
+      void createNotification(parentOrder.customerId, {
+        title: definition.title,
+        body: description?.trim() || definition.title,
+        type: "ORDER",
+        url: `/orders/${encodeURIComponent(parentOrder.orderNumber)}`,
+        data: {
+          type: `order.checkpoint_${checkpoint}`,
+          orderNumber: parentOrder.orderNumber,
+          checkpoint
+        }
+      }).catch((error) => logger.warn("Failed to create checkpoint notification", {
+        orderId: order.orderId,
+        vendorOrderId,
+        checkpoint,
+        error
+      }));
+    }
+  }
+
+  return { order: updated, event };
 }
