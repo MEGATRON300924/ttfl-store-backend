@@ -30,6 +30,7 @@ async function main() {
   const prisma = new PrismaClient();
   try {
     await renameIfNeeded(prisma, "product_images", "product_id", ["productId", "productid"]);
+  await renameIfNeeded(prisma, "product_images", "is_primary", ["isPrimary", "isprimary"]);
   } finally {
     await prisma.$disconnect();
   }
