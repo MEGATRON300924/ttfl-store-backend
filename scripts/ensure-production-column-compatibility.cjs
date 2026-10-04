@@ -21,6 +21,26 @@ function mapProductVendorId() {
   }
 }
 
+function mapProductImageColumns() {
+  let schema = fs.readFileSync(schemaPath, "utf8");
+  const start = schema.indexOf("model ProductImage {");
+  if (start < 0) throw new Error("ProductImage model not found in Prisma schema");
+  const end = schema.indexOf("\n}", start);
+  const block = schema.slice(start, end);
+  const mappings = [
+    ["productId", "product_id"],
+    ["isPrimary", "is_primary"],
+  ];
+  for (const [field, column] of mappings) {
+    const match = block.match(new RegExp("^\\s*" + field + "\\s+[^\\n]*$", "m"));
+    if (!match || match[0].includes("@map(")) continue;
+    const replacement = `${match[0]} @map("${column}")`;
+    schema = schema.slice(0, start + match.index) + replacement + schema.slice(start + match.index + match[0].length);
+  }
+  fs.writeFileSync(schemaPath, schema);
+  console.log("Mapped Prisma ProductImage columns to production names.");
+}
+
 function patchProductRawSql() {
   const files = [];
   function walk(dir) {
@@ -118,6 +138,7 @@ function normalizeProductValidatorTags() {
 }
 
 mapProductVendorId();
+mapProductImageColumns();
 patchProductRawSql();
 patchVendorProfileRawSql();
 normalizeProductValidatorTags();
