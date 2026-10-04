@@ -40,6 +40,26 @@ export function vendorApplicationReceivedEmail(storeName: string) { return { sub
 export function orderConfirmationEmail(orderNumber: string) { return { subject: `Order ${orderNumber} confirmed`, html: renderEmailLayout({ heading: "Order confirmed", previewText: `We've received your payment for ${orderNumber}.`, bodyHtml: `<p>Thanks for your order! We've received your payment for <strong>${escapeHtml(orderNumber)}</strong>. The vendor(s) have been notified and will begin processing shortly.</p>` }), event: "order_confirmation" }; }
 export function orderPaymentFailedEmail(orderNumber: string) { return { subject: `Payment failed for order ${orderNumber}`, html: renderEmailLayout({ heading: "Payment wasn't completed", previewText: `We couldn't confirm payment for ${orderNumber}.`, bodyHtml: `<p>We couldn't confirm the payment for <strong>${escapeHtml(orderNumber)}</strong>.</p><p>Your order was not marked as paid. If money was deducted from your account, please wait for the payment provider to reverse or settle it before trying again.</p>` }), event: "order_payment_failed" }; }
 export function orderStatusUpdateEmail(orderNumber: string, status: "PROCESSING" | "SHIPPED" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED") { const copy = { PROCESSING: ["Your order is being processed", "The vendor has started processing your order."], SHIPPED: ["Your order has shipped", "Your order has been handed over for delivery."], OUT_FOR_DELIVERY: ["Your order is out for delivery", "Your order is on the way to you now."], DELIVERED: ["Your order has been delivered", "Your order has been marked as delivered."], CANCELLED: ["Your order was cancelled", "Your order has been cancelled by the vendor." ] }[status]; return { subject: `${copy[0]} — ${orderNumber}`, html: renderEmailLayout({ heading: copy[0], previewText: `${copy[1]} (${orderNumber})`, bodyHtml: `<p>${escapeHtml(copy[1])}</p><p><strong>Order:</strong> ${escapeHtml(orderNumber)}</p>` }), event: `order_${status.toLowerCase()}` }; }
+export function orderTrackingCheckpointEmail(orderNumber: string, checkpoint: 1 | 2 | 3 | 4 | 5, description?: string) {
+  const copy = {
+    1: ["Order confirmed", "Your order has been confirmed and is now being prepared."],
+    2: ["Your order is being packaged", "Your order is now being packaged by the vendor."],
+    3: ["Your order is being shipped", "Your package has been handed over for shipping."],
+    4: ["Your order reached the destination country", "Your shipment has arrived in the destination country and is moving through the next stage of delivery."],
+    5: ["Your order is out for delivery", "Your order is with the delivery team and is on the way to you."]
+  }[checkpoint];
+  const note = description?.trim() ? `<p><strong>Vendor update:</strong> ${escapeHtml(description.trim())}</p>` : "";
+  return {
+    subject: `${copy[0]} — ${orderNumber}`,
+    html: renderEmailLayout({
+      heading: copy[0],
+      previewText: `${copy[1]} (${orderNumber})`,
+      bodyHtml: `<p>${escapeHtml(copy[1])}</p><p><strong>Order:</strong> ${escapeHtml(orderNumber)}</p>${note}`
+    }),
+    event: `order_checkpoint_${checkpoint}`
+  };
+}
+
 export function vendorNewOrderEmail(orderNumber: string, itemCount: number) { return { subject: `New order — ${orderNumber}`, html: renderEmailLayout({ heading: "New order", bodyHtml: `<p>You have a new order (<strong>${escapeHtml(orderNumber)}</strong>) with ${itemCount} item(s). Log in to your vendor dashboard to process it.</p>` }), event: "vendor_new_order" }; }
 export function vendorFirstProductEmail(storeName: string, productName: string, productUrl: string) { return { subject: "🎉 Your first product is live on TTFL Store", html: renderEmailLayout({ heading: "Your first product is live!", previewText: "Congratulations — your store is officially open for business.", bodyHtml: `<p>Congratulations! <strong>${escapeHtml(productName)}</strong> is now live on TTFL Store.</p><p>Your store <strong>${escapeHtml(storeName)}</strong> is officially open for customers. This is your first live product — now let's get your next one listed.</p>`, ctaText: "View product", ctaUrl: productUrl }), event: "vendor_first_product" }; }
 export function vendorFirstOrderEmail(orderNumber: string, itemCount: number, amount: number) { return { subject: "🎉 Congratulations on your first TTFL Store order", html: renderEmailLayout({ heading: "Your first order!", previewText: "Congratulations — you received your first order on TTFL Store.", bodyHtml: `<p>Congratulations! Your store has received its first order on TTFL Store.</p><p><strong>Order:</strong> ${escapeHtml(orderNumber)}<br><strong>Items:</strong> ${itemCount}<br><strong>Order value:</strong> ₦${amount.toLocaleString()}</p><p>Log in to your vendor dashboard to review and fulfill the order.</p>`, ctaText: "View orders", ctaUrl: `${process.env.APP_URL ?? "https://ttflstore.name.ng"}/vendor/dashboard/orders` }), event: "vendor_first_order" }; }
