@@ -38,7 +38,7 @@ export const env = {
   jwt: {
     accessSecret: required("JWT_ACCESS_SECRET"),
     refreshSecret: required("JWT_REFRESH_SECRET"),
-    accessTtl: process.env.JWT_ACCESS_TTL ?? "1d",
+    accessTtl: process.env.JWT_ACCESS_TTL ?? "15m",
     refreshTtlDays: Number(process.env.JWT_REFRESH_TTL_DAYS ?? 30),
   },
   cookies: {
