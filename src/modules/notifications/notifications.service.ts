@@ -4,12 +4,10 @@ import { prisma } from "@/lib/prisma";
 let schemaReady=false;
 async function ensureSchema(){
  if(schemaReady)return;
- await prisma.$executeRawUnsafe(`
- CREATE TABLE IF NOT EXISTS push_devices(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,expo_push_token TEXT NOT NULL,platform TEXT NOT NULL,app_version TEXT,device_name TEXT,enabled BOOLEAN NOT NULL DEFAULT true,last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(user_id,expo_push_token));
- CREATE INDEX IF NOT EXISTS push_devices_user_idx ON push_devices(user_id,enabled);
- CREATE TABLE IF NOT EXISTS user_notifications(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,title TEXT NOT NULL,body TEXT NOT NULL,type TEXT NOT NULL DEFAULT 'GENERAL',url TEXT,data JSONB NOT NULL DEFAULT '{}'::jsonb,read_at TIMESTAMPTZ,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
- CREATE INDEX IF NOT EXISTS user_notifications_user_idx ON user_notifications(user_id,created_at DESC);
- `);
+ await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS push_devices(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,expo_push_token TEXT NOT NULL,platform TEXT NOT NULL,app_version TEXT,device_name TEXT,enabled BOOLEAN NOT NULL DEFAULT true,last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(user_id,expo_push_token))`);
+ await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS push_devices_user_idx ON push_devices(user_id,enabled)`);
+ await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS user_notifications(id TEXT PRIMARY KEY,user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,title TEXT NOT NULL,body TEXT NOT NULL,type TEXT NOT NULL DEFAULT 'GENERAL',url TEXT,data JSONB NOT NULL DEFAULT '{}'::jsonb,read_at TIMESTAMPTZ,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+ await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS user_notifications_user_idx ON user_notifications(user_id,created_at DESC)`);
  schemaReady=true;
 }
 export async function registerDevice(userId:string,input:{expoPushToken:string;platform:string;appVersion?:string;deviceName?:string}){await ensureSchema();const id=randomUUID();const rows=await prisma.$queryRawUnsafe<any[]>(`INSERT INTO push_devices(id,user_id,expo_push_token,platform,app_version,device_name,enabled,last_seen_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,true,NOW(),NOW(),NOW()) ON CONFLICT(user_id,expo_push_token) DO UPDATE SET platform=EXCLUDED.platform,app_version=EXCLUDED.app_version,device_name=EXCLUDED.device_name,enabled=true,last_seen_at=NOW(),updated_at=NOW() RETURNING id,expo_push_token AS "expoPushToken",platform,app_version AS "appVersion",device_name AS "deviceName",enabled`,id,userId,input.expoPushToken,input.platform,input.appVersion??null,input.deviceName??null);return rows[0];}
