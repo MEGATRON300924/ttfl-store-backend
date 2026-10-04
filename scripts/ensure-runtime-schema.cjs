@@ -16,6 +16,7 @@ const checks = [
   "ensure-sound-category.cjs",
   "ensure-error-logs-schema.cjs",
   "ensure-order-item-vendor-column.cjs",
+  "ensure-product-images-column.cjs",
   "ensure-order-item-variation-columns.cjs",
   "ensure-vendor-order-column.cjs",
   "ensure-vendor-paystack-columns.cjs",
