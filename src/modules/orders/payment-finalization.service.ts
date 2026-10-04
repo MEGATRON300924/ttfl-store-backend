@@ -5,6 +5,7 @@ import { recordPurchase, finalizeReservedPoints, releaseReservedPoints } from "@
 import { recordConversionEvent } from "@/modules/ads/ads.service";
 import { sendEmail, orderConfirmationEmail, orderPaymentFailedEmail, vendorNewOrderEmail, adminNewOrderEmail } from "@/lib/email";
 import { sendWhatsAppNotification, newOrderWhatsAppMessage } from "@/lib/whatsapp-notifications";
+import { createNotification } from "@/modules/notifications/notifications.service";
 import { logger } from "@/lib/logger";
 import { env } from "@/config/env";
 import { AppError } from "@/utils/app-error";
@@ -103,6 +104,7 @@ export async function verifyAndFinalizePaymentSafely(reference: string) {
     const customer = await prisma.user.findUnique({ where: { id: order.customerId } });
     if (customer) {
       void sendEmail({ to: customer.email, ...orderConfirmationEmail(order.orderNumber) });
+      void createNotification(order.customerId, { title: "Order confirmed", body: `Payment for order ${order.orderNumber} has been confirmed.`, type: "ORDER", url: `/orders/${encodeURIComponent(order.orderNumber)}`, data: { type: "order.confirmed", orderNumber: order.orderNumber, status: "PAID" } }).catch((error) => logger.warn("Failed to create order confirmation notification", { orderId: order.id, error }));
       await recordPurchase(customer.id, order.id, Number(order.totalAmount)).catch((error) => logger.warn("Failed to record purchase rewards", { orderId: order.id, error }));
     }
     for (const vo of order.vendorOrders) {
