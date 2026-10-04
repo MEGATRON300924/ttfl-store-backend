@@ -73,6 +73,28 @@ function patchProductRawSql() {
   }
 }
 
+function patchVendorOrderRawSql() {
+  const files = [];
+  function walk(dir) {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const file = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(file);
+      else if (/\.(ts|tsx|js|cjs)$/.test(entry.name)) files.push(file);
+    }
+  }
+  walk(path.join(root, "src"));
+  for (const file of files) {
+    let source = fs.readFileSync(file, "utf8");
+    if (!/vendor_orders\s+vo\b/i.test(source)) continue;
+    const nextSource = source.replace(/vo\.vendor_id\b/g, 'vo."vendorId"');
+    if (nextSource !== source) {
+      fs.writeFileSync(file, nextSource);
+      console.log(`Patched vendor order raw SQL identifiers in ${path.relative(root, file)}.`);
+    }
+  }
+}
+
 function patchVendorProfileRawSql() {
   const files = [];
   function walk(dir) {
@@ -140,6 +162,7 @@ function normalizeProductValidatorTags() {
 mapProductVendorId();
 mapProductImageColumns();
 patchProductRawSql();
+patchVendorOrderRawSql();
 patchVendorProfileRawSql();
 normalizeProductValidatorTags();
 console.log("Production column compatibility checks complete.");
