@@ -5,6 +5,10 @@ const path = require("node:path");
 // Neon is temporarily unreachable; database-backed requests can then fail normally
 // instead of causing Render to crash-loop the service.
 const checks = [
+  // Payment/order references are required by checkout. Run this first so a
+  // failure in an unrelated optional compatibility check cannot leave checkout
+  // blocked by a stale production column name.
+  "ensure-order-reference-columns.cjs",
   "ensure-coming-soon-schema.cjs",
   "ensure-digital-postcode-schema.cjs",
   "ensure-store-reports-schema.cjs",
@@ -20,7 +24,6 @@ const checks = [
   "ensure-order-item-variation-columns.cjs",
   "ensure-vendor-order-column.cjs",
   "ensure-vendor-paystack-columns.cjs",
-  "ensure-order-reference-columns.cjs",
 ];
 
 let failures = 0;
