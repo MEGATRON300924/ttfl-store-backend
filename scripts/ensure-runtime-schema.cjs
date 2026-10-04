@@ -20,6 +20,7 @@ const checks = [
   "ensure-order-item-variation-columns.cjs",
   "ensure-vendor-order-column.cjs",
   "ensure-vendor-paystack-columns.cjs",
+  "ensure-order-reference-columns.cjs",
 ];
 
 let failures = 0;
