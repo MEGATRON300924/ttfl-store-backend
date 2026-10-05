@@ -86,8 +86,11 @@ export async function verifyAndFinalizePaymentSafely(reference: string) {
         }
       });
     } catch (error) {
-      logger.error("Paystack payment recorded but TTFL order fulfillment failed; retry is safe", { reference, orderId: order.id, error });
-      return prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { vendorOrders: { include: { items: true } } } });
+      logger.error("Paystack payment recorded but TTFL order fulfillment failed; retry is required", { reference, orderId: order.id, error });
+      throw AppError.internal(
+        "Payment was received, but your order is still being finalized. Please don't pay again.",
+        "ORDER_FULFILLMENT_PENDING"
+      );
     }
   }
 
