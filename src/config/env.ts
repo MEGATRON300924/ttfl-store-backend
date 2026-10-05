@@ -28,6 +28,12 @@ if (production && emailProvider === "resend" && !process.env.RESEND_API_KEY) {
 if (production && emailProvider === "smtp" && (!process.env.EMAIL_HOST || !process.env.EMAIL_PORT || !process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD)) {
   throw new Error("EMAIL_PROVIDER=smtp requires EMAIL_HOST, EMAIL_PORT, EMAIL_USER and EMAIL_PASSWORD in production");
 }
+if (production && !process.env.PAYSTACK_SECRET_KEY) {
+  throw new Error("PAYSTACK_SECRET_KEY is required in production");
+}
+if (production && !process.env.PAYSTACK_SECRET_KEY.startsWith("sk_live_")) {
+  throw new Error("PAYSTACK_SECRET_KEY must be a live Paystack secret key in production");
+}
 
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
