@@ -5,10 +5,19 @@ import { requireAuth, requireRole } from "@/middleware/auth";
 import { AppError } from "@/utils/app-error";
 import { prisma } from "@/lib/prisma";
 import { getVendorProfileForUser } from "@/lib/vendor-access";
-import { validateUploadFile, validateUploadVideo, uploadProductImage, uploadProductVideo, deleteProductImage, deleteProductVideo, uploadAvatar, uploadStoreBranding, deleteStoreBranding } from "./uploads.service";
+import { validateUploadFile, validateUploadVideo, uploadProductImage, uploadProductVideo, deleteProductImage, deleteProductVideo, uploadAvatar, uploadStoreBranding, deleteStoreBranding, uploadPartnerEventMedia } from "./uploads.service";
 
 export const uploadsRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+
+
+uploadsRouter.post("/partner-event-media", requireAuth, upload.single("media"), asyncHandler(async (req, res) => {
+  if (!req.file) throw AppError.badRequest("No media file provided", "NO_FILE");
+  const partner = await prisma.partner.findUnique({ where: { ownerUserId: req.user!.sub } });
+  if (!partner) throw AppError.notFound("Create a partner profile first", "PARTNER_NOT_FOUND");
+  if (partner.status !== "APPROVED") throw AppError.forbidden("Your partner profile must be approved before uploading event media", "PARTNER_NOT_APPROVED");
+  res.status(201).json(await uploadPartnerEventMedia(partner.id, req.file.buffer, req.file.mimetype));
+}));
 
 uploadsRouter.post("/product-image", requireAuth, requireRole("VENDOR"), upload.single("image"), asyncHandler(async (req, res) => {
   if (!req.file) throw AppError.badRequest("No image file provided", "NO_FILE");
