@@ -113,7 +113,7 @@ export async function verifyAndFinalizePayment(reference: string) {
     await tx.vendorOrder.updateMany({ where: { orderId: order.id }, data: { status: "PROCESSING" } });
     for (const vendorOrder of order.vendorOrders) for (const item of vendorOrder.items) { const updated = await tx.product.updateMany({ where: { id: item.productId, stock: { gte: item.quantity } }, data: { stock: { decrement: item.quantity } } }); if (updated.count !== 1) throw AppError.badRequest(`Not enough stock for "${item.productName}"`, "INSUFFICIENT_STOCK"); }
     await consumeForOrder(tx, order.id);
-    for (const item of order.vendorOrders.flatMap((vendorOrder) => vendorOrder.items)) await tx.$executeRawUnsafe(`UPDATE flash_deals fd SET sold_count=(SELECT COALESCE(SUM(oi.quantity),0)::int FROM order_items oi JOIN vendor_orders vo ON vo.id=oi.vendor_order_id JOIN orders o ON o.id=vo.order_id WHERE oi.product_id=fd.product_id AND o.payment_status='PAID') WHERE fd.product_id=$1 AND fd.active=true`, item.productId);
+    for (const item of order.vendorOrders.flatMap((vendorOrder) => vendorOrder.items)) await tx.$executeRawUnsafe(`UPDATE flash_deals fd SET sold_count=(SELECT COALESCE(SUM(oi.quantity),0)::int FROM order_items oi JOIN vendor_orders vo ON vo.id=oi.vendor_order_id JOIN orders o ON o.id=vo.order_id WHERE oi."productId"=fd.product_id AND o.payment_status='PAID') WHERE fd.product_id=$1 AND fd.active=true`, item.productId);
   });
   if (alreadyFinalized) return prisma.order.findUniqueOrThrow({ where: { id: order.id }, include: { vendorOrders: { include: { items: true } } } });
   const metadata = (verification as any)?.metadata;
