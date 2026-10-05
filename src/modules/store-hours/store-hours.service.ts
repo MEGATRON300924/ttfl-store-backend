@@ -42,7 +42,7 @@ export async function setHours(userId:string,hours:StoreHour[]){
   });
   await prisma.$transaction(async tx=>{
     await tx.$executeRawUnsafe(`DELETE FROM store_business_hours WHERE vendor_id=$1`,vendor.id);
-    for(const h of rows)await tx.$executeRawUnsafe(`INSERT INTO store_business_hours(vendor_id,day_of_week,is_open,open_time,close_time,updated_at) VALUES($1,$2,$3,$4,$5,NOW())`,vendor.id,h.dayOfWeek,h.isOpen,h.openTime,h.closeTime);
+    for(const h of rows)await tx.$executeRawUnsafe(`INSERT INTO store_business_hours(vendor_id,day_of_week,is_open,open_time,close_time,updated_at) VALUES($1,$2,$3,$4::time,$5::time,NOW())`,vendor.id,h.dayOfWeek,h.isOpen,h.openTime,h.closeTime);
   });
   return getHours(vendor.id);
 }
