@@ -31,7 +31,7 @@ if (production && emailProvider === "smtp" && (!process.env.EMAIL_HOST || !proce
 if (production && !process.env.PAYSTACK_SECRET_KEY) {
   throw new Error("PAYSTACK_SECRET_KEY is required in production");
 }
-if (production && !process.env.PAYSTACK_SECRET_KEY.startsWith("sk_live_")) {
+if (production && !process.env.PAYSTACK_SECRET_KEY!.startsWith("sk_live_")) {
   throw new Error("PAYSTACK_SECRET_KEY must be a live Paystack secret key in production");
 }
 
@@ -90,5 +90,5 @@ export const env = {
     max: Number(process.env.AUTH_RATE_LIMIT_MAX ?? 10),
     windowMin: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MIN ?? 15),
   },
-  paystackSecretKey: process.env.PAYSTACK_SECRET_KEY,
+  paystackSecretKey: process.env.PAYSTACK_SECRET_KEY as string,
 };
