@@ -77,6 +77,29 @@ export async function deleteProductVideo(publicId: string) {
   }
 }
 
+export async function uploadPartnerEventMedia(partnerId: string, buffer: Buffer, mimetype: string): Promise<{ url: string; publicId: string; resourceType: "image" | "video" }> {
+  ensureConfigured();
+  const isImage = ALLOWED_IMAGE_MIME_TYPES.has(mimetype);
+  const isVideo = ALLOWED_VIDEO_MIME_TYPES.has(mimetype);
+  if (!isImage && !isVideo) throw AppError.badRequest("Only JPEG, PNG, WebP, AVIF, MP4, WebM, MOV, M4V, or OGG files are allowed", "INVALID_EVENT_MEDIA_TYPE");
+  if (isImage) validateUploadFile({ mimetype, size: buffer.length });
+  if (isVideo) validateUploadVideo({ mimetype, size: buffer.length });
+  const resourceType = isImage ? "image" : "video";
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: `ttfl-store/partners/${partnerId}/events`, resource_type: resourceType },
+      (error, result) => {
+        if (error || !result) {
+          logger.error("Cloudinary partner event media upload failed", { error, partnerId, resourceType });
+          return reject(AppError.internal("Event media upload failed, please try again", "EVENT_MEDIA_UPLOAD_FAILED"));
+        }
+        resolve({ url: result.secure_url, publicId: result.public_id, resourceType });
+      }
+    );
+    stream.end(buffer);
+  });
+}
+
 export async function uploadAvatar(userId: string, buffer: Buffer, mimetype: string): Promise<{ url: string; publicId: string }> {
   ensureConfigured();
   return new Promise((resolve, reject) => {
