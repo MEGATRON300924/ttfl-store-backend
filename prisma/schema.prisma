@@ -895,6 +895,7 @@ model PartnerEvent {
   slug String @unique
   description String
   coverImageUrl String? @map("cover_image_url")
+  videoUrl String? @map("video_url")
   audience EventAudience @default(EVERYONE)
   status EventStatus @default(PENDING_REVIEW)
   eventPlan PartnerEventPlan @default(FREE) @map("event_plan")
