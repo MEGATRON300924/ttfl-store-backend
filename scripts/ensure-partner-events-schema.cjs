@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS partner_events (
   slug TEXT NOT NULL UNIQUE,
   description TEXT NOT NULL,
   cover_image_url TEXT,
+  video_url TEXT,
   audience TEXT NOT NULL DEFAULT 'EVERYONE',
   status TEXT NOT NULL DEFAULT 'PENDING_REVIEW',
   event_plan TEXT NOT NULL DEFAULT 'FREE',
@@ -54,6 +55,8 @@ CREATE TABLE IF NOT EXISTS partner_events (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   published_at TIMESTAMPTZ
 );
+
+ALTER TABLE partner_events ADD COLUMN IF NOT EXISTS video_url TEXT;
 
 CREATE INDEX IF NOT EXISTS partner_events_partner_id_idx ON partner_events(partner_id);
 CREATE INDEX IF NOT EXISTS partner_events_status_idx ON partner_events(status);
