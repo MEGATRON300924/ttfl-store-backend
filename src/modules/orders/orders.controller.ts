@@ -23,7 +23,53 @@ async function notifyCustomerPushIfNewlyPaid(reference: string, paymentWasAlread
 async function notifyPostPayment(reference: string, paymentWasAlreadyPaid: boolean) { try { await notifyCustomerWhatsAppIfNewlyPaid(reference, paymentWasAlreadyPaid); } catch (error) { logger.warn("Customer WhatsApp notification after payment confirmation failed", { reference, error }); } try { await notifyCustomerPushIfNewlyPaid(reference, paymentWasAlreadyPaid); } catch (error) { logger.warn("Customer push notification after payment confirmation failed", { reference, error }); } }
 
 export const checkout = asyncHandler(async (req: Request, res: Response) => { const input = checkoutSchema.parse(req.body); const user = await prisma.user.findUniqueOrThrow({ where: { id: req.user!.sub } }); const { order, checkoutUrl } = await ordersService.checkout(req.user!.sub, user.email, input); res.status(201).json({ order, checkoutUrl }); });
-export const paymentStatus = asyncHandler(async (req: Request, res: Response) => { const reference = req.params.reference; const order = await prisma.order.findUnique({ where: { paymentReference: reference }, select: { id: true, orderNumber: true, totalAmount: true, paymentStatus: true } }); if (!order) throw AppError.notFound("Order not found for this payment reference"); const verification = await verifyTransaction(reference); const requestedAmountKobo = verification.requested_amount ?? verification.amount; const requestedAmountNaira = requestedAmountKobo / 100; const amountMatches = Math.round(requestedAmountNaira * 100) === Math.round(Number(order.totalAmount) * 100); const currencyMatches = verification.currency === "NGN"; if (verification.status === "success" && !amountMatches) throw AppError.badRequest("Payment amount does not match order total", "AMOUNT_MISMATCH"); if (verification.status === "success" && !currencyMatches) throw AppError.badRequest("Payment currency does not match this order", "CURRENCY_MISMATCH"); const paymentSucceeded = verification.status === "success" && amountMatches && currencyMatches; if (paymentSucceeded) await verifyAndFinalizePaymentSafely(reference); const finalizedOrder = await prisma.order.findUnique({ where: { paymentReference: reference }, select: { paymentStatus: true } }); res.json({ reference, orderNumber: order.orderNumber, paymentStatus: paymentSucceeded ? "PAID" : finalizedOrder?.paymentStatus ?? order.paymentStatus, orderFinalized: finalizedOrder?.paymentStatus === "PAID", gatewayStatus: verification.status, gatewayResponse: verification.gateway_response }); });
+export const paymentStatus = asyncHandler(async (req: Request, res: Response) => {
+  const reference = req.params.reference;
+  const order = await prisma.order.findUnique({
+    where: { paymentReference: reference },
+    select: { id: true, orderNumber: true, totalAmount: true, paymentStatus: true }
+  });
+  if (!order) throw AppError.notFound("Order not found for this payment reference");
+
+  const verification = await verifyTransaction(reference);
+  const requestedAmountKobo = verification.requested_amount ?? verification.amount;
+  const requestedAmountNaira = requestedAmountKobo / 100;
+  const amountMatches = Math.round(requestedAmountNaira * 100) === Math.round(Number(order.totalAmount) * 100);
+  const currencyMatches = verification.currency === "NGN";
+
+  if (verification.status === "success" && !amountMatches) throw AppError.badRequest("Payment amount does not match order total", "AMOUNT_MISMATCH");
+  if (verification.status === "success" && !currencyMatches) throw AppError.badRequest("Payment currency does not match this order", "CURRENCY_MISMATCH");
+
+  const paymentSucceeded = verification.status === "success" && amountMatches && currencyMatches;
+  let fulfillmentPending = false;
+  if (paymentSucceeded) {
+    try {
+      await verifyAndFinalizePaymentSafely(reference);
+    } catch (error) {
+      if (error instanceof AppError && error.code === "ORDER_FULFILLMENT_PENDING") {
+        fulfillmentPending = true;
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  const finalizedOrder = await prisma.order.findUnique({
+    where: { paymentReference: reference },
+    select: { paymentStatus: true, vendorOrders: { select: { status: true } } }
+  });
+  const paid = finalizedOrder?.paymentStatus === "PAID" || paymentSucceeded;
+  const orderFinalized = paid && !fulfillmentPending && (finalizedOrder?.vendorOrders ?? []).every((vendorOrder) => vendorOrder.status !== "PENDING");
+
+  res.json({
+    reference,
+    orderNumber: order.orderNumber,
+    paymentStatus: paid ? "PAID" : finalizedOrder?.paymentStatus ?? order.paymentStatus,
+    orderFinalized,
+    gatewayStatus: verification.status,
+    gatewayResponse: verification.gateway_response
+  });
+});
 export const verifyPayment = asyncHandler(async (req: Request, res: Response) => { const existing = await prisma.order.findUnique({ where: { paymentReference: req.params.reference }, select: { paymentStatus: true } }); if (!existing) throw AppError.notFound("Order not found for this payment reference"); const order = await verifyAndFinalizePaymentSafely(req.params.reference); void notifyPostPayment(req.params.reference, existing.paymentStatus === "PAID"); res.json({ order }); });
 
 export const paystackWebhook = asyncHandler(async (req: Request, res: Response) => {
