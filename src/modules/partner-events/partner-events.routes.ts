@@ -128,6 +128,73 @@ partnerEventsRouter.get("/partners/me/events", requireAuth, asyncHandler(async (
   res.json({ partner, events });
 }));
 
+partnerEventsRouter.patch("/partners/me/events/:id", requireAuth, asyncHandler(async (req, res) => {
+  const partner = await getPartner(req.user!.sub);
+  if (!partner) throw AppError.notFound("Create a partner profile first", "PARTNER_NOT_FOUND");
+  if (partner.status !== "APPROVED") throw AppError.forbidden("Your partner profile must be approved before you can edit events", "PARTNER_NOT_APPROVED");
+
+  const event = await prisma.partnerEvent.findFirst({
+    where: { id: req.params.id, partnerId: partner.id },
+  });
+  if (!event) throw AppError.notFound("Event not found");
+
+  const data = eventSchema.parse(req.body);
+  const startsAt = new Date(data.startsAt);
+  const endsAt = data.endsAt ? new Date(data.endsAt) : null;
+  if (endsAt && endsAt <= startsAt) throw AppError.badRequest("Event end time must be after the start time");
+
+  const registrationDeadline = data.registrationDeadline ? new Date(data.registrationDeadline) : null;
+  if (registrationDeadline && registrationDeadline > startsAt) {
+    throw AppError.badRequest("Registration deadline must be before the event starts");
+  }
+
+  // Any content change to an already published event goes back through TTFL review.
+  // This prevents a partner from changing public content after approval without moderation.
+  const needsReview = event.status === "PUBLISHED";
+  const updated = await prisma.partnerEvent.update({
+    where: { id: event.id },
+    data: {
+      title: data.title,
+      description: data.description,
+      coverImageUrl: data.coverImageUrl || null,
+      videoUrl: data.videoUrl || null,
+      audience: data.audience,
+      startsAt,
+      endsAt,
+      registrationDeadline,
+      eventType: data.eventType,
+      location: data.location || null,
+      registrationUrl: data.registrationUrl || null,
+      organizerName: data.organizerName || partner.organizationName,
+      organizerEmail: data.organizerEmail || partner.contactEmail,
+      organizerPhone: data.organizerPhone || partner.contactPhone,
+      ...(needsReview ? { status: "PENDING_REVIEW", publishedAt: null } : {}),
+    },
+  });
+
+  res.json({
+    event: updated,
+    message: needsReview
+      ? "Event updated and resubmitted for TTFL Store review."
+      : "Event updated successfully.",
+  });
+}));
+
+partnerEventsRouter.delete("/partners/me/events/:id", requireAuth, asyncHandler(async (req, res) => {
+  const partner = await getPartner(req.user!.sub);
+  if (!partner) throw AppError.notFound("Create a partner profile first", "PARTNER_NOT_FOUND");
+  if (partner.status !== "APPROVED") throw AppError.forbidden("Your partner profile must be approved before you can delete events", "PARTNER_NOT_APPROVED");
+
+  const event = await prisma.partnerEvent.findFirst({
+    where: { id: req.params.id, partnerId: partner.id },
+    select: { id: true },
+  });
+  if (!event) throw AppError.notFound("Event not found");
+
+  await prisma.partnerEvent.delete({ where: { id: event.id } });
+  res.json({ message: "Event deleted successfully." });
+}));
+
 partnerEventsRouter.post("/partners/me/events", requireAuth, asyncHandler(async (req, res) => {
   const partner = await getPartner(req.user!.sub);
   if (!partner) throw AppError.notFound("Create a partner profile first", "PARTNER_NOT_FOUND");
