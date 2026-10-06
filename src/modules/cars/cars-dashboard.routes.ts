@@ -84,7 +84,7 @@ carsDashboardRouter.get("/public/listings", asyncHandler(async(req,res)=>{
 carsDashboardRouter.get("/public/listings/:slug", asyncHandler(async(req,res)=>{
   await ensureCarsDashboardTables();
   const product=await prisma.product.findFirst({
-    where:{slug:req.params.slug,deletedAt:null,status:"ACTIVE",category:{slug:"cars"},vendor:{carsStoreProfiles:{some:{active:true}}}},
+    where:{slug:req.params.slug,deletedAt:null,status:"ACTIVE",category:{slug:"cars"},vendorId:{in:(await prisma.$queryRawUnsafe<Array<{vendorId:string}>>(`SELECT source_vendor_id AS "vendorId" FROM cars_store_profiles WHERE active=TRUE AND source_vendor_id IS NOT NULL`)).map(x=>x.vendorId)}},
     include:{images:{orderBy:{position:"asc"}},category:true,vendor:{select:{id:true,storeName:true,storeSlug:true,verified:true,location:true,whatsappNumber:true}}}
   });
   if(!product) throw AppError.notFound("Vehicle listing not found","LISTING_NOT_FOUND");
