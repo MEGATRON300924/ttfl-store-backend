@@ -72,7 +72,7 @@ carsStoreRouter.post("/me", requireAuth, asyncHandler(async (req, res) => {
   );
   if (already[0]) throw AppError.conflict("Your TTFL Cars store already exists", "CARS_STORE_EXISTS");
 
-  let sourceVendorId: string | null = null;
+  let sourceVendorId: string | null = existing?.id ?? null;
   let storeName = input.storeName;
   let location = input.location ?? null;
   let whatsappNumber = input.whatsappNumber ?? null;
