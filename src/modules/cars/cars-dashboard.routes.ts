@@ -8,7 +8,7 @@ import { AppError } from "@/utils/app-error";
 
 export const carsDashboardRouter = Router();
 
-async function ensureCarsDashboardTables() {
+async function ensureCarsDashboardTables() {\n  await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS cars_store_profiles (id TEXT PRIMARY KEY, user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE, source_vendor_id TEXT NULL REFERENCES vendor_profiles(id) ON DELETE SET NULL, store_name TEXT NOT NULL, store_slug TEXT NOT NULL UNIQUE, location TEXT NULL, whatsapp_number TEXT NULL, active BOOLEAN NOT NULL DEFAULT TRUE, deactivated_at TIMESTAMPTZ NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS cars_booking_settings (
       cars_store_id TEXT PRIMARY KEY REFERENCES cars_store_profiles(id) ON DELETE CASCADE,
