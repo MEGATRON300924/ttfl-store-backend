@@ -3,6 +3,7 @@ import * as authController from "./auth.controller";
 import * as googleAuthController from "./google-auth.controller";
 import { authRateLimiter } from "@/middleware/rate-limit";
 import { requireAuth } from "@/middleware/auth";
+import * as handoffController from "./auth-handoff.controller";
 
 export const authRouter = Router();
 
@@ -18,6 +19,8 @@ authRouter.post("/mobile/login", authRateLimiter, authController.mobileLogin);
 authRouter.post("/refresh", authController.refresh);
 authRouter.post("/mobile/refresh", authController.mobileRefresh);
 authRouter.post("/logout", authController.logout);
+authRouter.post("/handoff/create", requireAuth, handoffController.createHandoff);
+authRouter.post("/handoff/exchange", handoffController.exchangeHandoff);
 authRouter.post("/verify-email", authController.verifyEmail);
 authRouter.post("/forgot-password", authRateLimiter, authController.forgotPassword);
 authRouter.post("/reset-password", authController.resetPassword);
