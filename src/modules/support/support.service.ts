@@ -60,17 +60,6 @@ export function parseSupportContext(body: string) {
   return { marketplace: marketplace || "STORE", productId, listingName, listingUrl };
 }
 
-async function notifyAdminNewReport(conversation: any, initialMessage: string) {
-  if (!env.adminNotificationEmail) return;
-  const subject = initialMessage.match(/^Subject:\s*(.+)$/m)?.[1]?.trim() || "Customer report";
-  await sendEmail({
-    to: env.adminNotificationEmail,
-    subject: `TTFL Store report: ${subject}`,
-    html: supportEmailHtml("New customer report", `Customer: ${conversation.customer?.email ?? conversation.customerId}\n\n${initialMessage}`),
-    event: "support_report_created",
-  }).catch((error) => console.error("Failed to send support report notification:", error));
-}
-
 export async function startConversation(customerId: string, input: StartConversationInput) {
   const body = buildSupportMessage(input);
   const conversation = await prisma.supportConversation.create({
