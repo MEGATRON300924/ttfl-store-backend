@@ -168,6 +168,17 @@ carsDashboardRouter.post("/bookings", asyncHandler(async(req,res)=>{
   res.status(201).json({ok:true,bookingId:id});
 }));
 
+carsDashboardRouter.get("/vehicles/:id", requireAuth, asyncHandler(async(req,res)=>{
+  const store=await getCarsStore(req.user!.sub);
+  if(!store.sourceVendorId) throw AppError.forbidden("Your TTFL Cars store is not connected to an approved seller profile","CARS_VENDOR_REQUIRED");
+  const product=await prisma.product.findFirst({
+    where:{id:req.params.id,vendorId:store.sourceVendorId,deletedAt:null,category:{slug:"cars"}},
+    include:{images:{orderBy:{position:"asc"}}}
+  });
+  if(!product) throw AppError.notFound("Vehicle not found","VEHICLE_NOT_FOUND");
+  res.json({product});
+}));
+
 carsDashboardRouter.post("/vehicles", requireAuth, asyncHandler(async(req,res)=>{
   const store=await getCarsStore(req.user!.sub);
   if(!store.sourceVendorId) throw AppError.forbidden("Your TTFL Cars store is not connected to an approved seller profile","CARS_VENDOR_REQUIRED");
