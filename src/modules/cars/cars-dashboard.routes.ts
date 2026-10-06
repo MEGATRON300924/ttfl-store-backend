@@ -35,7 +35,9 @@ async function ensureCarsDashboardTables() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
-  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS cars_bookings_store_idx ON cars_bookings(cars_store_id, created_at DESC)`);
+  await prisma.$executeRawUnsafe(\`ALTER TABLE cars_store_profiles ADD COLUMN IF NOT EXISTS active BOOLEAN NOT NULL DEFAULT TRUE\`);
+  await prisma.$executeRawUnsafe(\`ALTER TABLE cars_store_profiles ADD COLUMN IF NOT EXISTS deactivated_at TIMESTAMPTZ NULL\`);
+  await prisma.$executeRawUnsafe(\`CREATE INDEX IF NOT EXISTS cars_bookings_store_idx ON cars_bookings(cars_store_id, created_at DESC)\`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS cars_bookings_product_idx ON cars_bookings(product_id)`);
 }
 
@@ -87,7 +89,7 @@ carsDashboardRouter.get("/dashboard", requireAuth, asyncHandler(async (req, res)
       COUNT(*) FILTER (WHERE status='CONFIRMED')::int AS confirmed
      FROM cars_bookings WHERE cars_store_id=$1`, store.id
   );
-  res.json({ store, settings: settings[0] ?? { whatsappNumber:store.whatsappNumber ?? null, phoneNumber:null, bookingUrl:null },
+  store.active = store.active !== false;\n  res.json({ store, settings: settings[0] ?? { whatsappNumber:store.whatsappNumber ?? null, phoneNumber:null, bookingUrl:null },
     products, bookings, stats:{products:products.length, views:products.reduce((n,p)=>n+Number(p.viewCount||0),0),
       bookings:Number(counts[0]?.total||0), pendingBookings:Number(counts[0]?.pending||0), confirmedBookings:Number(counts[0]?.confirmed||0)} });
 }));
@@ -145,4 +147,22 @@ carsDashboardRouter.post("/bookings", asyncHandler(async(req,res)=>{
     id,stores[0].id,product.id,input.name,input.phone,input.date,input.time,input.location??null,input.message??null
   );
   res.status(201).json({ok:true,bookingId:id});
+}));
+
+carsDashboardRouter.post("/account/deactivate", requireAuth, asyncHandler(async(req,res)=>{
+  const store=await getCarsStore(req.user!.sub);
+  await prisma.$executeRawUnsafe(`UPDATE cars_store_profiles SET active=FALSE,deactivated_at=NOW(),updated_at=NOW() WHERE id=$1`,store.id);
+  res.json({ok:true});
+}));
+
+carsDashboardRouter.post("/account/reactivate", requireAuth, asyncHandler(async(req,res)=>{
+  const store=await getCarsStore(req.user!.sub);
+  await prisma.$executeRawUnsafe(`UPDATE cars_store_profiles SET active=TRUE,deactivated_at=NULL,updated_at=NOW() WHERE id=$1`,store.id);
+  res.json({ok:true});
+}));
+
+carsDashboardRouter.delete("/account", requireAuth, asyncHandler(async(req,res)=>{
+  const store=await getCarsStore(req.user!.sub);
+  await prisma.$executeRawUnsafe(`DELETE FROM cars_store_profiles WHERE id=$1`,store.id);
+  res.json({ok:true});
 }));
