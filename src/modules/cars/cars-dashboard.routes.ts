@@ -52,7 +52,7 @@ async function getCarsStore(userId: string) {
   return rows[0];
 }
 
-const bookingSettingsSchema = z.object({
+const bookingSettingsSchema = z.object({\n  storeName: z.string().trim().min(2).max(100).optional(),\n  location: z.string().trim().max(200).nullable().optional(),
   whatsappNumber: z.string().trim().max(30).nullable().optional(),
   phoneNumber: z.string().trim().max(30).nullable().optional(),
   bookingUrl: z.string().trim().url().max(500).nullable().optional(),
