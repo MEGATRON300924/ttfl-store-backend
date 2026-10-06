@@ -83,7 +83,7 @@ carsDashboardRouter.get("/public/listings", asyncHandler(async(req,res)=>{
 
 carsDashboardRouter.get("/public/store/:slug", asyncHandler(async(req,res)=>{
   await ensureCarsDashboardTables();
-  const stores=await prisma.$queryRawUnsafe<any[]>(`SELECT id,user_id AS "userId",store_name AS "storeName",store_slug AS "storeSlug",location,whatsapp_number AS "whatsappNumber",active FROM cars_store_profiles WHERE store_slug=$1 AND active=TRUE LIMIT 1`,req.params.slug);
+  const stores=await prisma.$queryRawUnsafe<any[]>(`SELECT id,user_id AS "userId",source_vendor_id AS "sourceVendorId",store_name AS "storeName",store_slug AS "storeSlug",location,whatsapp_number AS "whatsappNumber",active FROM cars_store_profiles WHERE store_slug=$1 AND active=TRUE LIMIT 1`,req.params.slug);
   if(!stores[0]) throw AppError.notFound("Cars store not found","CARS_STORE_NOT_FOUND");
   const products=await prisma.product.findMany({
     where:{vendorId:stores[0].sourceVendorId ?? "",deletedAt:null,status:"ACTIVE",category:{slug:"cars"}},
