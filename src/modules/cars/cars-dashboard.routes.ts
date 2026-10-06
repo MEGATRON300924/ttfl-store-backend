@@ -45,7 +45,7 @@ async function getCarsStore(userId: string) {
   await ensureCarsDashboardTables();
   const rows = await prisma.$queryRawUnsafe<any[]>(
     `SELECT id, user_id AS "userId", source_vendor_id AS "sourceVendorId", store_name AS "storeName", store_slug AS "storeSlug",
-      location, whatsapp_number AS "whatsappNumber", created_at AS "createdAt", updated_at AS "updatedAt"
+      location, whatsapp_number AS "whatsappNumber", active, deactivated_at AS "deactivatedAt", created_at AS "createdAt", updated_at AS "updatedAt"
      FROM cars_store_profiles WHERE user_id = $1 LIMIT 1`, userId
   );
   if (!rows[0]) throw AppError.notFound("Your TTFL Cars store was not found", "CARS_STORE_NOT_FOUND");
