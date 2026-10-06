@@ -5,10 +5,13 @@ import { asyncHandler } from "@/middleware/error-handler";
 import { requireAuth } from "@/middleware/auth";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/utils/app-error";
+import * as productsService from "@/modules/products/products.service";
+import { createProductSchema, updateProductSchema } from "@/modules/products/products.validators";
 
 export const carsDashboardRouter = Router();
 
 async function ensureCarsDashboardTables() {
+  await prisma.category.upsert({ where: { slug: "cars" }, update: { name: "Cars" }, create: { name: "Cars", slug: "cars" } });
   await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS cars_store_profiles (id TEXT PRIMARY KEY, user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE, source_vendor_id TEXT NULL REFERENCES vendor_profiles(id) ON DELETE SET NULL, store_name TEXT NOT NULL, store_slug TEXT NOT NULL UNIQUE, location TEXT NULL, whatsapp_number TEXT NULL, active BOOLEAN NOT NULL DEFAULT TRUE, deactivated_at TIMESTAMPTZ NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS cars_booking_settings (
@@ -65,12 +68,12 @@ const bookingStatusSchema = z.enum(["PENDING","CONFIRMED","RESCHEDULED","DECLINE
 
 carsDashboardRouter.get("/public/by-product/:slug", asyncHandler(async(req,res)=>{
   await ensureCarsDashboardTables();
-  const product=await prisma.product.findUnique({where:{slug:req.params.slug},select:{vendorId:true}});
-  if(!product) throw AppError.notFound("Vehicle listing not found","LISTING_NOT_FOUND");
+  const product=await prisma.product.findUnique({where:{slug:req.params.slug},select:{vendorId:true,category:{select:{slug:true}},deletedAt:true}});
+  if(!product || product.deletedAt || product.category?.slug !== "cars") throw AppError.notFound("Vehicle listing not found","LISTING_NOT_FOUND");
   const stores=await prisma.$queryRawUnsafe<any[]>(`SELECT csp.id,csp.store_name AS "storeName",csp.active,
     cbs.whatsapp_number AS "whatsappNumber",cbs.phone_number AS "phoneNumber",cbs.booking_url AS "bookingUrl"
     FROM cars_store_profiles csp LEFT JOIN cars_booking_settings cbs ON cbs.cars_store_id=csp.id
-    WHERE csp.source_vendor_id=$1 LIMIT 1`,product.vendorId);
+    WHERE csp.source_vendor_id=$1 AND csp.active=TRUE LIMIT 1`,product.vendorId);
   if(!stores[0]) return res.json({store:null});
   res.json({store:stores[0]});
 }));
@@ -83,7 +86,7 @@ carsDashboardRouter.get("/dashboard", requireAuth, asyncHandler(async (req, res)
   );
   const products = store.sourceVendorId
     ? await prisma.product.findMany({
-        where: { vendorId: store.sourceVendorId, deletedAt: null },
+        where: { vendorId: store.sourceVendorId, deletedAt: null, category: { slug: "cars" } },
         orderBy: { createdAt: "desc" },
         take: 100,
         select: { id:true, name:true, slug:true, price:true, currency:true, status:true, viewCount:true, createdAt:true,
@@ -121,8 +124,8 @@ carsDashboardRouter.patch("/store", requireAuth, asyncHandler(async (req,res)=>{
     store.id,input.whatsappNumber??null,input.phoneNumber??null,input.bookingUrl??null
   );
   await prisma.$executeRawUnsafe(
-    `UPDATE cars_store_profiles SET whatsapp_number=COALESCE($2,whatsapp_number), updated_at=NOW() WHERE id=$1`,
-    store.id,input.whatsappNumber??null
+    `UPDATE cars_store_profiles SET store_name=COALESCE($2,store_name), location=COALESCE($3,location), whatsapp_number=COALESCE($4,whatsapp_number), updated_at=NOW() WHERE id=$1`,
+    store.id,input.storeName??null,input.location??null,input.whatsappNumber??null
   );
   res.json({ok:true});
 }));
@@ -150,8 +153,8 @@ carsDashboardRouter.post("/bookings", asyncHandler(async(req,res)=>{
     location:z.string().trim().max(200).nullable().optional(),
     message:z.string().trim().max(2000).nullable().optional(),
   }).parse(req.body);
-  const product=await prisma.product.findUnique({where:{slug:input.listingSlug},select:{id:true,name:true,vendorId:true}});
-  if(!product) throw AppError.notFound("Vehicle listing not found","LISTING_NOT_FOUND");
+  const product=await prisma.product.findUnique({where:{slug:input.listingSlug},select:{id:true,name:true,vendorId:true,deletedAt:true,category:{select:{slug:true}}}});
+  if(!product || product.deletedAt || product.category?.slug !== "cars") throw AppError.notFound("Vehicle listing not found","LISTING_NOT_FOUND");
   const stores=await prisma.$queryRawUnsafe<any[]>(
     `SELECT id FROM cars_store_profiles WHERE source_vendor_id=$1 OR user_id=(SELECT user_id FROM vendor_profiles WHERE id=$1) LIMIT 1`,product.vendorId
   );
@@ -163,6 +166,34 @@ carsDashboardRouter.post("/bookings", asyncHandler(async(req,res)=>{
     id,stores[0].id,product.id,input.name,input.phone,input.date,input.time,input.location??null,input.message??null
   );
   res.status(201).json({ok:true,bookingId:id});
+}));
+
+carsDashboardRouter.post("/vehicles", requireAuth, asyncHandler(async(req,res)=>{
+  const store=await getCarsStore(req.user!.sub);
+  if(!store.sourceVendorId) throw AppError.forbidden("Your TTFL Cars store is not connected to an approved seller profile","CARS_VENDOR_REQUIRED");
+  const input=createProductSchema.parse({...req.body, categorySlug:"cars"});
+  const product=await productsService.createProduct(req.user!.sub,input);
+  if(product.vendorId!==store.sourceVendorId) throw AppError.forbidden("Vehicle ownership does not match this Cars store","CARS_STORE_OWNERSHIP_REQUIRED");
+  res.status(201).json({product});
+}));
+
+carsDashboardRouter.patch("/vehicles/:id", requireAuth, asyncHandler(async(req,res)=>{
+  const store=await getCarsStore(req.user!.sub);
+  if(!store.sourceVendorId) throw AppError.forbidden("Your TTFL Cars store is not connected to an approved seller profile","CARS_VENDOR_REQUIRED");
+  const existing=await prisma.product.findUnique({where:{id:req.params.id},select:{id:true,vendorId:true,deletedAt:true,category:{select:{slug:true}}}});
+  if(!existing || existing.deletedAt || existing.vendorId!==store.sourceVendorId || existing.category?.slug!=="cars") throw AppError.notFound("Vehicle not found","VEHICLE_NOT_FOUND");
+  const input=updateProductSchema.parse({...req.body,categorySlug:"cars"});
+  const product=await productsService.updateProduct(req.user!.sub,req.params.id,input as any);
+  res.json({product});
+}));
+
+carsDashboardRouter.delete("/vehicles/:id", requireAuth, asyncHandler(async(req,res)=>{
+  const store=await getCarsStore(req.user!.sub);
+  if(!store.sourceVendorId) throw AppError.forbidden("Your TTFL Cars store is not connected to an approved seller profile","CARS_VENDOR_REQUIRED");
+  const existing=await prisma.product.findUnique({where:{id:req.params.id},select:{id:true,vendorId:true,deletedAt:true,category:{select:{slug:true}}}});
+  if(!existing || existing.deletedAt || existing.vendorId!==store.sourceVendorId || existing.category?.slug!=="cars") throw AppError.notFound("Vehicle not found","VEHICLE_NOT_FOUND");
+  await productsService.deleteProduct(req.user!.sub,req.params.id);
+  res.status(204).send();
 }));
 
 carsDashboardRouter.post("/account/deactivate", requireAuth, asyncHandler(async(req,res)=>{
@@ -179,6 +210,9 @@ carsDashboardRouter.post("/account/reactivate", requireAuth, asyncHandler(async(
 
 carsDashboardRouter.delete("/account", requireAuth, asyncHandler(async(req,res)=>{
   const store=await getCarsStore(req.user!.sub);
+  if (store.sourceVendorId) {
+    await prisma.$executeRawUnsafe(`UPDATE products p SET deleted_at=NOW(), sponsored=FALSE, "sponsoredAt"=NULL FROM categories c WHERE p.category_id=c.id AND p.vendor_id=$1 AND c.slug='cars' AND p.deleted_at IS NULL`, store.sourceVendorId);
+  }
   await prisma.$executeRawUnsafe(`DELETE FROM cars_store_profiles WHERE id=$1`,store.id);
   res.json({ok:true});
 }));
