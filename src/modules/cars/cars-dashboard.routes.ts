@@ -66,6 +66,31 @@ const bookingSettingsSchema = z.object({
 
 const bookingStatusSchema = z.enum(["PENDING","CONFIRMED","RESCHEDULED","DECLINED","COMPLETED","CANCELLED"]);
 
+carsDashboardRouter.get("/public/listings", asyncHandler(async(req,res)=>{
+  await ensureCarsDashboardTables();
+  const rows=await prisma.$queryRawUnsafe<Array<{vendorId:string}>>(
+    `SELECT source_vendor_id AS "vendorId" FROM cars_store_profiles WHERE active=TRUE AND source_vendor_id IS NOT NULL`
+  );
+  const vendorIds=rows.map(r=>r.vendorId).filter(Boolean);
+  if(!vendorIds.length) return res.json({items:[]});
+  const products=await prisma.product.findMany({
+    where:{vendorId:{in:vendorIds},deletedAt:null,status:"ACTIVE",category:{slug:"cars"}},
+    include:{images:{orderBy:{position:"asc"}},category:true,vendor:{select:{id:true,storeName:true,storeSlug:true,verified:true,location:true,whatsappNumber:true}}},
+    orderBy:{createdAt:"desc"},take:100
+  });
+  res.json({items:products});
+}));
+
+carsDashboardRouter.get("/public/listings/:slug", asyncHandler(async(req,res)=>{
+  await ensureCarsDashboardTables();
+  const product=await prisma.product.findFirst({
+    where:{slug:req.params.slug,deletedAt:null,status:"ACTIVE",category:{slug:"cars"},vendor:{carsStoreProfiles:{some:{active:true}}}},
+    include:{images:{orderBy:{position:"asc"}},category:true,vendor:{select:{id:true,storeName:true,storeSlug:true,verified:true,location:true,whatsappNumber:true}}}
+  });
+  if(!product) throw AppError.notFound("Vehicle listing not found","LISTING_NOT_FOUND");
+  res.json(product);
+}));
+
 carsDashboardRouter.get("/public/by-product/:slug", asyncHandler(async(req,res)=>{
   await ensureCarsDashboardTables();
   const product=await prisma.product.findUnique({where:{slug:req.params.slug},select:{vendorId:true,category:{select:{slug:true}},deletedAt:true}});
