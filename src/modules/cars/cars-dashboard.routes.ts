@@ -60,6 +60,18 @@ const bookingSettingsSchema = z.object({\n  storeName: z.string().trim().min(2).
 
 const bookingStatusSchema = z.enum(["PENDING","CONFIRMED","RESCHEDULED","DECLINED","COMPLETED","CANCELLED"]);
 
+carsDashboardRouter.get("/public/by-product/:slug", asyncHandler(async(req,res)=>{
+  await ensureCarsDashboardTables();
+  const product=await prisma.product.findUnique({where:{slug:req.params.slug},select:{vendorId:true}});
+  if(!product) throw AppError.notFound("Vehicle listing not found","LISTING_NOT_FOUND");
+  const stores=await prisma.$queryRawUnsafe<any[]>(`SELECT csp.id,csp.store_name AS "storeName",csp.active,
+    cbs.whatsapp_number AS "whatsappNumber",cbs.phone_number AS "phoneNumber",cbs.booking_url AS "bookingUrl"
+    FROM cars_store_profiles csp LEFT JOIN cars_booking_settings cbs ON cbs.cars_store_id=csp.id
+    WHERE csp.source_vendor_id=$1 LIMIT 1`,product.vendorId);
+  if(!stores[0]) return res.json({store:null});
+  res.json({store:stores[0]});
+}));
+
 carsDashboardRouter.get("/dashboard", requireAuth, asyncHandler(async (req, res) => {
   const store = await getCarsStore(req.user!.sub);
   const settings = await prisma.$queryRawUnsafe<any[]>(
