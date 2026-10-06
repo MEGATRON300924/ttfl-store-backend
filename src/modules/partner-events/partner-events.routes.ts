@@ -64,7 +64,13 @@ partnerEventsRouter.get("/events", asyncHandler(async (req, res) => {
     orderBy: { startsAt: "asc" },
     take: 50,
   });
-  res.json({ events });
+  // Public event cards should always have a usable visual. Older events may only
+  // have the partner logo while newer events can have their own cover image.
+  const publicEvents = events.map((event) => ({
+    ...event,
+    coverImageUrl: event.coverImageUrl || event.partner.logoUrl || null,
+  }));
+  res.json({ events: publicEvents });
 }));
 
 partnerEventsRouter.get("/events/:slug", asyncHandler(async (req, res) => {
@@ -73,7 +79,13 @@ partnerEventsRouter.get("/events/:slug", asyncHandler(async (req, res) => {
     include: { partner: { select: { organizationName: true, slug: true, logoUrl: true, websiteUrl: true, description: true } } },
   });
   if (!event) throw AppError.notFound("Event not found");
-  res.json({ event });
+  // Keep the detail page consistent with the public event listing: use the
+  // event cover first, then the partner logo as a safe fallback.
+  const publicEvent = {
+    ...event,
+    coverImageUrl: event.coverImageUrl || event.partner.logoUrl || null,
+  };
+  res.json({ event: publicEvent });
 }));
 
 partnerEventsRouter.post("/partners/register", requireAuth, asyncHandler(async (req, res) => {
