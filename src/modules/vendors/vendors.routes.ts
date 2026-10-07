@@ -40,6 +40,97 @@ vendorsRouter.patch("/me/store", requireAuth, requireRole("VENDOR"), asyncHandle
   res.json({ vendorProfile: profile });
 }));
 
+
+
+async function ensureVendorBookingSettings() {
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS vendor_booking_settings (
+      id TEXT PRIMARY KEY,
+      vendor_id TEXT NOT NULL UNIQUE REFERENCES vendor_profiles(id) ON DELETE CASCADE,
+      enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      booking_url TEXT,
+      booking_label TEXT,
+      whatsapp_number TEXT,
+      phone_number TEXT,
+      email TEXT,
+      instructions TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+}
+
+const bookingSettingsSchema = z.object({
+  enabled: z.boolean().default(false),
+  bookingUrl: z.string().trim().url().max(1000).nullable().optional(),
+  bookingLabel: z.string().trim().max(80).nullable().optional(),
+  whatsappNumber: z.string().trim().max(30).nullable().optional(),
+  phoneNumber: z.string().trim().max(30).nullable().optional(),
+  email: z.string().trim().email().max(320).nullable().optional(),
+  instructions: z.string().trim().max(1000).nullable().optional(),
+});
+
+vendorsRouter.get("/me/booking-settings", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => {
+  await ensureVendorBookingSettings();
+  const vendor = await vendorsService.getMyVendorProfile(req.user!.sub);
+  const rows = await prisma.$queryRawUnsafe<any[]>(
+    `SELECT enabled, booking_url AS "bookingUrl", booking_label AS "bookingLabel",
+      whatsapp_number AS "whatsappNumber", phone_number AS "phoneNumber",
+      email, instructions, updated_at AS "updatedAt"
+     FROM vendor_booking_settings WHERE vendor_id = $1 LIMIT 1`,
+    vendor.id,
+  );
+  res.json({ bookingSettings: rows[0] ?? {
+    enabled: false, bookingUrl: null, bookingLabel: "Book an appointment",
+    whatsappNumber: vendor.whatsappNumber ?? null, phoneNumber: null,
+    email: null, instructions: null,
+  } });
+}));
+
+vendorsRouter.put("/me/booking-settings", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => {
+  await ensureVendorBookingSettings();
+  const data = bookingSettingsSchema.parse(req.body);
+  const vendor = await vendorsService.getMyVendorProfile(req.user!.sub);
+  const existing = await prisma.$queryRawUnsafe<any[]>(
+    `SELECT id FROM vendor_booking_settings WHERE vendor_id = $1 LIMIT 1`, vendor.id,
+  );
+  const values = [
+    data.enabled,
+    data.bookingUrl?.trim() || null,
+    data.bookingLabel?.trim() || null,
+    data.whatsappNumber?.trim() || null,
+    data.phoneNumber?.trim() || null,
+    data.email?.trim() || null,
+    data.instructions?.trim() || null,
+    vendor.id,
+  ];
+  if (existing[0]) {
+    await prisma.$executeRawUnsafe(
+      `UPDATE vendor_booking_settings
+       SET enabled=$1, booking_url=$2, booking_label=$3, whatsapp_number=$4,
+           phone_number=$5, email=$6, instructions=$7, updated_at=NOW()
+       WHERE vendor_id=$8`,
+      ...values,
+    );
+  } else {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO vendor_booking_settings
+       (id,vendor_id,enabled,booking_url,booking_label,whatsapp_number,phone_number,email,instructions)
+       VALUES (gen_random_uuid()::text,$1,$2,$3,$4,$5,$6,$7,$8)`,
+      vendor.id, ...values.slice(0, 7),
+    );
+  }
+  res.json({ message: "Booking settings saved.", bookingSettings: {
+    enabled: data.enabled,
+    bookingUrl: data.bookingUrl?.trim() || null,
+    bookingLabel: data.bookingLabel?.trim() || null,
+    whatsappNumber: data.whatsappNumber?.trim() || null,
+    phoneNumber: data.phoneNumber?.trim() || null,
+    email: data.email?.trim() || null,
+    instructions: data.instructions?.trim() || null,
+  }});
+}));
+
 const statusQuerySchema = z.object({ status: z.enum(["PENDING", "APPROVED", "REJECTED", "SUSPENDED"]).optional() });
 
 vendorsRouter.get("/admin/applications", requireAuth, requireRole("ADMIN"), asyncHandler(async (req, res) => {
