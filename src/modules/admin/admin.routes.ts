@@ -13,7 +13,7 @@ export const adminRouter = Router();
 adminRouter.get("/waitlists", requireAuth, requireRole("ADMIN"), asyncHandler(async (_req, res) => {
   const rows = await prisma.$queryRawUnsafe<Array<{ productId: string; name: string; slug: string; vendorName: string | null; count: bigint | number; latestJoinedAt: Date | string | null }>>(`
     SELECT p.id AS "productId", p.name, p.slug, vp."storeName" AS "vendorName",
-           COUNT(a.id)::bigint AS count, MAX(a."createdAt") AS "latestJoinedAt"
+           COUNT(a.id)::bigint AS count, MAX(a.created_at) AS "latestJoinedAt"
     FROM products p
     LEFT JOIN vendor_profiles vp ON vp.id=p."vendorId"
     LEFT JOIN product_alerts a ON a.product_id=p.id AND a.type='WAITLIST'
