@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { asyncHandler } from "@/middleware/error-handler";
@@ -116,8 +117,8 @@ vendorsRouter.put("/me/booking-settings", requireAuth, requireRole("VENDOR"), as
     await prisma.$executeRawUnsafe(
       `INSERT INTO vendor_booking_settings
        (id,vendor_id,enabled,booking_url,booking_label,whatsapp_number,phone_number,email,instructions)
-       VALUES (gen_random_uuid()::text,$1,$2,$3,$4,$5,$6,$7,$8)`,
-      vendor.id, ...values.slice(0, 7),
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      randomUUID(), ...values,
     );
   }
   res.json({ message: "Booking settings saved.", bookingSettings: {
