@@ -59,29 +59,29 @@ function sanitizeCustomHtml(input: unknown) {
   const value = typeof input === "string" ? input : "";
   if (!value.trim()) return "";
   let html = value.slice(0, 60000)
-    .replace(/<!--[\\s\\S]*?-->/g, "")
-    .replace(/<\\/?style\\b[^>]*>[\\s\\S]*?<\\/?style\\s*>/gi, "")
-    .replace(/<\\s*(script|iframe|object|embed|applet|base|meta|link|form|input|textarea|select|option|button)\\b[^>]*>[\\s\\S]*?<\\/\\s*\\1\\s*>/gi, "")
-    .replace(/<\\s*(script|iframe|object|embed|applet|base|meta|link|form|input|textarea|select|option|button)\\b[^>]*\\/?\\s*>/gi, "");
-  html = html.replace(/<\\/?([a-z0-9-]+)([^>]*)>/gi, (full, rawTag, rawAttrs) => {
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<\/?style\b[^>]*>[\s\S]*?<\/?style\s*>/gi, "")
+    .replace(/<\s*(script|iframe|object|embed|applet|base|meta|link|form|input|textarea|select|option|button)\b[^>]*>[\s\S]*?<\/\s*\1\s*>/gi, "")
+    .replace(/<\s*(script|iframe|object|embed|applet|base|meta|link|form|input|textarea|select|option|button)\b[^>]*\/?\s*>/gi, "");
+  html = html.replace(/<\/?([a-z0-9-]+)([^>]*)>/gi, (full, rawTag, rawAttrs) => {
     const tag = String(rawTag).toLowerCase();
     if (!ALLOWED_HTML_TAGS.has(tag)) return "";
     let attrs = String(rawAttrs || "");
-    attrs = attrs.replace(/\\s+on[a-z-]+\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>]+)/gi, "");
-    attrs = attrs.replace(/\\s+(href|src)\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))/gi, (_m, name, a, b, d) => {
+    attrs = attrs.replace(/\s+on[a-z-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "");
+    attrs = attrs.replace(/\s+(href|src)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi, (_m, name, a, b, d) => {
       const url = String(a ?? b ?? d ?? "").trim();
-      if (!/^(https?:|mailto:|tel:|#|\\/)/i.test(url)) return "";
+      if (!/^(https?:|mailto:|tel:|#|\/)/i.test(url)) return "";
       return ` ${name}="${url.replace(/"/g, "&quot;")}"`;
     });
-    attrs = attrs.replace(/\\s+style\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))/gi, (_m, a, b, d) => {
+    attrs = attrs.replace(/\s+style\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi, (_m, a, b, d) => {
       const style = String(a ?? b ?? d ?? "")
-        .replace(/url\\s*\\(/gi, "")
-        .replace(/expression\\s*\\(/gi, "")
+        .replace(/url\s*\(/gi, "")
+        .replace(/expression\s*\(/gi, "")
         .replace(/javascript:/gi, "")
         .replace(/@import/gi, "");
       return style.trim() ? ` style="${style.replace(/"/g, "&quot;")}"` : "";
     });
-    attrs = attrs.replace(/\\s+(id|class|title|alt|aria-[a-z-]+|data-[a-z0-9-]+)\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))/gi, (_m, name, a, b, d) => {
+    attrs = attrs.replace(/\s+(id|class|title|alt|aria-[a-z-]+|data-[a-z0-9-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi, (_m, name, a, b, d) => {
       const value = String(a ?? b ?? d ?? "");
       return ` ${name}="${value.replace(/"/g, "&quot;")}"`;
     });
