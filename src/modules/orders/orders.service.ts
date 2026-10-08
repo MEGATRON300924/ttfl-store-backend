@@ -3,7 +3,7 @@ import { env } from "@/config/env";
 import { AppError } from "@/utils/app-error";
 import { createTransactionSplit, initializeTransaction, verifyTransaction, refundTransaction } from "@/lib/paystack";
 import { resolveCommissionRate, calculateCommission } from "@/lib/commissions";
-import { validateCoupon, recordRedemption, type CartLineForCoupon } from "@/modules/coupons/coupons.service";
+import { validateCoupon, recordRedemption, getCouponProductIds, type CartLineForCoupon } from "@/modules/coupons/coupons.service";
 import { getCheckoutDeals, reserveForOrder, consumeForOrder, releaseForOrder } from "@/modules/flash-deals/flash-deals.service";
 import { sendEmail, orderConfirmationEmail, orderStatusUpdateEmail, vendorNewOrderEmail, adminNewOrderEmail, orderRefundedEmail } from "@/lib/email";
 import { sendWhatsAppNotification, newOrderWhatsAppMessage } from "@/lib/whatsapp-notifications";
@@ -49,10 +49,10 @@ export async function checkout(customerId: string, customerEmail: string, input:
   const vendorOrderData: Prisma.VendorOrderCreateWithoutOrderInput[] = [];
   const vendorSubtotals = new Map<string, number>();
   const couponLines: CartLineForCoupon[] = [];
-  for (const [vendorId, group] of groups) { const subtotal = group.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0); vendorSubtotals.set(vendorId, subtotal); subtotalAmount += subtotal; for (const item of group.items) couponLines.push({ vendorId, categoryId: item.product.categoryId, lineTotal: item.unitPrice * item.quantity }); }
+  for (const [vendorId, group] of groups) { const subtotal = group.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0); vendorSubtotals.set(vendorId, subtotal); subtotalAmount += subtotal; for (const item of group.items) couponLines.push({ vendorId, categoryId: item.product.categoryId, productId: item.product.id, lineTotal: item.unitPrice * item.quantity }); }
 
-  let discountAmount = 0, couponId: string | null = null, couponCode: string | null = null, couponVendorId: string | null = null, couponCategoryId: string | null = null, couponEligibleBase = 0;
-  if (input.couponCode) { const result = await validateCoupon(input.couponCode, customerId, couponLines); discountAmount = result.discountAmount; couponId = result.coupon.id; couponCode = result.coupon.code; couponEligibleBase = result.eligibleBase; const coupon = await prisma.coupon.findUniqueOrThrow({ where: { id: couponId } }); couponVendorId = coupon.vendorId; couponCategoryId = coupon.categoryId; }
+  let discountAmount = 0, couponId: string | null = null, couponCode: string | null = null, couponVendorId: string | null = null, couponCategoryId: string | null = null, couponProductIds: string[] = [], couponEligibleBase = 0;
+  if (input.couponCode) { const result = await validateCoupon(input.couponCode, customerId, couponLines); discountAmount = result.discountAmount; couponId = result.coupon.id; couponCode = result.coupon.code; couponEligibleBase = result.eligibleBase; const coupon = await prisma.coupon.findUniqueOrThrow({ where: { id: couponId } }); couponVendorId = coupon.vendorId; couponCategoryId = coupon.categoryId; couponProductIds = await getCouponProductIds(coupon.id); }
 
   const rewardPointsRequested = Math.max(0, Math.floor(input.rewardPoints ?? 0));
   await ensureRewardsReady();
@@ -61,7 +61,7 @@ export async function checkout(customerId: string, customerEmail: string, input:
   const rewardMaxByOrder = Math.floor(rewardEligibleBase * rewardMaxPercent / 100);
   const rewardPoints = Math.min(rewardPointsRequested, rewardMaxByOrder);
   const totalAmount = Math.max(0, Math.round((subtotalAmount - discountAmount - rewardPoints) * 100) / 100);
-  for (const [vendorId, group] of groups) { const originalSubtotal = group.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0); if (!discountAmount || !couponEligibleBase) { vendorSubtotals.set(vendorId, originalSubtotal); continue; } const eligibleForVendor = couponLines.filter((line) => line.vendorId === vendorId).filter((line) => !couponVendorId || line.vendorId === couponVendorId).filter((line) => !couponCategoryId || line.categoryId === couponCategoryId).reduce((sum, line) => sum + line.lineTotal, 0); const allocation = couponVendorId || couponCategoryId ? discountAmount * (eligibleForVendor / couponEligibleBase) : discountAmount * (originalSubtotal / subtotalAmount); vendorSubtotals.set(vendorId, Math.max(0, Math.round((originalSubtotal - allocation) * 100) / 100)); }
+  for (const [vendorId, group] of groups) { const originalSubtotal = group.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0); if (!discountAmount || !couponEligibleBase) { vendorSubtotals.set(vendorId, originalSubtotal); continue; } const eligibleForVendor = couponLines.filter((line) => line.vendorId === vendorId).filter((line) => !couponVendorId || line.vendorId === couponVendorId).filter((line) => !couponCategoryId || line.categoryId === couponCategoryId).filter((line) => !couponProductIds.length || Boolean(line.productId && couponProductIds.includes(line.productId))).reduce((sum, line) => sum + line.lineTotal, 0); const allocation = couponVendorId || couponCategoryId ? discountAmount * (eligibleForVendor / couponEligibleBase) : discountAmount * (originalSubtotal / subtotalAmount); vendorSubtotals.set(vendorId, Math.max(0, Math.round((originalSubtotal - allocation) * 100) / 100)); }
   if (rewardPoints > 0 && rewardEligibleBase > 0) {
     for (const [vendorId, value] of vendorSubtotals) {
       const allocation = rewardPoints * (value / rewardEligibleBase);
