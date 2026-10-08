@@ -53,7 +53,7 @@ async function vendorForUser(userId: string) { return getVendorProfileForUser(us
 
 async function ensurePermanentFromPaidHistory(vendorId: string) {
   const paid = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
-    `SELECT sp.id FROM subscription_payments sp INNER JOIN vendor_subscriptions vs ON vs.id=sp.subscription_id WHERE vs.vendor_id=$1 AND sp.status='PAID' AND sp.amount>0 LIMIT 1`,
+    `SELECT sp.id FROM subscription_payments sp INNER JOIN vendor_subscriptions vs ON vs.id=sp."subscriptionId" WHERE vs."vendorId"=$1 AND sp.status='PAID' AND sp.amount>0 LIMIT 1`,
     vendorId,
   );
   if (!paid[0]) return false;
