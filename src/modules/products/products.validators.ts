@@ -16,7 +16,7 @@ const baseProductFields = {
   tags: z.array(z.string().min(1)).max(20).optional(),
   images: z.array(z.string().url()).min(1, "At least one product image is required").max(10),
   videos: z.array(z.string().url()).max(3).optional(),
-  specifications: z.record(z.string()).optional(),
+  specifications: z.record(z.union([z.string(), z.array(z.string())])).optional(),
   estimatedDeliveryDays: z.number().int().min(1).max(90).default(7),
   comingSoon: z.boolean().default(false),
   availableAt: z.preprocess((value) => (value === "" || value === undefined || value === null ? undefined : value), z.string().datetime().optional()),
