@@ -51,12 +51,40 @@ export async function ensureStoreBuilderTables() {
 
 async function vendorForUser(userId: string) { return getVendorProfileForUser(userId); }
 
+async function hasPermanentEntitlement(vendorId: string) {
+  const rows = await prisma.$queryRawUnsafe<Array<{ permanent: boolean }>>(
+    `SELECT permanent FROM store_builder_entitlements WHERE vendor_id=$1 AND permanent=TRUE LIMIT 1`,
+    vendorId,
+  );
+  return Boolean(rows[0]?.permanent);
+}
+
 async function ensurePermanentFromPaidHistory(vendorId: string) {
   const paid = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
     `SELECT sp.id FROM subscription_payments sp INNER JOIN vendor_subscriptions vs ON vs.id=sp."subscriptionId" WHERE vs."vendorId"=$1 AND sp.status='PAID' AND sp.amount>0 LIMIT 1`,
     vendorId,
   );
   if (!paid[0]) return false;
+  await prisma.$executeRawUnsafe(
+    `INSERT INTO store_builder_entitlements(id,vendor_id,permanent,source) VALUES($1,$2,TRUE,'DIRECT_PURCHASE') ON CONFLICT(vendor_id) DO UPDATE SET permanent=TRUE,source='DIRECT_PURCHASE',updated_at=NOW()`,
+    randomBytes(16).toString("hex"), vendorId,
+  );
+  return true;
+}
+
+async function ensurePermanentFromActivePaidPlan(vendorId: string) {
+  const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
+    `SELECT vs.id
+     FROM vendor_subscriptions vs
+     INNER JOIN vendor_plans vp ON vp.id=vs."planId"
+     WHERE vs."vendorId"=$1
+       AND vs.status='ACTIVE'
+       AND vp.tier <> 'FREE'
+       AND vp.price > 0
+     LIMIT 1`,
+    vendorId,
+  );
+  if (!rows[0]) return false;
   await prisma.$executeRawUnsafe(
     `INSERT INTO store_builder_entitlements(id,vendor_id,permanent,source) VALUES($1,$2,TRUE,'DIRECT_PURCHASE') ON CONFLICT(vendor_id) DO UPDATE SET permanent=TRUE,source='DIRECT_PURCHASE',updated_at=NOW()`,
     randomBytes(16).toString("hex"), vendorId,
@@ -75,8 +103,25 @@ async function hasActiveGift(userId: string) {
 export async function getBuilderAccess(userId: string) {
   await ensureStoreBuilderTables();
   const vendor = await vendorForUser(userId);
-  const permanent = await ensurePermanentFromPaidHistory(vendor.id);
-  if (permanent) return { allowed: true, permanent: true, reason: "DIRECT_PURCHASE" as const };
+
+  // A previously granted permanent entitlement must survive plan expiry/cancellation.
+  if (await hasPermanentEntitlement(vendor.id)) {
+    return { allowed: true, permanent: true, reason: "DIRECT_PURCHASE" as const };
+  }
+
+  // Backfill permanent access for vendors with a recorded successful payment.
+  const paidHistory = await ensurePermanentFromPaidHistory(vendor.id);
+  if (paidHistory) {
+    return { allowed: true, permanent: true, reason: "DIRECT_PURCHASE" as const };
+  }
+
+  // Also backfill immediately for an active paid plan. This covers existing Enterprise/
+  // Pro vendors whose subscription payment history predates Store Builder.
+  const activePaidPlan = await ensurePermanentFromActivePaidPlan(vendor.id);
+  if (activePaidPlan) {
+    return { allowed: true, permanent: true, reason: "DIRECT_PURCHASE" as const };
+  }
+
   if (await hasActiveGift(userId)) return { allowed: true, permanent: false, reason: "GIFT" as const };
   return { allowed: false, permanent: false, reason: "NONE" as const };
 }
