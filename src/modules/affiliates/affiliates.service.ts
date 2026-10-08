@@ -117,7 +117,7 @@ export async function redeemVendorReward(userId:string){
     if(current)await tx.vendorSubscription.update({where:{id:current.id},data:{planId:plan.id,status:"ACTIVE",startDate:now,renewalDate:expires,cancelledAt:null}});
     else await tx.vendorSubscription.create({data:{vendorId:vendor.id,planId:plan.id,status:"ACTIVE",startDate:now,renewalDate:expires}});
     await tx.vendorProfile.update({where:{id:vendor.id},data:{tier}});
-    await tx.$executeRawUnsafe(`UPDATE affiliate_vendor_rewards SET status='REDEEMED',redeemed_at=$1,updated_at=NOW() WHERE id=$2 AND status='CLAIMED'`,now,reward[0].id);
+    await tx.$executeRawUnsafe(`UPDATE affiliate_vendor_rewards SET status='REDEEMED',redeemed_at=$1,expires_at=$3,updated_at=NOW() WHERE id=$2 AND status='CLAIMED'`,now,reward[0].id,expires);
   });
   return{redeemed:true,tier,months:reward[0].reward_months,expiresAt:expires};
 }
