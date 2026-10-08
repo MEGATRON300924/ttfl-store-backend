@@ -6,16 +6,35 @@ import type { VendorTier } from "@prisma/client";
 
 export type StorefrontConfig = {
   version: number;
-  theme: { preset: "CLASSIC" | "DARK" | "MINIMAL"; accent: string; background: string; text: string };
+  theme: {
+    preset: "CLASSIC" | "DARK" | "MINIMAL";
+    accent: string;
+    background: string;
+    text: string;
+    headerBackground: string;
+    sidebarBackground: string;
+    navigation: "SIDE" | "TOP";
+    surface: "SOLID" | "GLASS" | "FLAT";
+  };
   banner: { enabled: boolean; imageUrl: string | null; height: number; positionX: number; positionY: number; overlay: number; title: string; subtitle: string; titlePosition: "LEFT" | "CENTER" | "RIGHT"; showLogo: boolean };
   layout: { desktopColumns: 2 | 3 | 4 | 5; mobileColumns: 1 | 2; productLayout: "GRID" | "CAROUSEL" | "LIST"; cardStyle: "STANDARD" | "COMPACT" | "MINIMAL"; imageRatio: "SQUARE" | "PORTRAIT" | "LANDSCAPE"; showDescription: boolean; showRatings: boolean; showDiscountBadges: boolean; showStock: boolean };
   sections: Array<{ id: string; type: "FEATURED" | "BEST_SELLERS" | "CATEGORY" | "PRODUCTS" | "BANNER" | "ABOUT" | "HOURS"; title: string; enabled: boolean; categoryId?: string | null; productIds?: string[]; banner?: { imageUrl: string | null; height: number; positionX: number; positionY: number; overlay: number; title: string; subtitle: string } }>;
   contact: { showWhatsApp: boolean; showLocation: boolean; showEmail: boolean };
+  customHtml: { enabled: boolean; code: string };
 };
 
 const DEFAULT_CONFIG: StorefrontConfig = {
   version: 1,
-  theme: { preset: "CLASSIC", accent: "#E8622C", background: "#F8FAFC", text: "#111827" },
+  theme: {
+    preset: "CLASSIC",
+    accent: "#E8622C",
+    background: "#F8FAFC",
+    text: "#111827",
+    headerBackground: "#FFFFFF",
+    sidebarBackground: "#111827",
+    navigation: "SIDE",
+    surface: "SOLID",
+  },
   banner: { enabled: true, imageUrl: null, height: 360, positionX: 50, positionY: 50, overlay: 35, title: "", subtitle: "", titlePosition: "LEFT", showLogo: true },
   layout: { desktopColumns: 4, mobileColumns: 2, productLayout: "GRID", cardStyle: "STANDARD", imageRatio: "SQUARE", showDescription: false, showRatings: true, showDiscountBadges: true, showStock: false },
   sections: [
@@ -24,9 +43,52 @@ const DEFAULT_CONFIG: StorefrontConfig = {
     { id: "hours", type: "HOURS", title: "Business hours", enabled: true },
   ],
   contact: { showWhatsApp: true, showLocation: true, showEmail: false },
+  customHtml: { enabled: false, code: "" },
 };
 
 function cloneDefault(): StorefrontConfig { return JSON.parse(JSON.stringify(DEFAULT_CONFIG)) as StorefrontConfig; }
+
+const ALLOWED_HTML_TAGS = new Set([
+  "a","article","aside","b","blockquote","br","button","code","div","em","figure","figcaption",
+  "footer","h1","h2","h3","h4","h5","h6","header","hr","i","img","label","li","main","nav",
+  "ol","p","section","small","span","strong","table","tbody","td","tfoot","th","thead","tr",
+  "u","ul","pre"
+]);
+
+function sanitizeCustomHtml(input: unknown) {
+  const value = typeof input === "string" ? input : "";
+  if (!value.trim()) return "";
+  let html = value.slice(0, 60000)
+    .replace(/<!--[\\s\\S]*?-->/g, "")
+    .replace(/<\\/?style\\b[^>]*>[\\s\\S]*?<\\/?style\\s*>/gi, "")
+    .replace(/<\\s*(script|iframe|object|embed|applet|base|meta|link|form|input|textarea|select|option|button)\\b[^>]*>[\\s\\S]*?<\\/\\s*\\1\\s*>/gi, "")
+    .replace(/<\\s*(script|iframe|object|embed|applet|base|meta|link|form|input|textarea|select|option|button)\\b[^>]*\\/?\\s*>/gi, "");
+  html = html.replace(/<\\/?([a-z0-9-]+)([^>]*)>/gi, (full, rawTag, rawAttrs) => {
+    const tag = String(rawTag).toLowerCase();
+    if (!ALLOWED_HTML_TAGS.has(tag)) return "";
+    let attrs = String(rawAttrs || "");
+    attrs = attrs.replace(/\\s+on[a-z-]+\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s>]+)/gi, "");
+    attrs = attrs.replace(/\\s+(href|src)\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))/gi, (_m, name, a, b, d) => {
+      const url = String(a ?? b ?? d ?? "").trim();
+      if (!/^(https?:|mailto:|tel:|#|\\/)/i.test(url)) return "";
+      return ` ${name}="${url.replace(/"/g, "&quot;")}"`;
+    });
+    attrs = attrs.replace(/\\s+style\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))/gi, (_m, a, b, d) => {
+      const style = String(a ?? b ?? d ?? "")
+        .replace(/url\\s*\\(/gi, "")
+        .replace(/expression\\s*\\(/gi, "")
+        .replace(/javascript:/gi, "")
+        .replace(/@import/gi, "");
+      return style.trim() ? ` style="${style.replace(/"/g, "&quot;")}"` : "";
+    });
+    attrs = attrs.replace(/\\s+(id|class|title|alt|aria-[a-z-]+|data-[a-z0-9-]+)\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))/gi, (_m, name, a, b, d) => {
+      const value = String(a ?? b ?? d ?? "");
+      return ` ${name}="${value.replace(/"/g, "&quot;")}"`;
+    });
+    return `<${full.startsWith("</") ? "/" : ""}${tag}${full.startsWith("</") ? "" : attrs}>`;
+  });
+  return html.trim();
+}
 
 function normalizeConfig(input: unknown): StorefrontConfig {
   const base = cloneDefault();
@@ -37,7 +99,15 @@ function normalizeConfig(input: unknown): StorefrontConfig {
   if (value.layout) base.layout = { ...base.layout, ...value.layout };
   if (Array.isArray(value.sections)) base.sections = value.sections.slice(0, 30).map((section) => ({ ...section, id: String(section.id || randomBytes(6).toString("hex")) })) as StorefrontConfig["sections"];
   if (value.contact) base.contact = { ...base.contact, ...value.contact };
-  base.version = 1;
+  if (value.customHtml && typeof value.customHtml === "object") {
+    base.customHtml = {
+      enabled: Boolean(value.customHtml.enabled),
+      code: sanitizeCustomHtml(value.customHtml.code),
+    };
+  }
+  base.theme.navigation = value.theme?.navigation === "TOP" ? "TOP" : "SIDE";
+  base.theme.surface = value.theme?.surface === "GLASS" || value.theme?.surface === "FLAT" ? value.theme.surface : "SOLID";
+  base.version = 2;
   return base;
 }
 
