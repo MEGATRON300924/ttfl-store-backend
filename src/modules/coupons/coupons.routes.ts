@@ -6,7 +6,7 @@ import { getVendorProfileForUser } from "@/lib/vendor-access";
 import * as couponsService from "./coupons.service";
 
 export const couponsRouter = Router();
-const previewSchema = z.object({ code: z.string().min(1), lines: z.array(z.object({ vendorId: z.string(), categoryId: z.string(), lineTotal: z.number() })) });
+const previewSchema = z.object({ code: z.string().min(1), lines: z.array(z.object({ vendorId: z.string(), categoryId: z.string(), productId: z.string().optional(), lineTotal: z.number() })) });
 couponsRouter.post("/preview", requireAuth, asyncHandler(async (req, res) => { const { code, lines } = previewSchema.parse(req.body); res.json(await couponsService.validateCoupon(code, req.user!.sub, lines)); }));
 const adminCreateSchema = z.object({ code: z.string().min(3).max(30), type: z.enum(["PERCENTAGE", "FIXED"]), value: z.number().positive(), vendorId: z.string().uuid().optional(), categoryId: z.string().uuid().optional(), minOrderAmount: z.number().positive().optional(), maxDiscountAmount: z.number().positive().optional(), usageLimit: z.number().int().positive().optional(), usageLimitPerUser: z.number().int().positive().optional(), firstOrderOnly: z.boolean().optional(), startsAt: z.coerce.date().optional(), expiresAt: z.coerce.date().optional() });
 couponsRouter.post("/admin", requireAuth, requireRole("ADMIN"), asyncHandler(async (req, res) => { res.status(201).json({ coupon: await couponsService.adminCreateCoupon(adminCreateSchema.parse(req.body), req.user!.sub) }); }));
