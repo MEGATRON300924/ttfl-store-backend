@@ -146,6 +146,7 @@ broadcastRouter.post("/admin", requireAuth, requireRole("ADMIN"), asyncHandler(a
       type: "BROADCAST",
       url: "/notifications",
       data: { broadcastId: id },
+      sendPush: false,
     })));
     webNotificationsSent = results.filter(result => result.status === "fulfilled").length;
   }
