@@ -76,7 +76,7 @@ export async function checkout(customerId: string, customerEmail: string, input:
     const subtotal = vendorSubtotals.get(vendorId)!;
     const rate = await resolveCommissionRate(vendorId);
     const { commissionAmount, vendorEarnings } = calculateCommission(subtotal, rate);
-    vendorOrderData.push({ vendor: { connect: { id: vendorId } }, subtotal, commissionRate: rate, commissionAmount, vendorEarnings, items: { create: group.items.map((item) => ({ productId: item.product.id, productName: item.variantLabel ? `${item.product.name} — ${item.variantLabel}` : item.product.name, unitPrice: item.unitPrice, quantity: item.quantity, lineTotal: item.unitPrice * item.quantity, variantKey: item.variantKey, variantLabel: item.variantLabel, variantOptions: item.variantOptions as Prisma.InputJsonValue | undefined })) } });
+    vendorOrderData.push({ vendor: { connect: { id: vendorId } }, subtotal, commissionRate: rate, commissionAmount, vendorEarnings, items: { create: group.items.map((item) => { const specs = item.product.specifications && typeof item.product.specifications === "object" && !Array.isArray(item.product.specifications) ? item.product.specifications as Record<string, unknown> : {}; const isPreOrder = specs._productType === "pre-order"; const itemName = item.variantLabel ? `${item.product.name} — ${item.variantLabel}` : item.product.name; return { productId: item.product.id, productName: `${isPreOrder ? "[Pre-order] " : ""}${itemName}`, unitPrice: item.unitPrice, quantity: item.quantity, lineTotal: item.unitPrice * item.quantity, variantKey: item.variantKey, variantLabel: item.variantLabel, variantOptions: item.variantOptions as Prisma.InputJsonValue | undefined }; }) } });
   }
 
   const orderNumber = await generateOrderNumber();
