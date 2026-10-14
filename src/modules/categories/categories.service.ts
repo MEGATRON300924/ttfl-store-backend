@@ -16,6 +16,12 @@ async function ensureVariationColumn() {
   await columnReady;
 }
 
+let smartHomeReady: Promise<void> | null = null;
+async function ensureSmartHomeCategory() {
+  if (!smartHomeReady) smartHomeReady = prisma.category.upsert({ where: { slug: "smart-home" }, update: {}, create: { name: "Smart Home", slug: "smart-home", icon: "House" } }).then(() => undefined);
+  await smartHomeReady;
+}
+
 function normalizeConfig(value: unknown): CategoryVariationConfig {
   if (!value || typeof value !== "object") return EMPTY_CONFIG;
   const raw = value as Record<string, unknown>;
@@ -44,11 +50,13 @@ async function configsFor(ids: string[]) {
 function withConfig<T extends { id: string }>(category: T, configs: Map<string, CategoryVariationConfig>) { return { ...category, variationConfig: configs.get(category.id) ?? EMPTY_CONFIG }; }
 
 export async function listCategories() {
+  await ensureSmartHomeCategory();
   const categories = await prisma.category.findMany({ where: { parentId: null }, include: { children: true }, orderBy: { name: "asc" } });
   const configs = await configsFor(categories.flatMap((category) => [category.id, ...category.children.map((child) => child.id)]));
   return categories.map((category) => ({ ...withConfig(category, configs), children: category.children.map((child) => withConfig(child, configs)) }));
 }
 export async function getCategoryBySlug(slug: string) {
+  await ensureSmartHomeCategory();
   const category = await prisma.category.findUnique({ where: { slug }, include: { children: true } });
   if (!category) throw AppError.notFound("Category not found");
   const configs = await configsFor([category.id, ...category.children.map((child) => child.id)]);
