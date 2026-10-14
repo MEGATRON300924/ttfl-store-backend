@@ -7,6 +7,12 @@ import * as service from "./notifications.service";
 export const notificationsRouter = Router();
 notificationsRouter.use(requireAuth);
 
+const webPushSubscriptionSchema = z.object({ endpoint: z.string().url().max(2048), expirationTime: z.number().nullable().optional(), keys: z.object({ p256dh: z.string().min(20).max(300), auth: z.string().min(10).max(200) }) });
+
+notificationsRouter.get("/web-push/public-key", asyncHandler(async(_req,res)=>{const publicKey=service.getWebPushPublicKey();res.json({publicKey,configured:Boolean(publicKey)});}));
+notificationsRouter.post("/web-push/subscriptions", asyncHandler(async(req,res)=>{const input=webPushSubscriptionSchema.parse(req.body);res.status(201).json({subscription:await service.registerWebPushSubscription(req.user!.sub,input)});}));
+notificationsRouter.delete("/web-push/subscriptions", asyncHandler(async(req,res)=>{const endpoint=z.string().url().max(2048).parse(req.body?.endpoint);await service.removeWebPushSubscription(req.user!.sub,endpoint);res.status(204).send();}));
+
 const registerSchema = z.object({
   expoPushToken: z.string().min(10).max(300),
   platform: z.enum(["android", "ios", "web"]).default("android"),
