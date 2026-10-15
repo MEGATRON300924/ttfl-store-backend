@@ -179,7 +179,6 @@ broadcastRouter.post("/admin", requireAuth, requireRole("ADMIN"), asyncHandler(a
       title: input.title,
       body: input.message,
       type: "BROADCAST",
-      url: "/notifications",
       data: { broadcastId: id, productReferences: input.productReferences, buttons: input.buttons },
       url: input.buttons[0]?.url ?? (input.productReferences[0] ? `/products/${input.productReferences[0].slug}` : "/notifications"),
       sendPush: false,
