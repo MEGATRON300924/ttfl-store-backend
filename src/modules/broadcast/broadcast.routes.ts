@@ -17,6 +17,10 @@ async function ensureTables() {
   await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS ttfl_broadcasts (id TEXT PRIMARY KEY, title TEXT NOT NULL, message TEXT NOT NULL, email_subject TEXT, send_popup BOOLEAN NOT NULL DEFAULT false, send_email BOOLEAN NOT NULL DEFAULT false, send_whatsapp BOOLEAN NOT NULL DEFAULT false, audience JSONB NOT NULL, recipient_count INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
   await prisma.$executeRawUnsafe(`ALTER TABLE ttfl_broadcasts ADD COLUMN IF NOT EXISTS send_whatsapp BOOLEAN NOT NULL DEFAULT false`);
   await prisma.$executeRawUnsafe(`ALTER TABLE ttfl_broadcasts ADD COLUMN IF NOT EXISTS send_web_notification BOOLEAN NOT NULL DEFAULT false`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE ttfl_broadcasts ADD COLUMN IF NOT EXISTS product_references JSONB NOT NULL DEFAULT '[]'::jsonb`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE ttfl_broadcasts ADD COLUMN IF NOT EXISTS buttons JSONB NOT NULL DEFAULT '[]'::jsonb`);
+  await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS ttfl_broadcast_preferences (id TEXT PRIMARY KEY DEFAULT 'global', auto_flash_deals BOOLEAN NOT NULL DEFAULT false, auto_sponsored_products BOOLEAN NOT NULL DEFAULT false, auto_new_products BOOLEAN NOT NULL DEFAULT false, flash_deals_web BOOLEAN NOT NULL DEFAULT true, flash_deals_email BOOLEAN NOT NULL DEFAULT false, sponsored_web BOOLEAN NOT NULL DEFAULT true, sponsored_email BOOLEAN NOT NULL DEFAULT false, new_products_web BOOLEAN NOT NULL DEFAULT true, new_products_email BOOLEAN NOT NULL DEFAULT false, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
+  await prisma.$executeRawUnsafe(`INSERT INTO ttfl_broadcast_preferences(id) VALUES('global') ON CONFLICT(id) DO NOTHING`);
 }
 
 const schema = z.object({
@@ -27,6 +31,8 @@ const schema = z.object({
   sendEmail: z.boolean().default(false),
   sendWhatsApp: z.boolean().default(false),
   sendWebNotification: z.boolean().default(false),
+  productReferences: z.array(z.object({ id: z.string().uuid(), name: z.string().min(1).max(200), slug: z.string().min(1).max(240), imageUrl: z.string().url().max(2048).nullable().optional(), price: z.number().nonnegative().optional() })).max(8).default([]),
+  buttons: z.array(z.object({ label: z.string().trim().min(1).max(40), url: z.string().url().max(2048) })).max(5).default([]),
   audience: z.object({
     mode: z.enum(["ALL", "SELECTED", "NEW", "EXISTING", "VERIFIED", "UNVERIFIED", "VENDORS", "CUSTOMERS"]),
     days: z.number().int().positive().max(3650).optional(),
@@ -59,19 +65,48 @@ broadcastRouter.get("/popup", requireAuth, asyncHandler(async (req, res) => {
   await ensureTables();
   const user = await prisma.user.findUnique({ where: { id: req.user!.sub }, select: { id: true, role: true, emailVerified: true, createdAt: true } });
   if (!user) throw AppError.notFound("User not found");
-  const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT id, title, message, audience, created_at AS "createdAt" FROM ttfl_broadcasts WHERE send_popup = true AND created_at > NOW() - INTERVAL '30 days' ORDER BY created_at DESC LIMIT 20`);
+  const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT id, title, message, audience, product_references AS "productReferences", buttons, created_at AS "createdAt" FROM ttfl_broadcasts WHERE send_popup = true AND created_at > NOW() - INTERVAL '30 days' ORDER BY created_at DESC LIMIT 20`);
   res.json({ items: rows.filter(row => matchesAudience(row.audience, user)) });
 }));
 
 broadcastRouter.get("/public-popup", asyncHandler(async (_req, res) => {
   await ensureTables();
-  const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT id, title, message, created_at AS "createdAt" FROM ttfl_broadcasts WHERE send_popup = true AND created_at > NOW() - INTERVAL '30 days' AND audience->>'mode' = 'ALL' ORDER BY created_at DESC LIMIT 20`);
+  const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT id, title, message, product_references AS "productReferences", buttons, created_at AS "createdAt" FROM ttfl_broadcasts WHERE send_popup = true AND created_at > NOW() - INTERVAL '30 days' AND audience->>'mode' = 'ALL' ORDER BY created_at DESC LIMIT 20`);
   res.json({ items: rows });
+}));
+
+broadcastRouter.get("/admin/preferences", requireAuth, requireRole("ADMIN"), asyncHandler(async (_req, res) => {
+  await ensureTables();
+  const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT auto_flash_deals AS "autoFlashDeals", auto_sponsored_products AS "autoSponsoredProducts", auto_new_products AS "autoNewProducts", flash_deals_web AS "flashDealsWeb", flash_deals_email AS "flashDealsEmail", sponsored_web AS "sponsoredWeb", sponsored_email AS "sponsoredEmail", new_products_web AS "newProductsWeb", new_products_email AS "newProductsEmail", updated_at AS "updatedAt" FROM ttfl_broadcast_preferences WHERE id='global'`);
+  res.json({ preferences: rows[0] ?? {} });
+}));
+
+broadcastRouter.put("/admin/preferences", requireAuth, requireRole("ADMIN"), asyncHandler(async (req, res) => {
+  await ensureTables();
+  const input = z.object({
+    autoFlashDeals: z.boolean(), autoSponsoredProducts: z.boolean(), autoNewProducts: z.boolean(),
+    flashDealsWeb: z.boolean(), flashDealsEmail: z.boolean(), sponsoredWeb: z.boolean(),
+    sponsoredEmail: z.boolean(), newProductsWeb: z.boolean(), newProductsEmail: z.boolean(),
+  }).parse(req.body);
+  const rows = await prisma.$queryRawUnsafe<any[]>(`UPDATE ttfl_broadcast_preferences SET auto_flash_deals=$1,auto_sponsored_products=$2,auto_new_products=$3,flash_deals_web=$4,flash_deals_email=$5,sponsored_web=$6,sponsored_email=$7,new_products_web=$8,new_products_email=$9,updated_at=NOW() WHERE id='global' RETURNING auto_flash_deals AS "autoFlashDeals", auto_sponsored_products AS "autoSponsoredProducts", auto_new_products AS "autoNewProducts", flash_deals_web AS "flashDealsWeb", flash_deals_email AS "flashDealsEmail", sponsored_web AS "sponsoredWeb", sponsored_email AS "sponsoredEmail", new_products_web AS "newProductsWeb", new_products_email AS "newProductsEmail", updated_at AS "updatedAt"`, input.autoFlashDeals, input.autoSponsoredProducts, input.autoNewProducts, input.flashDealsWeb, input.flashDealsEmail, input.sponsoredWeb, input.sponsoredEmail, input.newProductsWeb, input.newProductsEmail);
+  res.json({ preferences: rows[0] });
+}));
+
+broadcastRouter.get("/admin/products", requireAuth, requireRole("ADMIN"), asyncHandler(async (req, res) => {
+  await ensureTables();
+  const search = String(req.query.search ?? "").trim().slice(0, 120);
+  if (search.length < 2) return res.json({ items: [] });
+  const items = await prisma.product.findMany({
+    where: { status: "ACTIVE", deletedAt: null, comingSoon: false, OR: [{ name: { contains: search, mode: "insensitive" } }, { slug: { contains: search, mode: "insensitive" } }] },
+    select: { id: true, name: true, slug: true, price: true, images: { orderBy: { position: "asc" }, take: 1, select: { url: true } } },
+    take: 12, orderBy: { updatedAt: "desc" },
+  });
+  res.json({ items: items.map(product => ({ id: product.id, name: product.name, slug: product.slug, price: Number(product.price), imageUrl: product.images[0]?.url ?? null, url: `/products/${product.slug}` })) });
 }));
 
 broadcastRouter.get("/admin", requireAuth, requireRole("ADMIN"), asyncHandler(async (_req, res) => {
   await ensureTables();
-  const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT id, title, message, email_subject AS "emailSubject", send_popup AS "sendPopup", send_email AS "sendEmail", send_whatsapp AS "sendWhatsApp", send_web_notification AS "sendWebNotification", audience, recipient_count AS "recipientCount", created_at AS "createdAt" FROM ttfl_broadcasts ORDER BY created_at DESC LIMIT 100`);
+  const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT id, title, message, email_subject AS "emailSubject", send_popup AS "sendPopup", send_email AS "sendEmail", send_whatsapp AS "sendWhatsApp", send_web_notification AS "sendWebNotification", product_references AS "productReferences", buttons, audience, recipient_count AS "recipientCount", created_at AS "createdAt" FROM ttfl_broadcasts ORDER BY created_at DESC LIMIT 100`);
   res.json({ items: rows });
 }));
 
@@ -136,7 +171,7 @@ broadcastRouter.post("/admin", requireAuth, requireRole("ADMIN"), asyncHandler(a
 
   const users = await prisma.user.findMany({ where, select: { id: true, email: true, firstName: true, phone: true } });
   const id = randomBytes(16).toString("hex");
-  await prisma.$executeRawUnsafe(`INSERT INTO ttfl_broadcasts (id, title, message, email_subject, send_popup, send_email, send_whatsapp, send_web_notification, audience, recipient_count, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11)`, id, input.title, input.message, input.emailSubject ?? null, input.sendPopup, input.sendEmail, input.sendWhatsApp, input.sendWebNotification, JSON.stringify(input.audience), users.length, req.user!.sub);
+  await prisma.$executeRawUnsafe(`INSERT INTO ttfl_broadcasts (id, title, message, email_subject, send_popup, send_email, send_whatsapp, send_web_notification, product_references, buttons, audience, recipient_count, created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11::jsonb,$12,$13)`, id, input.title, input.message, input.emailSubject ?? null, input.sendPopup, input.sendEmail, input.sendWhatsApp, input.sendWebNotification, JSON.stringify(input.productReferences), JSON.stringify(input.buttons), JSON.stringify(input.audience), users.length, req.user!.sub);
 
   let webNotificationsSent = 0;
   if (input.sendWebNotification) {
@@ -145,7 +180,8 @@ broadcastRouter.post("/admin", requireAuth, requireRole("ADMIN"), asyncHandler(a
       body: input.message,
       type: "BROADCAST",
       url: "/notifications",
-      data: { broadcastId: id },
+      data: { broadcastId: id, productReferences: input.productReferences, buttons: input.buttons },
+      url: input.buttons[0]?.url ?? input.productReferences[0] ? (input.buttons[0]?.url ?? `/products/${input.productReferences[0]?.slug}`) : "/notifications",
       sendPush: false,
     })));
     webNotificationsSent = results.filter(result => result.status === "fulfilled").length;
