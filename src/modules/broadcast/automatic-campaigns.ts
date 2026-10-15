@@ -10,7 +10,7 @@ async function ensurePreferences() {
   await prisma.$executeRawUnsafe(`INSERT INTO ttfl_broadcast_preferences(id) VALUES('global') ON CONFLICT(id) DO NOTHING`);
 }
 
-export async function sendAutomaticProductCampaign(event: CampaignEvent, productId: string, extra?: { discountPercent?: number; salePrice?: number }) {
+export async function sendAutomaticProductCampaign(event: CampaignEvent, productId: string, extra?: { discountPercent?: number; salePrice?: number; startsAt?: Date }) {
   try {
     await ensurePreferences();
     const rows = await prisma.$queryRawUnsafe<any[]>(`SELECT auto_flash_deals AS "autoFlashDeals", auto_sponsored_products AS "autoSponsoredProducts", flash_deals_web AS "flashDealsWeb", flash_deals_email AS "flashDealsEmail", sponsored_web AS "sponsoredWeb", sponsored_email AS "sponsoredEmail" FROM ttfl_broadcast_preferences WHERE id='global'`);
@@ -25,11 +25,12 @@ export async function sendAutomaticProductCampaign(event: CampaignEvent, product
       select: { id: true, name: true, slug: true, price: true, images: { orderBy: { position: "asc" }, take: 1, select: { url: true } } },
     });
     if (!product) return { skipped: true };
-    const title = event === "FLASH_DEAL" ? "A new Flash Deal is here" : "A product is now sponsored";
+    const upcomingDeal = event === "FLASH_DEAL" && Boolean(extra?.startsAt && extra.startsAt > new Date());
+    const title = event === "FLASH_DEAL" ? (upcomingDeal ? "Upcoming Flash Deal" : "A new Flash Deal is here") : "A product is now sponsored";
     const basePrice = Number(product.price);
     const price = extra?.salePrice ?? basePrice;
     const message = event === "FLASH_DEAL" && extra?.discountPercent
-      ? `${product.name} is on Flash Deal with ${extra.discountPercent}% off. Shop before the deal ends.`
+      ? `${product.name} ${upcomingDeal ? "is scheduled for a Flash Deal" : "is on Flash Deal"} with ${extra.discountPercent}% off. ${upcomingDeal ? "Keep an eye out for when it starts." : "Shop before the deal ends."}`
       : `Discover ${product.name} on TTFL Store.`;
     const url = `/products/${product.slug}`;
     const users = await prisma.user.findMany({ where: { status: "ACTIVE", role: "CUSTOMER" }, select: { id: true, email: true, firstName: true } });
