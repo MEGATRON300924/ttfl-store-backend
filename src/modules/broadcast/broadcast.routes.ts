@@ -188,7 +188,21 @@ broadcastRouter.post("/admin", requireAuth, requireRole("ADMIN"), asyncHandler(a
 
   if (input.sendEmail) {
     for (const user of users) {
-      const html = renderEmailLayout({ heading: input.title, previewText: input.message.slice(0, 140), bodyHtml: `<p>Hi ${escapeHtml(user.firstName || "there")},</p><p>${escapeHtml(input.message).replace(/\n/g, "<br />")}</p>` });
+      const productCardsHtml = input.productReferences.map((product) => {
+        const productUrl = `https://ttflstore.name.ng/products/${encodeURIComponent(product.slug)}`;
+        const imageHtml = product.imageUrl
+          ? `<p style="margin:0 0 12px;text-align:center;"><a href="${escapeHtml(productUrl)}"><img src="${escapeHtml(product.imageUrl)}" alt="${escapeHtml(product.name)}" width="220" style="display:block;width:100%;max-width:220px;height:auto;margin:0 auto;border:0;border-radius:8px;" /></a></p>`
+          : "";
+        const priceHtml = typeof product.price === "number"
+          ? `<p style="margin:8px 0 14px;font-size:15px;color:#444;">Price: <strong>₦${product.price.toLocaleString("en-NG")}</strong></p>`
+          : "";
+        return `<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:20px 0;border:1px solid #e5e7eb;border-radius:10px;"><tr><td style="padding:16px;">${imageHtml}<h3 style="margin:0 0 8px;text-align:center;font-size:18px;">${escapeHtml(product.name)}</h3>${priceHtml}<p style="margin:0;text-align:center;"><a href="${escapeHtml(productUrl)}" style="display:inline-block;padding:12px 20px;background:#171717;color:#ffffff;text-decoration:none;font-weight:600;border-radius:6px;">View product</a></p></td></tr></table>`;
+      }).join("");
+      const customButtonsHtml = input.buttons.length
+        ? `<table role="presentation" cellspacing="0" cellpadding="0" style="margin:20px auto;"><tr>${input.buttons.map(button => `<td style="padding:6px;text-align:center;"><a href="${escapeHtml(button.url)}" style="display:inline-block;padding:12px 18px;background:#171717;color:#ffffff;text-decoration:none;font-weight:600;border-radius:6px;">${escapeHtml(button.label)}</a></td>`).join("")}</tr></table>`
+        : "";
+      const bodyHtml = `<p>Hi ${escapeHtml(user.firstName || "there")},</p><p>${escapeHtml(input.message).replace(/\n/g, "<br />")}</p>${productCardsHtml}${customButtonsHtml}`;
+      const html = renderEmailLayout({ heading: input.title, previewText: input.message.slice(0, 140), bodyHtml });
       void sendEmail({ to: user.email, subject: input.emailSubject!, html, event: "admin_broadcast" });
     }
   }
