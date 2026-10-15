@@ -32,7 +32,7 @@ const schema = z.object({
   sendWhatsApp: z.boolean().default(false),
   sendWebNotification: z.boolean().default(false),
   productReferences: z.array(z.object({ id: z.string().uuid(), name: z.string().min(1).max(200), slug: z.string().min(1).max(240), imageUrl: z.string().url().max(2048).nullable().optional(), price: z.number().nonnegative().optional() })).max(8).default([]),
-  buttons: z.array(z.object({ label: z.string().trim().min(1).max(40), url: z.string().url().max(2048) })).max(5).default([]),
+  buttons: z.array(z.object({ label: z.string().trim().min(1).max(40), url: z.string().url().max(2048).refine(value => /^https?:\\/\\//i.test(value), "Button URL must use HTTP or HTTPS") })).max(5).default([]),
   audience: z.object({
     mode: z.enum(["ALL", "SELECTED", "NEW", "EXISTING", "VERIFIED", "UNVERIFIED", "VENDORS", "CUSTOMERS"]),
     days: z.number().int().positive().max(3650).optional(),
@@ -181,7 +181,7 @@ broadcastRouter.post("/admin", requireAuth, requireRole("ADMIN"), asyncHandler(a
       type: "BROADCAST",
       url: "/notifications",
       data: { broadcastId: id, productReferences: input.productReferences, buttons: input.buttons },
-      url: input.buttons[0]?.url ?? input.productReferences[0] ? (input.buttons[0]?.url ?? `/products/${input.productReferences[0]?.slug}`) : "/notifications",
+      url: input.buttons[0]?.url ?? (input.productReferences[0] ? `/products/${input.productReferences[0].slug}` : "/notifications"),
       sendPush: false,
     })));
     webNotificationsSent = results.filter(result => result.status === "fulfilled").length;
