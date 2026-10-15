@@ -26,12 +26,12 @@ export async function sendAutomaticProductCampaign(event: CampaignEvent, product
     });
     if (!product) return { skipped: true };
     const upcomingDeal = event === "FLASH_DEAL" && Boolean(extra?.startsAt && extra.startsAt > new Date());
-    const title = event === "FLASH_DEAL" ? (upcomingDeal ? "Upcoming Flash Deal" : "A new Flash Deal is here") : "A product is now sponsored";
+    const title = event === "FLASH_DEAL" ? (upcomingDeal ? "Upcoming Flash Deal" : "A new Flash Deal is here") : "Featured on TTFL Store";
     const basePrice = Number(product.price);
     const price = extra?.salePrice ?? basePrice;
     const message = event === "FLASH_DEAL" && extra?.discountPercent
       ? `${product.name} ${upcomingDeal ? "is scheduled for a Flash Deal" : "is on Flash Deal"} with ${extra.discountPercent}% off. ${upcomingDeal ? "Keep an eye out for when it starts." : "Shop before the deal ends."}`
-      : `Discover ${product.name} on TTFL Store.`;
+      : `Take a look at ${product.name}, now featured on TTFL Store. Visit the product page to learn more.`;
     const url = `/products/${product.slug}`;
     const users = await prisma.user.findMany({ where: { status: "ACTIVE", role: "CUSTOMER" }, select: { id: true, email: true, firstName: true } });
     const productReference = { id: product.id, name: product.name, slug: product.slug, imageUrl: product.images[0]?.url ?? null, price };
