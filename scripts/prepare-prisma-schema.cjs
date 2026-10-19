@@ -56,6 +56,7 @@ addField("VendorProfile", "  @@index([status])", "paystackSubaccountVerified Boo
 
 addField("Product", "  createdAt", "publicProductId String? @unique");
 addField("Product", "  createdAt", "estimatedDeliveryDays Int @default(7)");
+addField("Product", "  createdAt", "deliveryFee Decimal? @db.Decimal(12, 2)");
 addField("Product", "  createdAt", "comingSoon Boolean @default(false) @map(\"coming_soon\")");
 addField("Product", "  createdAt", "availableAt DateTime? @map(\"available_at\")");
 addField("Product", "  createdAt", "launchedAt DateTime? @map(\"launched_at\")");
