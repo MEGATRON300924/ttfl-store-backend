@@ -61,7 +61,10 @@ export async function checkout(customerId: string, customerEmail: string, input:
   const rewardEligibleBase = Math.max(0, subtotalAmount - discountAmount);
   const rewardMaxByOrder = Math.floor(rewardEligibleBase * rewardMaxPercent / 100);
   const rewardPoints = Math.min(rewardPointsRequested, rewardMaxByOrder);
-  const configuredDeliveryFee = Math.max(0, Number(await getSettingNumber("delivery_fee")) || 0);\n  const shippingDiscountAmount = couponType === "FREE_SHIPPING" ? configuredDeliveryFee : 0;\n  const deliveryAmount = Math.max(0, Math.round((configuredDeliveryFee - shippingDiscountAmount) * 100) / 100);\n  const totalAmount = Math.max(0, Math.round((subtotalAmount - discountAmount - rewardPoints + deliveryAmount) * 100) / 100);
+  const configuredDeliveryFee = Math.max(0, Number(await getSettingNumber("delivery_fee")) || 0);
+  const shippingDiscountAmount = couponType === "FREE_SHIPPING" ? configuredDeliveryFee : 0;
+  const deliveryAmount = Math.max(0, Math.round((configuredDeliveryFee - shippingDiscountAmount) * 100) / 100);
+  const totalAmount = Math.max(0, Math.round((subtotalAmount - discountAmount - rewardPoints + deliveryAmount) * 100) / 100);
   for (const [vendorId, group] of groups) { const originalSubtotal = group.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0); if (!discountAmount || !couponEligibleBase) { vendorSubtotals.set(vendorId, originalSubtotal); continue; } const eligibleForVendor = couponLines.filter((line) => line.vendorId === vendorId).filter((line) => !couponVendorId || line.vendorId === couponVendorId).filter((line) => !couponCategoryId || line.categoryId === couponCategoryId).filter((line) => !couponProductIds.length || Boolean(line.productId && couponProductIds.includes(line.productId))).reduce((sum, line) => sum + line.lineTotal, 0); const allocation = couponVendorId || couponCategoryId ? discountAmount * (eligibleForVendor / couponEligibleBase) : discountAmount * (originalSubtotal / subtotalAmount); vendorSubtotals.set(vendorId, Math.max(0, Math.round((originalSubtotal - allocation) * 100) / 100)); }
   if (rewardPoints > 0 && rewardEligibleBase > 0) {
     for (const [vendorId, value] of vendorSubtotals) {
