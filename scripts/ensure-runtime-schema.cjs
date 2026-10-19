@@ -12,6 +12,7 @@ const checks = [
   "ensure-coming-soon-schema.cjs",
   "ensure-digital-postcode-schema.cjs",
   "ensure-delivery-pricing-schema.cjs",
+  "ensure-product-delivery-fee-schema.cjs",
   "ensure-store-reports-schema.cjs",
   "ensure-review-category-schema.cjs",
   "ensure-terms-schema.cjs",
