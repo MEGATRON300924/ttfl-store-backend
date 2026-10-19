@@ -397,6 +397,7 @@ model Product {
   currency String @default("NGN")
   condition ProductCondition @default(NEW)
   stock Int @default(0)
+  deliveryFee Decimal? @db.Decimal(12, 2)
   status ProductStatus @default(ACTIVE)
   sellingMethod SellingMethod @default(CHECKOUT)
   externalUrl String?
