@@ -12,6 +12,7 @@ import { recordPurchase, reversePurchase, reservePointsForOrder, finalizeReserve
 import { recordConversionEvent } from "@/modules/ads/ads.service";
 import { logger } from "@/lib/logger";
 import { createNotification } from "@/modules/notifications/notifications.service";
+import { getSettingNumber } from "@/modules/settings/settings.service";
 import { resolveCheckoutUnitPrice } from "./variant-pricing";
 import type { CheckoutInput } from "./orders.validators";
 import type { Prisma, OrderStatus, Product } from "@prisma/client";
@@ -51,8 +52,8 @@ export async function checkout(customerId: string, customerEmail: string, input:
   const couponLines: CartLineForCoupon[] = [];
   for (const [vendorId, group] of groups) { const subtotal = group.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0); vendorSubtotals.set(vendorId, subtotal); subtotalAmount += subtotal; for (const item of group.items) couponLines.push({ vendorId, categoryId: item.product.categoryId, productId: item.product.id, lineTotal: item.unitPrice * item.quantity }); }
 
-  let discountAmount = 0, couponId: string | null = null, couponCode: string | null = null, couponVendorId: string | null = null, couponCategoryId: string | null = null, couponProductIds: string[] = [], couponEligibleBase = 0;
-  if (input.couponCode) { const result = await validateCoupon(input.couponCode, customerId, couponLines); discountAmount = result.discountAmount; couponId = result.coupon.id; couponCode = result.coupon.code; couponEligibleBase = result.eligibleBase; const coupon = await prisma.coupon.findUniqueOrThrow({ where: { id: couponId } }); couponVendorId = coupon.vendorId; couponCategoryId = coupon.categoryId; couponProductIds = await getCouponProductIds(coupon.id); }
+  let discountAmount = 0, couponId: string | null = null, couponCode: string | null = null, couponType: string | null = null, couponVendorId: string | null = null, couponCategoryId: string | null = null, couponProductIds: string[] = [], couponEligibleBase = 0;
+  if (input.couponCode) { const result = await validateCoupon(input.couponCode, customerId, couponLines); discountAmount = result.discountAmount; couponId = result.coupon.id; couponCode = result.coupon.code; couponType = result.coupon.type; couponEligibleBase = result.eligibleBase; const coupon = await prisma.coupon.findUniqueOrThrow({ where: { id: couponId } }); couponVendorId = coupon.vendorId; couponCategoryId = coupon.categoryId; couponProductIds = await getCouponProductIds(coupon.id); }
 
   const rewardPointsRequested = Math.max(0, Math.floor(input.rewardPoints ?? 0));
   await ensureRewardsReady();
@@ -60,7 +61,7 @@ export async function checkout(customerId: string, customerEmail: string, input:
   const rewardEligibleBase = Math.max(0, subtotalAmount - discountAmount);
   const rewardMaxByOrder = Math.floor(rewardEligibleBase * rewardMaxPercent / 100);
   const rewardPoints = Math.min(rewardPointsRequested, rewardMaxByOrder);
-  const totalAmount = Math.max(0, Math.round((subtotalAmount - discountAmount - rewardPoints) * 100) / 100);
+  const configuredDeliveryFee = Math.max(0, Number(await getSettingNumber("delivery_fee")) || 0);\n  const shippingDiscountAmount = couponType === "FREE_SHIPPING" ? configuredDeliveryFee : 0;\n  const deliveryAmount = Math.max(0, Math.round((configuredDeliveryFee - shippingDiscountAmount) * 100) / 100);\n  const totalAmount = Math.max(0, Math.round((subtotalAmount - discountAmount - rewardPoints + deliveryAmount) * 100) / 100);
   for (const [vendorId, group] of groups) { const originalSubtotal = group.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0); if (!discountAmount || !couponEligibleBase) { vendorSubtotals.set(vendorId, originalSubtotal); continue; } const eligibleForVendor = couponLines.filter((line) => line.vendorId === vendorId).filter((line) => !couponVendorId || line.vendorId === couponVendorId).filter((line) => !couponCategoryId || line.categoryId === couponCategoryId).filter((line) => !couponProductIds.length || Boolean(line.productId && couponProductIds.includes(line.productId))).reduce((sum, line) => sum + line.lineTotal, 0); const allocation = couponVendorId || couponCategoryId ? discountAmount * (eligibleForVendor / couponEligibleBase) : discountAmount * (originalSubtotal / subtotalAmount); vendorSubtotals.set(vendorId, Math.max(0, Math.round((originalSubtotal - allocation) * 100) / 100)); }
   if (rewardPoints > 0 && rewardEligibleBase > 0) {
     for (const [vendorId, value] of vendorSubtotals) {
@@ -81,9 +82,9 @@ export async function checkout(customerId: string, customerEmail: string, input:
 
   const orderNumber = await generateOrderNumber();
   const paymentReference = `ttfl_${orderNumber}_${Date.now()}`;
-  const order = await prisma.order.create({ data: { orderNumber, customerId, totalAmount, subtotalAmount, discountAmount: discountAmount + rewardPoints, couponCode, paymentReference, deliveryName: input.delivery.name, deliveryPhone: input.delivery.phone, deliveryLine1: input.delivery.line1, deliveryLine2: input.delivery.line2, deliveryCity: input.delivery.city, deliveryState: input.delivery.state, deliveryPostcode: input.delivery.digitalPostcode, deliveryCountry: input.delivery.country, vendorOrders: { create: vendorOrderData } }, include: { vendorOrders: { include: { items: true } } } });
+  const order = await prisma.order.create({ data: { orderNumber, customerId, totalAmount, subtotalAmount, discountAmount: discountAmount + rewardPoints + shippingDiscountAmount, deliveryAmount, couponCode, paymentReference, deliveryName: input.delivery.name, deliveryPhone: input.delivery.phone, deliveryLine1: input.delivery.line1, deliveryLine2: input.delivery.line2, deliveryCity: input.delivery.city, deliveryState: input.delivery.state, deliveryPostcode: input.delivery.digitalPostcode, deliveryCountry: input.delivery.country, vendorOrders: { create: vendorOrderData } }, include: { vendorOrders: { include: { items: true } } } });
   try { await prisma.$transaction(async (tx) => { await reserveForOrder(tx, order.id, order.vendorOrders.flatMap((vendorOrder) => vendorOrder.items.map((item) => ({ productId: item.productId, quantity: item.quantity })))); }); if(rewardPoints>0) await reservePointsForOrder(customerId,order.id,rewardPoints); } catch (error) { await releaseForOrder(order.id, "RELEASED"); await releaseReservedPoints(order.id); throw error; }
-  if (couponId) await recordRedemption(couponId, customerId, order.id, discountAmount);
+  if (couponId) await recordRedemption(couponId, customerId, order.id, discountAmount + shippingDiscountAmount);
   const splitCode = await createOrderSplitCode(order);
   let paystack;
   try { paystack = await initializeTransaction({ email: customerEmail, amountNaira: totalAmount, reference: paymentReference, callbackUrl: `${env.appUrl}/orders/${order.orderNumber}/confirm`, metadata: { orderId: order.id, orderNumber: order.orderNumber, ...(input.adCampaignId ? { adCampaignId: input.adCampaignId } : {}) }, splitCode }); } catch (error) { await releaseForOrder(order.id, "RELEASED"); await releaseReservedPoints(order.id); throw error; }
