@@ -82,7 +82,7 @@ export async function checkout(customerId: string, customerEmail: string, input:
     }
   }
   const calculatedVendorSubtotal = Array.from(vendorSubtotals.values()).reduce((sum, value) => sum + value, 0);
-  const subtotalDrift = Math.round((totalAmount - calculatedVendorSubtotal) * 100) / 100;
+  const subtotalDrift = Math.round((Math.max(0, subtotalAmount - discountAmount - rewardPoints) - calculatedVendorSubtotal) * 100) / 100;
   if (groups.size && Math.abs(subtotalDrift) >= 0.01) { const firstVendorId = groups.keys().next().value as string; vendorSubtotals.set(firstVendorId, Math.max(0, Math.round(((vendorSubtotals.get(firstVendorId) ?? 0) + subtotalDrift) * 100) / 100)); }
 
   for (const [vendorId, group] of groups) {
