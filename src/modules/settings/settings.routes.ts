@@ -6,6 +6,12 @@ import * as settingsService from "./settings.service";
 
 export const settingsRouter = Router();
 
+// Public checkout quote: expose only the delivery fee, never private platform settings.
+settingsRouter.get("/shipping-fee", asyncHandler(async (_req, res) => {
+  const fee = await settingsService.getSettingNumber("delivery_fee");
+  res.json({ deliveryFee: Number.isFinite(fee) ? Math.max(0, fee) : 0, currency: "NGN" });
+}));
+
 settingsRouter.get(
   "/",
   requireAuth,
