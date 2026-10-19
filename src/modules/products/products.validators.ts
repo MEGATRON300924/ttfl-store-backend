@@ -18,6 +18,7 @@ const baseProductFields = {
   videos: z.array(z.string().url()).max(3).optional(),
   specifications: z.record(z.union([z.string(), z.array(z.string())])).optional(),
   estimatedDeliveryDays: z.number().int().min(1).max(90).default(7),
+  deliveryFee: z.preprocess((value) => (value === "" || value === undefined ? undefined : value), z.number().nonnegative().max(999_999_999).nullable().optional()),
   comingSoon: z.boolean().default(false),
   availableAt: z.preprocess((value) => (value === "" || value === undefined || value === null ? undefined : value), z.string().datetime().optional()),
 };
@@ -47,6 +48,7 @@ export const updateProductSchema = z.object({
   videos: baseProductFields.videos,
   specifications: baseProductFields.specifications,
   estimatedDeliveryDays: z.number().int().min(1).max(90).optional(),
+  deliveryFee: z.preprocess((value) => (value === "" || value === undefined ? undefined : value), z.number().nonnegative().max(999_999_999).nullable().optional()),
   comingSoon: z.boolean().optional(),
   availableAt: z.preprocess((value) => (value === "" || value === undefined || value === null ? undefined : value), z.string().datetime().optional()),
   status: z.enum(["DRAFT", "ACTIVE", "OUT_OF_STOCK"]).optional(),
