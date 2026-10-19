@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/utils/app-error";
 import { recordAudit } from "@/lib/audit";
+import { getSettingNumber } from "@/modules/settings/settings.service";
 import type { CouponType } from "@prisma/client";
 
 export type CartLineForCoupon={vendorId:string;categoryId:string;productId?:string;lineTotal:number};
@@ -8,7 +9,7 @@ let productCouponTableReady=false;
 async function ensureProductCouponTable(){if(productCouponTableReady)return;await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS coupon_products (coupon_id TEXT NOT NULL REFERENCES coupons(id) ON DELETE CASCADE,product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,PRIMARY KEY(coupon_id,product_id))`);await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS coupon_products_product_idx ON coupon_products(product_id)`);productCouponTableReady=true;}
 async function productIdsForCoupon(couponId:string){await ensureProductCouponTable();const rows=await prisma.$queryRawUnsafe<Array<{productId:string}>>(`SELECT product_id AS "productId" FROM coupon_products WHERE coupon_id=$1`,couponId);return rows.map(r=>r.productId);}
 
-export async function validateCoupon(code:string,customerId:string,cartLines:CartLineForCoupon[]):Promise<{coupon:{id:string;code:string};discountAmount:number;eligibleBase:number}>{
+export async function validateCoupon(code:string,customerId:string,cartLines:CartLineForCoupon[]):Promise<{coupon:{id:string;code:string;type:CouponType};discountAmount:number;eligibleBase:number;shippingFee:number;shippingDiscountAmount:number}>{
   await ensureProductCouponTable();const coupon=await prisma.coupon.findUnique({where:{code:code.toUpperCase()}});
   if(!coupon||!coupon.active)throw AppError.badRequest("This coupon code isn't valid","INVALID_COUPON");
   const now=new Date();if(coupon.startsAt&&coupon.startsAt>now)throw AppError.badRequest("This coupon isn't active yet","COUPON_NOT_STARTED");if(coupon.expiresAt&&coupon.expiresAt<now)throw AppError.badRequest("This coupon has expired","COUPON_EXPIRED");
@@ -19,9 +20,11 @@ export async function validateCoupon(code:string,customerId:string,cartLines:Car
   if(coupon.usageLimit!=null&&await prisma.couponRedemption.count({where:{couponId:coupon.id}})>=coupon.usageLimit)throw AppError.badRequest("This coupon has reached its usage limit","COUPON_LIMIT_REACHED");
   if(await prisma.couponRedemption.count({where:{couponId:coupon.id,userId:customerId}})>=coupon.usageLimitPerUser)throw AppError.badRequest("You've already used this coupon","COUPON_ALREADY_USED");
   const discountAmount=computeDiscount(coupon.type,Number(coupon.value),eligibleBase,coupon.maxDiscountAmount?Number(coupon.maxDiscountAmount):null);
-  return{coupon:{id:coupon.id,code:coupon.code},discountAmount,eligibleBase};
+  const configuredShippingFee = Math.max(0, Number(await getSettingNumber("delivery_fee")) || 0);
+  const shippingDiscountAmount = coupon.type === "FREE_SHIPPING" ? configuredShippingFee : 0;
+  return{coupon:{id:coupon.id,code:coupon.code,type:coupon.type},discountAmount,eligibleBase,shippingFee:configuredShippingFee,shippingDiscountAmount};
 }
-function computeDiscount(type:CouponType,value:number,base:number,maxDiscount:number|null){let discount=type==="PERCENTAGE"?base*(value/100):value;discount=Math.min(discount,base);if(maxDiscount!=null)discount=Math.min(discount,maxDiscount);return Math.round(discount*100)/100;}
+function computeDiscount(type:CouponType,value:number,base:number,maxDiscount:number|null){let discount=type==="FREE_SHIPPING"?0:type==="PERCENTAGE"?base*(value/100):value;discount=Math.min(discount,base);if(maxDiscount!=null)discount=Math.min(discount,maxDiscount);return Math.round(discount*100)/100;}
 export async function recordRedemption(couponId:string,userId:string,orderId:string,discountAmount:number){await prisma.couponRedemption.create({data:{couponId,userId,orderId,discountAmount}});}
 
 async function setCouponProducts(couponId:string,vendorId:string|undefined,productIds:string[]|undefined){await ensureProductCouponTable();const ids=[...new Set(productIds??[])];if(!ids.length)return;const products=await prisma.product.findMany({where:{id:{in:ids},...(vendorId?{vendorId}:{}),deletedAt:null},select:{id:true,vendorId:true}});if(products.length!==ids.length)throw AppError.badRequest("One or more selected products are invalid for this coupon","INVALID_COUPON_PRODUCTS");for(const product of products)await prisma.$executeRawUnsafe(`INSERT INTO coupon_products(coupon_id,product_id) VALUES($1,$2) ON CONFLICT DO NOTHING`,couponId,product.id);}
