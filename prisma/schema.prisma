@@ -300,6 +300,7 @@ model Session {
   revoked Boolean @default(false)
   revokedAt DateTime?
   expiresAt DateTime
+  lastActivityAt DateTime @default(now()) @map("last_activity_at")
   createdAt DateTime @default(now())
   @@index([userId])
   @@map("sessions")
