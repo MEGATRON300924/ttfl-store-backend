@@ -38,6 +38,8 @@ const sellingMethodFields = z.discriminatedUnion("sellingMethod", [
 export const createProductSchema = z.object(baseProductFields).and(sellingMethodFields).superRefine((data, ctx) => {
   if (!data.comingSoon && data.price <= 0) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A valid product price is required", path: ["price"] });
   if (data.previousPrice !== undefined && data.previousPrice <= data.price) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Previous price must be greater than the current price to represent a discount", path: ["previousPrice"] });
+  if (data.euPreviousPrice !== undefined && data.euPrice !== undefined && data.euPreviousPrice <= data.euPrice) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Europe previous price must be greater than Europe price", path: ["euPreviousPrice"] });
+  if (data.usPreviousPrice !== undefined && data.usPrice !== undefined && data.usPreviousPrice <= data.usPrice) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "US previous price must be greater than US price", path: ["usPreviousPrice"] });
 });
 
 export const updateProductSchema = z.object({
