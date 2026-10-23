@@ -17,7 +17,8 @@
     "seed:admin": "tsx prisma/seed.ts",
     "backfill:product-ids": "node scripts/backfill-product-ids.cjs",
     "bootstrap:admin": "npm run backfill:product-ids && tsx src/scripts/bootstrap-admin.ts",
-    "test:email": "tsx scripts/test-email.ts"
+    "test:email": "tsx scripts/test-email.ts",
+    "test": "tsx --test tests/*.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
