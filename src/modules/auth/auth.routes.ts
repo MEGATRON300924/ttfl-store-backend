@@ -27,6 +27,7 @@ authRouter.post("/forgot-password", authRateLimiter, authController.forgotPasswo
 authRouter.post("/reset-password", authController.resetPassword);
 
 authRouter.get("/me", requireAuth, authController.me);
+authRouter.patch("/me/market", requireAuth, authController.addMarket);
 authRouter.patch("/me", requireAuth, authController.updateProfile);
 authRouter.patch("/me/avatar", requireAuth, authController.updateAvatar);
 authRouter.post("/change-password", requireAuth, authController.changePassword);
