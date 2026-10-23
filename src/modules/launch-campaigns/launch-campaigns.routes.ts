@@ -4,7 +4,7 @@ import { requireAuth } from "@/middleware/auth";
 import * as service from "./launch-campaigns.service";
 
 export const launchCampaignsRouter=Router();
-const launchDetails=z.object({price:z.coerce.number().positive().max(999999999),previousPrice:z.coerce.number().positive().max(999999999).nullable().optional(),stock:z.coerce.number().int().min(0).optional(),estimatedDeliveryDays:z.coerce.number().int().min(1).max(90).optional(),sellingMethod:z.enum(["CHECKOUT","EXTERNAL_LINK","WHATSAPP"]).optional(),externalUrl:z.string().url().nullable().optional(),whatsappNumber:z.string().min(7).max(20).nullable().optional()}).optional();
+const launchDetails=z.object({price:z.coerce.number().positive().max(999999999),previousPrice:z.coerce.number().positive().max(999999999).nullable().optional(),usPrice:z.coerce.number().positive().max(999999999).nullable().optional(),usPreviousPrice:z.coerce.number().positive().max(999999999).nullable().optional(),stock:z.coerce.number().int().min(0).optional(),estimatedDeliveryDays:z.coerce.number().int().min(1).max(90).optional(),sellingMethod:z.enum(["CHECKOUT","EXTERNAL_LINK","WHATSAPP"]).optional(),externalUrl:z.string().url().nullable().optional(),whatsappNumber:z.string().min(7).max(20).nullable().optional()}).optional();
 const schema=z.object({productId:z.string().min(1),launchAt:z.string().datetime(),homepage:z.boolean().optional(),flashDealId:z.string().nullable().optional(),launchDetails});
 launchCampaignsRouter.use(requireAuth);
 launchCampaignsRouter.get("/mine",async(req,res,next)=>{try{res.json({campaigns:await service.getMine(req.user!.sub)});}catch(e){next(e);}});
