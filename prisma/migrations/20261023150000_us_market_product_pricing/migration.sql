@@ -1,0 +1,5 @@
+ALTER TABLE "products"
+  ADD COLUMN IF NOT EXISTS "us_price" DECIMAL(12,2),
+  ADD COLUMN IF NOT EXISTS "us_previous_price" DECIMAL(12,2),
+  ADD COLUMN IF NOT EXISTS "us_delivery_fee" DECIMAL(12,2),
+  ADD COLUMN IF NOT EXISTS "eu_delivery_fee" DECIMAL(12,2);
