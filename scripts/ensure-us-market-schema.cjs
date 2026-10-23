@@ -6,6 +6,10 @@ async function main() {
   // Additive-only compatibility changes: existing vendors remain Nigeria-only
   // until they explicitly enable another market. Existing product prices stay NGN.
   await prisma.$executeRawUnsafe(`
+    ALTER TABLE "users"
+    ADD COLUMN IF NOT EXISTS customer_markets TEXT[] NOT NULL DEFAULT ARRAY['NG']::TEXT[]
+  `);
+  await prisma.$executeRawUnsafe(`
     ALTER TABLE "vendor_profiles"
     ADD COLUMN IF NOT EXISTS supported_countries TEXT[] NOT NULL DEFAULT ARRAY['NG']::TEXT[]
   `);
