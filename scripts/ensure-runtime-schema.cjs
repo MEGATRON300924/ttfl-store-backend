@@ -10,7 +10,7 @@ const checks = [
   // blocked by a stale production column name.
   "ensure-order-reference-columns.cjs",
   "ensure-coming-soon-schema.cjs",
-  "ensure-us-market-schema.cjs",
+  "ensure-europe-market-schema.cjs",
   "ensure-digital-postcode-schema.cjs",
   "ensure-delivery-pricing-schema.cjs",
   "ensure-product-delivery-fee-schema.cjs",
