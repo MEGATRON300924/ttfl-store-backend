@@ -41,6 +41,30 @@ vendorsRouter.patch("/me/store", requireAuth, requireRole("VENDOR"), asyncHandle
   res.json({ vendorProfile: profile });
 }));
 
+const supportedMarketsSchema = z.object({
+  supportedCountries: z.array(z.enum(["NG", "US"])).min(1).max(2),
+}).superRefine((data, ctx) => {
+  if (new Set(data.supportedCountries).size !== data.supportedCountries.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Each market can only be selected once", path: ["supportedCountries"] });
+  }
+});
+
+vendorsRouter.get("/me/markets", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => {
+  const vendor = await vendorsService.getMyVendorProfile(req.user!.sub);
+  res.json({ supportedCountries: vendor.supportedCountries?.length ? vendor.supportedCountries : ["NG"] });
+}));
+
+vendorsRouter.put("/me/markets", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => {
+  const data = supportedMarketsSchema.parse(req.body);
+  const vendor = await vendorsService.getMyVendorProfile(req.user!.sub);
+  const profile = await prisma.vendorProfile.update({
+    where: { id: vendor.id },
+    data: { supportedCountries: data.supportedCountries },
+    select: { id: true, supportedCountries: true },
+  });
+  res.json({ supportedCountries: profile.supportedCountries, message: "Supported markets saved." });
+}));
+
 
 
 async function ensureVendorBookingSettings() {
