@@ -21,7 +21,14 @@ async function main() {
     ALTER TABLE "products"
     ADD COLUMN IF NOT EXISTS eu_previous_price NUMERIC(12, 2)
   `);
-  console.log("Europe market columns are present; existing records were preserved.");
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "products"
+    ADD COLUMN IF NOT EXISTS us_price NUMERIC(12, 2),
+    ADD COLUMN IF NOT EXISTS us_previous_price NUMERIC(12, 2),
+    ADD COLUMN IF NOT EXISTS eu_delivery_fee NUMERIC(12, 2),
+    ADD COLUMN IF NOT EXISTS us_delivery_fee NUMERIC(12, 2)
+  `);
+  console.log("NG, EU and US market columns are present; existing records were preserved.");
 }
 
 main()
