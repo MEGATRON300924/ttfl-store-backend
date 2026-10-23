@@ -42,7 +42,7 @@ vendorsRouter.patch("/me/store", requireAuth, requireRole("VENDOR"), asyncHandle
 }));
 
 const supportedMarketsSchema = z.object({
-  supportedCountries: z.array(z.enum(["NG", "US"])).min(1).max(2),
+  supportedCountries: z.array(z.enum(["NG", "EU"])).min(1).max(2),
 }).superRefine((data, ctx) => {
   if (new Set(data.supportedCountries).size !== data.supportedCountries.length) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Each market can only be selected once", path: ["supportedCountries"] });
