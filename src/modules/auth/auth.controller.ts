@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { z } from "zod";
 import { asyncHandler } from "@/middleware/error-handler";
 import { setAuthCookies, clearAuthCookies, REFRESH_COOKIE } from "@/lib/cookies";
 import { AppError } from "@/utils/app-error";
@@ -21,6 +22,7 @@ export const resetPassword = asyncHandler(async (req: Request, res: Response) =>
 export const changePassword = asyncHandler(async (req: Request, res: Response) => { const { currentPassword, newPassword } = changePasswordSchema.parse(req.body); await authService.changePassword(req.user!.sub, currentPassword, newPassword); clearAuthCookies(res); res.status(200).json({ message: "Password changed. Please log in again." }); });
 export const disableAccount = asyncHandler(async (req: Request, res: Response) => { await authService.disableAccount(req.user!.sub); clearAuthCookies(res); res.status(200).json({ message: "Account disabled" }); });
 export const deleteAccount = asyncHandler(async (req: Request, res: Response) => { await authService.deleteAccount(req.user!.sub); clearAuthCookies(res); res.status(200).json({ message: "Account deleted" }); });
+export const addMarket = asyncHandler(async (req: Request, res: Response) => { const { market } = z.object({ market: z.enum(["NG", "US"]) }).parse(req.body); const user = await authService.addCustomerMarket(req.user!.sub, market); res.status(200).json({ user }); });
 export const me = asyncHandler(async (req: Request, res: Response) => { const user = await authStaffService.getCurrentUserWithVendorStaff(req.user!.sub); if (!user) throw AppError.notFound("User not found"); const { passwordHash, ...safe } = user as any; res.status(200).json({ user: safe }); });
 export const updateProfile = asyncHandler(async (req: Request, res: Response) => { const input = updateProfileSchema.parse(req.body); res.status(200).json({ user: await authService.updateProfile(req.user!.sub, input) }); });
 export const updateAvatar = asyncHandler(async (req: Request, res: Response) => { const { avatarUrl } = avatarSchema.parse(req.body); res.status(200).json({ user: await authService.setAvatar(req.user!.sub, avatarUrl) }); });
