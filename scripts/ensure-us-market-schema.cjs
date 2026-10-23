@@ -15,18 +15,18 @@ async function main() {
   `);
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "products"
-    ADD COLUMN IF NOT EXISTS us_price NUMERIC(12, 2)
+    ADD COLUMN IF NOT EXISTS eu_price NUMERIC(12, 2)
   `);
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "products"
-    ADD COLUMN IF NOT EXISTS us_previous_price NUMERIC(12, 2)
+    ADD COLUMN IF NOT EXISTS eu_previoeu_price NUMERIC(12, 2)
   `);
-  console.log("US market columns are present; existing records were preserved.");
+  console.log("Europe market columns are present; existing records were preserved.");
 }
 
 main()
   .catch((error) => {
-    console.error("US market schema check failed:", error instanceof Error ? error.message : error);
+    console.error("Europe market schema check failed:", error instanceof Error ? error.message : error);
     process.exitCode = 1;
   })
   .finally(async () => {
