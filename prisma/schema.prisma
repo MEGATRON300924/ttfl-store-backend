@@ -241,6 +241,7 @@ model User {
   firstName String
   lastName String
   phone String?
+  customerMarkets String[] @default(["NG"]) @map("customer_markets")
   avatarUrl String?
   emailVerified Boolean @default(false)
   emailVerifiedAt DateTime?
