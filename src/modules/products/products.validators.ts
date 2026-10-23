@@ -8,10 +8,10 @@ const baseProductFields = {
   description: z.string().min(10).max(5000),
   categorySlug: z.string().min(1, "Category is required"),
   price: z.number().nonnegative().max(999_999_999).default(0),
-  previousPrice: optionalNumber(z.number().positive().max(999_999_999)),
-  usPrice: optionalNumber(z.number().nonnegative().max(999_999_999)),
-  usPreviousPrice: optionalNumber(z.number().positive().max(999_999_999)),
-  condition: z.enum(["NEW", "USED"]).default("NEW"),
+  previoeuPrice: optionalNumber(z.number().positive().max(999_999_999)),
+  euPrice: optionalNumber(z.number().nonnegative().max(999_999_999)),
+  euPrevioeuPrice: optionalNumber(z.number().positive().max(999_999_999)),
+  condition: z.enum(["NEW", "EUED"]).default("NEW"),
   stock: z.number().int().min(0).default(1),
   location: optionalString(z.string().max(120)),
   // Vendor-defined search terms. No arbitrary character limit per tag.
@@ -33,7 +33,7 @@ const sellingMethodFields = z.discriminatedUnion("sellingMethod", [
 
 export const createProductSchema = z.object(baseProductFields).and(sellingMethodFields).superRefine((data, ctx) => {
   if (!data.comingSoon && data.price <= 0) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "A valid product price is required", path: ["price"] });
-  if (data.previousPrice !== undefined && data.previousPrice <= data.price) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Previous price must be greater than the current price to represent a discount", path: ["previousPrice"] });
+  if (data.previoeuPrice !== undefined && data.previoeuPrice <= data.price) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Previous price must be greater than the current price to represent a discount", path: ["previoeuPrice"] });
 });
 
 export const updateProductSchema = z.object({
@@ -41,9 +41,9 @@ export const updateProductSchema = z.object({
   description: baseProductFields.description.optional(),
   categorySlug: baseProductFields.categorySlug.optional(),
   price: baseProductFields.price,
-  previousPrice: optionalNumber(z.number().positive().max(999_999_999)),
-  usPrice: optionalNumber(z.number().nonnegative().max(999_999_999)),
-  usPreviousPrice: optionalNumber(z.number().positive().max(999_999_999)),
+  previoeuPrice: optionalNumber(z.number().positive().max(999_999_999)),
+  euPrice: optionalNumber(z.number().nonnegative().max(999_999_999)),
+  euPrevioeuPrice: optionalNumber(z.number().positive().max(999_999_999)),
   condition: baseProductFields.condition.optional(),
   stock: baseProductFields.stock.optional(),
   location: optionalString(z.string().max(120)),
@@ -64,8 +64,8 @@ export const updateProductSchema = z.object({
 export const productSearchSchema = z.object({
   q: z.string().max(120).optional(), category: z.string().optional(), vendor: z.string().optional(),
   minPrice: z.coerce.number().nonnegative().optional(), maxPrice: z.coerce.number().positive().optional(),
-  condition: z.enum(["NEW", "USED"]).optional(), sellingMethod: z.enum(["CHECKOUT", "EXTERNAL_LINK", "WHATSAPP"]).optional(),
-  location: z.string().optional(), market: z.enum(["NG", "US"]).default("NG"), verifiedOnly: z.coerce.boolean().optional(), comingSoon: z.coerce.boolean().optional(),
+  condition: z.enum(["NEW", "EUED"]).optional(), sellingMethod: z.enum(["CHECKOUT", "EXTERNAL_LINK", "WHATSAPP"]).optional(),
+  location: z.string().optional(), market: z.enum(["NG", "EU"]).default("NG"), verifiedOnly: z.coerce.boolean().optional(), comingSoon: z.coerce.boolean().optional(),
   sort: z.enum(["relevance", "price_asc", "price_desc", "newest", "launched", "rating"]).default("relevance"),
   page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(48).default(24),
 });
