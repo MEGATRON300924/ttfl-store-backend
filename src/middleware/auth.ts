@@ -1,12 +1,15 @@
 import type { NextFunction, Request, Response } from "express";
 import type { Role } from "@prisma/client";
 import { verifyAccessToken, type AccessTokenPayload } from "@/lib/jwt";
-import { ACCESS_COOKIE } from "@/lib/cookies";
+import { ACCESS_COOKIE, REFRESH_COOKIE, clearAuthCookies } from "@/lib/cookies";
+import { hashOpaqueToken } from "@/lib/tokens";
 import { AppError } from "@/utils/app-error";
 import { prisma } from "@/lib/prisma";
 import { hasVendorPermission, type VendorPermission } from "@/lib/vendor-access";
 
 declare global { namespace Express { interface Request { user?: AccessTokenPayload; } } }
+
+const INACTIVITY_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
 function extractToken(req: Request): string | null {
   const cookieToken = req.cookies?.[ACCESS_COOKIE];
@@ -24,19 +27,46 @@ export function attachUser(req: Request, _res: Response, next: NextFunction) {
   next();
 }
 
+async function validateCookieSession(req: Request, res: Response) {
+  // Browser sessions use HttpOnly cookies. Bearer-token clients (such as mobile
+  // apps) retain their existing authentication flow.
+  if (!req.cookies?.[ACCESS_COOKIE]) return;
+  const rawRefreshToken = req.cookies?.[REFRESH_COOKIE];
+  if (!rawRefreshToken) {
+    clearAuthCookies(res);
+    throw AppError.unauthorized("Your session has expired. Please sign in again.", "SESSION_EXPIRED");
+  }
+
+  const refreshTokenHash = hashOpaqueToken(rawRefreshToken);
+  const session = await prisma.session.findUnique({ where: { refreshTokenHash } });
+  const now = new Date();
+  if (!session || session.revoked || session.expiresAt <= now) {
+    clearAuthCookies(res);
+    throw AppError.unauthorized("Your session has expired. Please sign in again.", "SESSION_EXPIRED");
+  }
+
+  if (session.lastActivityAt.getTime() <= now.getTime() - INACTIVITY_TTL_MS) {
+    await prisma.session.update({ where: { id: session.id }, data: { revoked: true, revokedAt: now } });
+    clearAuthCookies(res);
+    throw AppError.unauthorized("You were signed out after 14 days of inactivity. Please sign in again.", "SESSION_INACTIVE");
+  }
+
+  await prisma.session.update({ where: { id: session.id }, data: { lastActivityAt: now } });
+}
+
 async function getCurrentRole(userId: string) {
   return prisma.user.findUnique({ where: { id: userId }, select: { role: true, status: true } });
 }
 
-export function requireAuth(req: Request, _res: Response, next: NextFunction) {
+export function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.user) return next(AppError.unauthorized());
-  void getCurrentRole(req.user.sub)
-    .then((currentUser) => {
-      if (!currentUser || currentUser.status === "DELETED") return next(AppError.unauthorized());
-      if (currentUser.status === "SUSPENDED") return next(AppError.forbidden("This account has been disabled", "ACCOUNT_DISABLED"));
-      next();
-    })
-    .catch(next);
+  void (async () => {
+    await validateCookieSession(req, res);
+    const currentUser = await getCurrentRole(req.user!.sub);
+    if (!currentUser || currentUser.status === "DELETED") return next(AppError.unauthorized());
+    if (currentUser.status === "SUSPENDED") return next(AppError.forbidden("This account has been disabled", "ACCOUNT_DISABLED"));
+    next();
+  })().catch(next);
 }
 
 function vendorPermissionForRequest(req: Request): VendorPermission | null {
@@ -62,9 +92,10 @@ async function isActiveVendorStaff(userId: string) {
 }
 
 export function requireRole(...roles: Role[]) {
-  return (req: Request, _res: Response, next: NextFunction) => {
+  return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) return next(AppError.unauthorized());
     void (async () => {
+      await validateCookieSession(req, res);
       const currentUser = await getCurrentRole(req.user!.sub);
       if (!currentUser || currentUser.status === "DELETED") return next(AppError.unauthorized());
       if (currentUser.status === "SUSPENDED") return next(AppError.forbidden("Your account is suspended", "ACCOUNT_DISABLED"));
