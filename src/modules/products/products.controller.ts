@@ -9,7 +9,7 @@ import { z } from "zod";
 
 function requestMeta(req: Request) { const userAgent = req.headers["user-agent"]; return { userAgent, ipAddress: req.ip, deviceType: detectDeviceType(userAgent) }; }
 export const search = asyncHandler(async (req: Request, res: Response) => { const params = productSearchSchema.parse(req.query); res.json(await productsService.searchProducts(params)); });
-export const getBySlug = asyncHandler(async (req: Request, res: Response) => { const market = req.query.market === "US" ? "US" : "NG"; const product = await productsService.getProductBySlug(req.params.slug, market); res.json({ product }); });
+export const getBySlug = asyncHandler(async (req: Request, res: Response) => { const market = req.query.market === "EU" ? "EU" : "NG"; const product = await productsService.getProductBySlug(req.params.slug, market); res.json({ product }); });
 export const create = asyncHandler(async (req: Request, res: Response) => { const product = await productsService.createProduct(req.user!.sub, createProductSchema.parse(req.body)); res.status(201).json({ product }); });
 export const update = asyncHandler(async (req: Request, res: Response) => { const product = await productsService.updateProduct(req.user!.sub, req.params.id, updateProductSchema.parse(req.body) as any); res.json({ product }); });
 export const replaceVideos = asyncHandler(async (req: Request, res: Response) => { const videos = z.object({ videos: z.array(z.string().url()).max(3) }).parse(req.body ?? {}).videos; res.json({ videos: await replaceProductVideos(req.user!.sub, req.params.id, videos) }); });
