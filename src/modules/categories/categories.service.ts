@@ -16,10 +16,107 @@ async function ensureVariationColumn() {
   await columnReady;
 }
 
-let smartHomeReady: Promise<void> | null = null;
-async function ensureSmartHomeCategory() {
-  if (!smartHomeReady) smartHomeReady = prisma.category.upsert({ where: { slug: "smart-home" }, update: {}, create: { name: "Smart Home", slug: "smart-home", icon: "House" } }).then(() => undefined);
-  await smartHomeReady;
+let defaultCategoriesReady: Promise<void> | null = null;
+const DEFAULT_CATEGORY_TREE: Array<{ name: string; slug: string; icon?: string; children: Array<{ name: string; slug: string }> }> = [
+  { name: "Electronics", slug: "electronics", icon: "Monitor", children: [
+    { name: "Audio & Headphones", slug: "audio-headphones" }, { name: "Cameras & Photography", slug: "cameras-photography" },
+    { name: "TVs & Home Entertainment", slug: "tvs-home-entertainment" }, { name: "Wearable Technology", slug: "wearable-technology" },
+    { name: "Cables & Adapters", slug: "cables-adapters" }, { name: "Power Banks & Chargers", slug: "power-banks-chargers" }
+  ]},
+  { name: "Computers & Laptops", slug: "computers-laptops", icon: "Laptop", children: [
+    { name: "Laptops", slug: "laptops" }, { name: "Desktop Computers", slug: "desktop-computers" }, { name: "Monitors", slug: "monitors" },
+    { name: "Computer Components", slug: "computer-components" }, { name: "Keyboards & Mice", slug: "keyboards-mice" },
+    { name: "Printers & Scanners", slug: "printers-scanners" }, { name: "Networking", slug: "computer-networking" }, { name: "Storage Devices", slug: "storage-devices" }
+  ]},
+  { name: "Phones & Tablets", slug: "phones-tablets", icon: "Smartphone", children: [
+    { name: "Mobile Phones", slug: "mobile-phones" }, { name: "Tablets", slug: "tablets" }, { name: "Phone Cases & Covers", slug: "phone-cases-covers" },
+    { name: "Screen Protectors", slug: "screen-protectors" }, { name: "Phone Parts & Repairs", slug: "phone-parts-repairs" }, { name: "Smartwatches", slug: "smartwatches" }
+  ]},
+  { name: "Fashion", slug: "fashion", icon: "Shirt", children: [
+    { name: "Men's Clothing", slug: "mens-clothing" }, { name: "Women's Clothing", slug: "womens-clothing" }, { name: "Unisex Clothing", slug: "unisex-clothing" },
+    { name: "Shoes & Footwear", slug: "shoes-footwear" }, { name: "Bags & Handbags", slug: "bags-handbags" }, { name: "Jewellery", slug: "jewellery" },
+    { name: "Rings", slug: "rings" }, { name: "Necklaces & Pendants", slug: "necklaces-pendants" }, { name: "Bracelets & Bangles", slug: "bracelets-bangles" },
+    { name: "Earrings", slug: "earrings" }, { name: "Jewellery Sets", slug: "jewellery-sets" }, { name: "Watches", slug: "watches" },
+    { name: "Sunglasses & Eyewear", slug: "sunglasses-eyewear" }, { name: "Belts", slug: "belts" }, { name: "Hats & Caps", slug: "hats-caps" },
+    { name: "Scarves & Accessories", slug: "scarves-accessories" }, { name: "Underwear & Lingerie", slug: "underwear-lingerie" },
+    { name: "Sportswear", slug: "sportswear" }, { name: "Traditional & Cultural Wear", slug: "traditional-cultural-wear" }
+  ]},
+  { name: "Beauty & Personal Care", slug: "beauty-personal-care", icon: "Sparkles", children: [
+    { name: "Skincare", slug: "skincare" }, { name: "Makeup", slug: "makeup" }, { name: "Hair Care", slug: "hair-care" },
+    { name: "Fragrances", slug: "fragrances" }, { name: "Bath & Body", slug: "bath-body" }, { name: "Grooming & Shaving", slug: "grooming-shaving" },
+    { name: "Nail Care", slug: "nail-care" }, { name: "Beauty Tools", slug: "beauty-tools" }
+  ]},
+  { name: "Home & Living", slug: "home-living", icon: "House", children: [
+    { name: "Furniture", slug: "furniture" }, { name: "Bedding & Linens", slug: "bedding-linens" }, { name: "Kitchen & Dining", slug: "kitchen-dining" },
+    { name: "Home Decor", slug: "home-decor" }, { name: "Lighting", slug: "lighting" }, { name: "Storage & Organisation", slug: "storage-organisation" },
+    { name: "Bathroom Accessories", slug: "bathroom-accessories" }, { name: "Cleaning Supplies", slug: "cleaning-supplies" }, { name: "Smart Home", slug: "smart-home" }
+  ]},
+  { name: "Health & Wellness", slug: "health-wellness", icon: "HeartPulse", children: [
+    { name: "Fitness & Exercise Equipment", slug: "fitness-exercise-equipment" }, { name: "Personal Health Devices", slug: "personal-health-devices" },
+    { name: "Mobility & Support", slug: "mobility-support" }, { name: "Wellness Accessories", slug: "wellness-accessories" }
+  ]},
+  { name: "Sports & Outdoors", slug: "sports-outdoors", icon: "Dumbbell", children: [
+    { name: "Football & Soccer", slug: "football-soccer" }, { name: "Gym & Fitness", slug: "gym-fitness" }, { name: "Cycling", slug: "cycling" },
+    { name: "Camping & Hiking", slug: "camping-hiking" }, { name: "Swimming", slug: "swimming" }, { name: "Rackets & Court Sports", slug: "rackets-court-sports" },
+    { name: "Outdoor Recreation", slug: "outdoor-recreation" }
+  ]},
+  { name: "Automotive & Motorcycles", slug: "automotive-motorcycles", icon: "Car", children: [
+    { name: "Cars", slug: "cars" }, { name: "Motorcycles & Scooters", slug: "motorcycles-scooters" }, { name: "Car Parts", slug: "car-parts" },
+    { name: "Motorcycle Parts", slug: "motorcycle-parts" }, { name: "Tyres & Wheels", slug: "tyres-wheels" }, { name: "Car Electronics", slug: "car-electronics" },
+    { name: "Vehicle Accessories", slug: "vehicle-accessories" }, { name: "Tools & Maintenance", slug: "vehicle-tools-maintenance" }
+  ]},
+  { name: "Baby & Kids", slug: "baby-kids", icon: "Baby", children: [
+    { name: "Baby Clothing", slug: "baby-clothing" }, { name: "Baby Care", slug: "baby-care" }, { name: "Prams & Car Seats", slug: "prams-car-seats" },
+    { name: "Feeding & Nursing", slug: "feeding-nursing" }, { name: "Kids' Shoes", slug: "kids-shoes" }, { name: "School Essentials", slug: "school-essentials" }
+  ]},
+  { name: "Toys & Games", slug: "toys-games", icon: "Puzzle", children: [
+    { name: "Board Games", slug: "board-games" }, { name: "Puzzles", slug: "puzzles" }, { name: "Dolls & Figures", slug: "dolls-figures" },
+    { name: "Building Toys", slug: "building-toys" }, { name: "Outdoor Toys", slug: "outdoor-toys" }, { name: "Video Games", slug: "video-games" }
+  ]},
+  { name: "Books & Stationery", slug: "books-stationery", icon: "BookOpen", children: [
+    { name: "Books", slug: "books" }, { name: "Educational Materials", slug: "educational-materials" }, { name: "Office Stationery", slug: "office-stationery" },
+    { name: "Art & Craft Supplies", slug: "art-craft-supplies" }, { name: "Musical Instruments", slug: "musical-instruments" }
+  ]},
+  { name: "Food & Groceries", slug: "food-groceries", icon: "ShoppingBasket", children: [
+    { name: "Packaged Food", slug: "packaged-food" }, { name: "Beverages", slug: "beverages" }, { name: "Pantry Essentials", slug: "pantry-essentials" },
+    { name: "Snacks & Confectionery", slug: "snacks-confectionery" }, { name: "Food Gifts", slug: "food-gifts" }
+  ]},
+  { name: "Office & Business", slug: "office-business", icon: "BriefcaseBusiness", children: [
+    { name: "Office Furniture", slug: "office-furniture" }, { name: "Business Equipment", slug: "business-equipment" }, { name: "POS & Payment Devices", slug: "pos-payment-devices" },
+    { name: "Packaging & Shipping", slug: "packaging-shipping" }, { name: "Security & Surveillance", slug: "security-surveillance" }
+  ]},
+  { name: "Tools & Home Improvement", slug: "tools-home-improvement", icon: "Wrench", children: [
+    { name: "Hand Tools", slug: "hand-tools" }, { name: "Power Tools", slug: "power-tools" }, { name: "Electrical Supplies", slug: "electrical-supplies" },
+    { name: "Plumbing Supplies", slug: "plumbing-supplies" }, { name: "Building Materials", slug: "building-materials" }, { name: "Safety Equipment", slug: "safety-equipment" }
+  ]},
+  { name: "Garden & Outdoor", slug: "garden-outdoor", icon: "Trees", children: [
+    { name: "Garden Tools", slug: "garden-tools" }, { name: "Plants & Seeds", slug: "plants-seeds" }, { name: "Outdoor Furniture", slug: "outdoor-furniture" },
+    { name: "Irrigation & Watering", slug: "irrigation-watering" }
+  ]},
+  { name: "Travel & Luggage", slug: "travel-luggage", icon: "Luggage", children: [
+    { name: "Suitcases", slug: "suitcases" }, { name: "Backpacks", slug: "backpacks" }, { name: "Travel Accessories", slug: "travel-accessories" }
+  ]},
+  { name: "Pet Supplies", slug: "pet-supplies", icon: "PawPrint", children: [
+    { name: "Pet Food", slug: "pet-food" }, { name: "Pet Toys", slug: "pet-toys" }, { name: "Beds & Carriers", slug: "pet-beds-carriers" },
+    { name: "Grooming & Care", slug: "pet-grooming-care" }
+  ]}
+];
+
+async function findOrCreateCategory(name: string, slug: string, parentId?: string, icon?: string) {
+  const existing = await prisma.category.findFirst({ where: { OR: [{ slug }, { name: { equals: name, mode: "insensitive" } }] } });
+  if (existing) return existing;
+  return prisma.category.create({ data: { name, slug, ...(parentId ? { parentId } : {}), ...(icon ? { icon } : {}) } });
+}
+
+async function ensureDefaultCategories() {
+  if (!defaultCategoriesReady) defaultCategoriesReady = (async () => {
+    const roots = await Promise.all(DEFAULT_CATEGORY_TREE.map((item) => findOrCreateCategory(item.name, item.slug, undefined, item.icon)));
+    for (let index = 0; index < DEFAULT_CATEGORY_TREE.length; index++) {
+      const root = roots[index];
+      await Promise.all(DEFAULT_CATEGORY_TREE[index].children.map((child) => findOrCreateCategory(child.name, child.slug, root.id)));
+    }
+  })();
+  await defaultCategoriesReady;
 }
 
 function normalizeConfig(value: unknown): CategoryVariationConfig {
@@ -50,7 +147,7 @@ async function configsFor(ids: string[]) {
 function withConfig<T extends { id: string }>(category: T, configs: Map<string, CategoryVariationConfig>) { return { ...category, variationConfig: configs.get(category.id) ?? EMPTY_CONFIG }; }
 
 export async function listCategories() {
-  await ensureSmartHomeCategory();
+  await ensureDefaultCategories();
   const categories = await prisma.category.findMany({ where: { parentId: null }, include: { children: true }, orderBy: { name: "asc" } });
   const configs = await configsFor(categories.flatMap((category) => [category.id, ...category.children.map((child) => child.id)]));
   return categories.map((category) => ({ ...withConfig(category, configs), children: category.children.map((child) => withConfig(child, configs)) }));
