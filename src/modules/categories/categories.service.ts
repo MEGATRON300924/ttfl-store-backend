@@ -107,6 +107,27 @@ const DEFAULT_CATEGORY_TREE: Array<{ name: string; slug: string; icon?: string; 
   { name: "Pet Supplies", slug: "pet-supplies", icon: "PawPrint", children: [
     { name: "Pet Food", slug: "pet-food" }, { name: "Pet Toys", slug: "pet-toys" }, { name: "Beds & Carriers", slug: "pet-beds-carriers" },
     { name: "Grooming & Care", slug: "pet-grooming-care" }
+  ]},
+  { name: "Home Appliances", slug: "home-appliances", icon: "Refrigerator", children: [
+    { name: "Refrigerators & Freezers", slug: "refrigerators-freezers" }, { name: "Washing Machines", slug: "washing-machines" },
+    { name: "Air Conditioners", slug: "air-conditioners" }, { name: "Fans", slug: "fans" }, { name: "Irons & Steamers", slug: "irons-steamers" },
+    { name: "Vacuum Cleaners", slug: "vacuum-cleaners" }, { name: "Microwaves & Ovens", slug: "microwaves-ovens" },
+    { name: "Blenders & Mixers", slug: "blenders-mixers" }, { name: "Cookers & Hobs", slug: "cookers-hobs" }, { name: "Water Dispensers", slug: "water-dispensers" }
+  ]},
+  { name: "Gaming & Consoles", slug: "gaming-consoles", icon: "Gamepad2", children: [
+    { name: "Gaming Consoles", slug: "gaming-consoles-hardware" }, { name: "Console Games", slug: "console-games" },
+    { name: "Controllers & Accessories", slug: "controllers-accessories" }, { name: "Gaming Headsets", slug: "gaming-headsets" },
+    { name: "VR Headsets", slug: "vr-headsets" }, { name: "Gaming Chairs & Desks", slug: "gaming-chairs-desks" }
+  ]},
+  { name: "Arts, Crafts & Collectibles", slug: "arts-crafts-collectibles", icon: "Palette", children: [
+    { name: "Art Supplies", slug: "art-supplies" }, { name: "Craft Supplies", slug: "craft-supplies" },
+    { name: "Handmade Goods", slug: "handmade-goods" }, { name: "Collectibles & Memorabilia", slug: "collectibles-memorabilia" },
+    { name: "Antiques & Vintage", slug: "antiques-vintage" }
+  ]},
+  { name: "Musical Instruments & DJ", slug: "musical-instruments-dj", icon: "Music", children: [
+    { name: "Guitars & Basses", slug: "guitars-basses" }, { name: "Keyboards & Pianos", slug: "keyboards-pianos" },
+    { name: "Drums & Percussion", slug: "drums-percussion" }, { name: "DJ Equipment", slug: "dj-equipment" },
+    { name: "Recording Equipment", slug: "recording-equipment" }, { name: "Microphones", slug: "microphones" }
   ]}
 ];
 
@@ -116,6 +137,11 @@ async function findOrCreateCategory(name: string, slug: string, parentId?: strin
   return prisma.category.create({ data: { name, slug, ...(parentId ? { parentId } : {}), ...(icon ? { icon } : {}) } });
 }
 
+async function ensureSmartHomeCategory() {
+  const home = await findOrCreateCategory("Home & Living", "home-living", undefined, "House");
+  await findOrCreateCategory("Smart Home", "smart-home", home.id);
+}
+
 async function ensureDefaultCategories() {
   if (!defaultCategoriesReady) defaultCategoriesReady = (async () => {
     const roots = await Promise.all(DEFAULT_CATEGORY_TREE.map((item) => findOrCreateCategory(item.name, item.slug, undefined, item.icon)));
@@ -123,6 +149,8 @@ async function ensureDefaultCategories() {
       const root = roots[index];
       await Promise.all(DEFAULT_CATEGORY_TREE[index].children.map((child) => findOrCreateCategory(child.name, child.slug, root.id)));
     }
+    // Keep the Smart Home category available even when a previous seed only partially completed.
+    await ensureSmartHomeCategory();
   })();
   await defaultCategoriesReady;
 }
