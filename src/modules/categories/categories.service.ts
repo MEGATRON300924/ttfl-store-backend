@@ -29,12 +29,20 @@ const DEFAULT_CATEGORY_TREE: Array<{ name: string; slug: string; icon?: string; 
     { name: "Printers & Scanners", slug: "printers-scanners" }, { name: "Networking", slug: "computer-networking" }, { name: "Storage Devices", slug: "storage-devices" }
   ]},
   { name: "Phones & Tablets", slug: "phones-tablets", icon: "Smartphone", children: [
-    { name: "Mobile Phones", slug: "mobile-phones" }, { name: "Tablets", slug: "tablets" }, { name: "Phone Cases & Covers", slug: "phone-cases-covers" },
-    { name: "Screen Protectors", slug: "screen-protectors" }, { name: "Phone Parts & Repairs", slug: "phone-parts-repairs" }, { name: "Smartwatches", slug: "smartwatches" }
+    { name: "Mobile Phones", slug: "mobile-phones" }, { name: "Tablets", slug: "tablets" }, { name: "Phone Cases & Covers", slug: "phone-cases-covers" }, { name: "Phone Pouches & Sleeves", slug: "phone-pouches-sleeves" },
+    { name: "Chargers & Power Adapters", slug: "phone-chargers-power-adapters" }, { name: "Charging Cables", slug: "charging-cables" },
+    { name: "Wireless Chargers", slug: "wireless-chargers" }, { name: "Power Banks", slug: "phone-power-banks" },
+    { name: "Screen Protectors", slug: "screen-protectors" }, { name: "Phone Mounts & Stands", slug: "phone-mounts-stands" },
+    { name: "Selfie Sticks & Tripods", slug: "selfie-sticks-tripods" }, { name: "Phone Grips & Rings", slug: "phone-grips-rings" },
+    { name: "Stylus Pens", slug: "stylus-pens" }, { name: "Earphones & Earbuds", slug: "earphones-earbuds" },
+    { name: "Bluetooth Headsets", slug: "bluetooth-headsets" }, { name: "Memory Cards & SIM Accessories", slug: "memory-cards-sim-accessories" },
+    { name: "Phone Parts & Repairs", slug: "phone-parts-repairs" }, { name: "Smartwatches", slug: "smartwatches" }
   ]},
   { name: "Fashion", slug: "fashion", icon: "Shirt", children: [
     { name: "Men's Clothing", slug: "mens-clothing" }, { name: "Women's Clothing", slug: "womens-clothing" }, { name: "Unisex Clothing", slug: "unisex-clothing" },
-    { name: "Shoes & Footwear", slug: "shoes-footwear" }, { name: "Bags & Handbags", slug: "bags-handbags" }, { name: "Jewellery", slug: "jewellery" },
+    { name: "T-Shirts & Tops", slug: "t-shirts-tops" }, { name: "Shirts & Blouses", slug: "shirts-blouses" }, { name: "Dresses & Jumpsuits", slug: "dresses-jumpsuits" },
+    { name: "Trousers, Jeans & Shorts", slug: "trousers-jeans-shorts" }, { name: "Skirts", slug: "skirts" }, { name: "Coats & Jackets", slug: "coats-jackets" }, { name: "Suits & Formalwear", slug: "suits-formalwear" },
+    { name: "Shoes & Footwear", slug: "shoes-footwear" }, { name: "Bags & Handbags", slug: "bags-handbags" }, { name: "Jewellery", slug: "jewellery" }, { name: "Fine Jewellery", slug: "fine-jewellery" }, { name: "Fashion Jewellery", slug: "fashion-jewellery" },
     { name: "Rings", slug: "rings" }, { name: "Necklaces & Pendants", slug: "necklaces-pendants" }, { name: "Bracelets & Bangles", slug: "bracelets-bangles" },
     { name: "Earrings", slug: "earrings" }, { name: "Jewellery Sets", slug: "jewellery-sets" }, { name: "Watches", slug: "watches" },
     { name: "Sunglasses & Eyewear", slug: "sunglasses-eyewear" }, { name: "Belts", slug: "belts" }, { name: "Hats & Caps", slug: "hats-caps" },
@@ -153,7 +161,7 @@ export async function listCategories() {
   return categories.map((category) => ({ ...withConfig(category, configs), children: category.children.map((child) => withConfig(child, configs)) }));
 }
 export async function getCategoryBySlug(slug: string) {
-  await ensureSmartHomeCategory();
+  await ensureDefaultCategories();
   const category = await prisma.category.findUnique({ where: { slug }, include: { children: true } });
   if (!category) throw AppError.notFound("Category not found");
   const configs = await configsFor([category.id, ...category.children.map((child) => child.id)]);
