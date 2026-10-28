@@ -9,7 +9,7 @@ import { hasVendorPermission, type VendorPermission } from "@/lib/vendor-access"
 
 declare global { namespace Express { interface Request { user?: AccessTokenPayload; } } }
 
-const INACTIVITY_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+const INACTIVITY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 function extractToken(req: Request): string | null {
   const cookieToken = req.cookies?.[ACCESS_COOKIE];
@@ -48,7 +48,7 @@ async function validateCookieSession(req: Request, res: Response) {
   if (session.lastActivityAt.getTime() <= now.getTime() - INACTIVITY_TTL_MS) {
     await prisma.session.update({ where: { id: session.id }, data: { revoked: true, revokedAt: now } });
     clearAuthCookies(res);
-    throw AppError.unauthorized("You were signed out after 14 days of inactivity. Please sign in again.", "SESSION_INACTIVE");
+    throw AppError.unauthorized("You were signed out after 30 days of inactivity. Please sign in again.", "SESSION_INACTIVE");
   }
 
   await prisma.session.update({ where: { id: session.id }, data: { lastActivityAt: now } });
