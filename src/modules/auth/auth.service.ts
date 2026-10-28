@@ -14,7 +14,7 @@ import { createNotification } from "@/modules/notifications/notifications.servic
 import { ensureStoreProfileTables } from "@/modules/store-profile/store-profile.service";
 import type { RegisterCustomerInput, RegisterVendorInput, LoginInput } from "./auth.validators";
 import type { Role, User } from "@prisma/client";
-const REFRESH_TTL_MS=Math.min(30,Math.max(1,env.jwt.refreshTtlDays))*24*60*60*1000;const EMAIL_TOKEN_TTL_MS=24*60*60*1000;const RESET_TOKEN_TTL_MS=60*60*1000;
+const REFRESH_TTL_MS=30*24*60*60*1000;const EMAIL_TOKEN_TTL_MS=24*60*60*1000;const RESET_TOKEN_TTL_MS=60*60*1000;
 function publicUser(user:User){const{passwordHash,...safe}=user;return safe;}
 export async function issueSession(user:User,meta:{userAgent?:string;ipAddress?:string}){const accessToken=signAccessToken({sub:user.id,role:user.role,emailVerified:user.emailVerified});const{raw:refreshToken,hash:refreshTokenHash}=generateOpaqueToken();await prisma.session.create({data:{userId:user.id,refreshTokenHash,userAgent:meta.userAgent,ipAddress:meta.ipAddress,expiresAt:new Date(Date.now()+REFRESH_TTL_MS)}});return{accessToken,refreshToken};}
 async function sendVerificationEmail(user:User){const{raw,hash}=generateOpaqueToken();await prisma.emailVerificationToken.create({data:{userId:user.id,tokenHash:hash,expiresAt:new Date(Date.now()+EMAIL_TOKEN_TTL_MS)}});const verifyUrl=`${env.appUrl}/verify-email?token=${raw}`;const{subject,html}=verificationEmail(user.firstName,verifyUrl);void sendEmail({to:user.email,subject,html});}
