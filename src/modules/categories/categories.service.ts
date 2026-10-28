@@ -29,10 +29,10 @@ const DEFAULT_CATEGORY_TREE: Array<{ name: string; slug: string; icon?: string; 
     { name: "Printers & Scanners", slug: "printers-scanners" }, { name: "Networking", slug: "computer-networking" }, { name: "Storage Devices", slug: "storage-devices" }
   ]},
   { name: "Phones & Tablets", slug: "phones-tablets", icon: "Smartphone", children: [
-    { name: "Mobile Phones", slug: "mobile-phones" }, { name: "Tablets", slug: "tablets" }, { name: "Phone Cases & Covers", slug: "phone-cases-covers" }, { name: "Phone Pouches & Sleeves", slug: "phone-pouches-sleeves" },
+    { name: "Mobile Phones", slug: "mobile-phones" }, { name: "Tablets", slug: "tablets" }, { name: "Phone Cases & Covers", slug: "phone-cases-covers" }, { name: "Phone Pouches & Sleeves", slug: "phone-pouches-sleeves" }, { name: "Phone Lanyards & Straps", slug: "phone-lanyards-straps" }, { name: "MagSafe & Magnetic Accessories", slug: "magsafe-magnetic-accessories" },
     { name: "Chargers & Power Adapters", slug: "phone-chargers-power-adapters" }, { name: "Charging Cables", slug: "charging-cables" },
     { name: "Wireless Chargers", slug: "wireless-chargers" }, { name: "Power Banks", slug: "phone-power-banks" },
-    { name: "Screen Protectors", slug: "screen-protectors" }, { name: "Phone Mounts & Stands", slug: "phone-mounts-stands" },
+    { name: "Screen Protectors", slug: "screen-protectors" }, { name: "Camera Lens Protectors", slug: "camera-lens-protectors" }, { name: "Phone Batteries & Replacement Parts", slug: "phone-batteries-replacement-parts" }, { name: "Phone Mounts & Stands", slug: "phone-mounts-stands" },
     { name: "Selfie Sticks & Tripods", slug: "selfie-sticks-tripods" }, { name: "Phone Grips & Rings", slug: "phone-grips-rings" },
     { name: "Stylus Pens", slug: "stylus-pens" }, { name: "Earphones & Earbuds", slug: "earphones-earbuds" },
     { name: "Bluetooth Headsets", slug: "bluetooth-headsets" }, { name: "Memory Cards & SIM Accessories", slug: "memory-cards-sim-accessories" },
@@ -43,10 +43,10 @@ const DEFAULT_CATEGORY_TREE: Array<{ name: string; slug: string; icon?: string; 
     { name: "T-Shirts & Tops", slug: "t-shirts-tops" }, { name: "Shirts & Blouses", slug: "shirts-blouses" }, { name: "Dresses & Jumpsuits", slug: "dresses-jumpsuits" },
     { name: "Trousers, Jeans & Shorts", slug: "trousers-jeans-shorts" }, { name: "Skirts", slug: "skirts" }, { name: "Coats & Jackets", slug: "coats-jackets" }, { name: "Suits & Formalwear", slug: "suits-formalwear" },
     { name: "Shoes & Footwear", slug: "shoes-footwear" }, { name: "Bags & Handbags", slug: "bags-handbags" }, { name: "Jewellery", slug: "jewellery" }, { name: "Fine Jewellery", slug: "fine-jewellery" }, { name: "Fashion Jewellery", slug: "fashion-jewellery" },
-    { name: "Rings", slug: "rings" }, { name: "Necklaces & Pendants", slug: "necklaces-pendants" }, { name: "Bracelets & Bangles", slug: "bracelets-bangles" },
+    { name: "Rings", slug: "rings" }, { name: "Wedding & Engagement Rings", slug: "wedding-engagement-rings" }, { name: "Body Jewellery & Piercing", slug: "body-jewellery-piercing" }, { name: "Necklaces & Pendants", slug: "necklaces-pendants" }, { name: "Bracelets & Bangles", slug: "bracelets-bangles" },
     { name: "Earrings", slug: "earrings" }, { name: "Jewellery Sets", slug: "jewellery-sets" }, { name: "Watches", slug: "watches" },
     { name: "Sunglasses & Eyewear", slug: "sunglasses-eyewear" }, { name: "Belts", slug: "belts" }, { name: "Hats & Caps", slug: "hats-caps" },
-    { name: "Scarves & Accessories", slug: "scarves-accessories" }, { name: "Underwear & Lingerie", slug: "underwear-lingerie" },
+    { name: "Scarves & Accessories", slug: "scarves-accessories" }, { name: "Underwear & Lingerie", slug: "underwear-lingerie" }, { name: "Socks & Hosiery", slug: "socks-hosiery" }, { name: "Maternity Wear", slug: "maternity-wear" }, { name: "Sleepwear & Loungewear", slug: "sleepwear-loungewear" }, { name: "Swimwear", slug: "swimwear" }, { name: "Workwear & Uniforms", slug: "workwear-uniforms" },
     { name: "Sportswear", slug: "sportswear" }, { name: "Traditional & Cultural Wear", slug: "traditional-cultural-wear" }
   ]},
   { name: "Beauty & Personal Care", slug: "beauty-personal-care", icon: "Sparkles", children: [
@@ -137,7 +137,7 @@ async function findOrCreateCategory(name: string, slug: string, parentId?: strin
   return prisma.category.create({ data: { name, slug, ...(parentId ? { parentId } : {}), ...(icon ? { icon } : {}) } });
 }
 
-async function ensureSmartHomeCategory() {
+async function ensureSmartHomeCategoryExists() {
   const home = await findOrCreateCategory("Home & Living", "home-living", undefined, "House");
   await findOrCreateCategory("Smart Home", "smart-home", home.id);
 }
@@ -150,7 +150,7 @@ async function ensureDefaultCategories() {
       await Promise.all(DEFAULT_CATEGORY_TREE[index].children.map((child) => findOrCreateCategory(child.name, child.slug, root.id)));
     }
     // Keep the Smart Home category available even when a previous seed only partially completed.
-    await ensureSmartHomeCategory();
+    await ensureSmartHomeCategoryExists();
   })();
   await defaultCategoriesReady;
 }
