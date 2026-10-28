@@ -21,7 +21,7 @@ async function issueSession(user: User, meta: { userAgent?: string; ipAddress?: 
       refreshTokenHash,
       userAgent: meta.userAgent,
       ipAddress: meta.ipAddress,
-      expiresAt: new Date(Date.now() + env.jwt.refreshTtlDays * 24 * 60 * 60 * 1000),
+      expiresAt: new Date(Date.now() + Math.min(30, Math.max(1, env.jwt.refreshTtlDays)) * 24 * 60 * 60 * 1000),
     },
   });
   return { accessToken, refreshToken };
