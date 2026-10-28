@@ -18,7 +18,7 @@ function baseCookieOptions() {
 
 export function setAuthCookies(res: Response, accessToken: string, refreshToken: string) {
   const accessTtlMs = 15 * 60 * 1000;
-  const refreshTtlMs = Math.min(30, Math.max(1, env.jwt.refreshTtlDays)) * 24 * 60 * 60 * 1000;
+  const refreshTtlMs = 30 * 24 * 60 * 60 * 1000;
   // Set both Max-Age and Expires explicitly so browsers persist the refresh
   // cookie across Chrome restarts and hard reloads instead of treating it as a session cookie.
   res.cookie(ACCESS_COOKIE, accessToken, {
