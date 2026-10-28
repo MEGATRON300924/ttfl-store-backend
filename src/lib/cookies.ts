@@ -22,7 +22,8 @@ export function setAuthCookies(res: Response, accessToken: string, refreshToken:
   // Remove legacy host-only cookies before setting the shared storefront cookie.
   // Duplicate cookie names can otherwise make Chrome send a stale token first.
   if (env.isProd) {
-    const { domain: _domain, ...hostOnlyOptions } = baseCookieOptions();
+    const hostOnlyOptions = { ...baseCookieOptions() };
+    delete hostOnlyOptions.domain;
     res.clearCookie(ACCESS_COOKIE, hostOnlyOptions);
     res.clearCookie(REFRESH_COOKIE, hostOnlyOptions);
   }
@@ -47,7 +48,8 @@ export function clearAuthCookies(res: Response) {
   res.clearCookie(ACCESS_COOKIE, options);
   res.clearCookie(REFRESH_COOKIE, options);
   if (env.isProd) {
-    const { domain: _domain, ...hostOnlyOptions } = options;
+    const hostOnlyOptions = { ...options };
+    delete hostOnlyOptions.domain;
     res.clearCookie(ACCESS_COOKIE, hostOnlyOptions);
     res.clearCookie(REFRESH_COOKIE, hostOnlyOptions);
   }
