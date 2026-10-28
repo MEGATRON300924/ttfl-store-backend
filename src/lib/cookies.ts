@@ -23,7 +23,7 @@ export function setAuthCookies(res: Response, accessToken: string, refreshToken:
   });
   res.cookie(REFRESH_COOKIE, refreshToken, {
     ...baseCookieOptions(),
-    maxAge: env.jwt.refreshTtlDays * 24 * 60 * 60 * 1000,
+    maxAge: Math.min(30, Math.max(1, env.jwt.refreshTtlDays)) * 24 * 60 * 60 * 1000,
   });
 }
 
