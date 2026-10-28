@@ -19,6 +19,13 @@ function baseCookieOptions() {
 }
 
 export function setAuthCookies(res: Response, accessToken: string, refreshToken: string) {
+  // Remove legacy host-only cookies before setting the shared storefront cookie.
+  // Duplicate cookie names can otherwise make Chrome send a stale token first.
+  if (env.isProd) {
+    const { domain: _domain, ...hostOnlyOptions } = baseCookieOptions();
+    res.clearCookie(ACCESS_COOKIE, hostOnlyOptions);
+    res.clearCookie(REFRESH_COOKIE, hostOnlyOptions);
+  }
   const accessTtlMs = 15 * 60 * 1000;
   const refreshTtlMs = Math.min(30, Math.max(1, env.jwt.refreshTtlDays)) * 24 * 60 * 60 * 1000;
   // Set both Max-Age and Expires explicitly so browsers persist the refresh
@@ -36,6 +43,12 @@ export function setAuthCookies(res: Response, accessToken: string, refreshToken:
 }
 
 export function clearAuthCookies(res: Response) {
-  res.clearCookie(ACCESS_COOKIE, baseCookieOptions());
-  res.clearCookie(REFRESH_COOKIE, baseCookieOptions());
+  const options = baseCookieOptions();
+  res.clearCookie(ACCESS_COOKIE, options);
+  res.clearCookie(REFRESH_COOKIE, options);
+  if (env.isProd) {
+    const { domain: _domain, ...hostOnlyOptions } = options;
+    res.clearCookie(ACCESS_COOKIE, hostOnlyOptions);
+    res.clearCookie(REFRESH_COOKIE, hostOnlyOptions);
+  }
 }
