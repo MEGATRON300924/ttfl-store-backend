@@ -20,7 +20,7 @@ authRouter.post("/mobile/login", authRateLimiter, authController.mobileLogin);
 authRouter.post("/refresh", authController.refresh);
 authRouter.post("/mobile/refresh", authController.mobileRefresh);
 authRouter.post("/logout", authController.logout);
-authRouter.post("/activity", requireAuth, (_req, res) => { res.status(204).end(); });
+authRouter.post("/activity", requireAuth, authController.activity);
 authRouter.post("/handoff/create", requireAuth, asyncHandler(handoffController.createHandoff));
 authRouter.post("/handoff/exchange", asyncHandler(handoffController.exchangeHandoff));
 authRouter.post("/verify-email", authController.verifyEmail);
