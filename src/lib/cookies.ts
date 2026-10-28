@@ -13,12 +13,14 @@ function baseCookieOptions() {
     // COOKIE_DOMAIN can otherwise make browsers reject a cookie set by Render.
     sameSite: env.isProd || env.cookies.crossSite ? ("none" as const) : ("lax" as const),
     path: "/",
+    // Share the persistent login across apex, www and regional storefront subdomains.
+    ...(env.isProd ? { domain: ".ttflstore.name.ng" } : {}),
   };
 }
 
 export function setAuthCookies(res: Response, accessToken: string, refreshToken: string) {
   const accessTtlMs = 15 * 60 * 1000;
-  const refreshTtlMs = 30 * 24 * 60 * 60 * 1000;
+  const refreshTtlMs = Math.min(30, Math.max(1, env.jwt.refreshTtlDays)) * 24 * 60 * 60 * 1000;
   // Set both Max-Age and Expires explicitly so browsers persist the refresh
   // cookie across Chrome restarts and hard reloads instead of treating it as a session cookie.
   res.cookie(ACCESS_COOKIE, accessToken, {
