@@ -41,7 +41,7 @@ settingsRouter.get("/black-friday/public", asyncHandler(async (_req, res) => {
   const config = await settingsService.getBlackFridayConfig();
   const now = Date.now();
   const scheduled = now >= new Date(config.startsAt).getTime() && now < new Date(config.endsAt).getTime();
-  res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
+  res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=30");
   res.json({ campaign: config, isLive: config.enabled && scheduled, isScheduled: config.enabled && now < new Date(config.startsAt).getTime() });
 }));
 
