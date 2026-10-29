@@ -22,6 +22,38 @@ settingsRouter.get(
   })
 );
 
+
+const blackFridaySchema = z.object({
+  enabled: z.boolean(),
+  startsAt: z.string().datetime(),
+  endsAt: z.string().datetime(),
+  headline: z.string().trim().min(5).max(100),
+  subheadline: z.string().trim().min(5).max(220),
+  discountMode: z.enum(["vendor", "admin", "vendor-approval"]),
+  participation: z.enum(["both", "vendors", "ttfl"]),
+}).refine((value) => new Date(value.endsAt).getTime() > new Date(value.startsAt).getTime(), {
+  message: "Campaign end time must be after its start time",
+  path: ["endsAt"],
+});
+
+// Public endpoint exposes only campaign display settings, never private platform settings.
+settingsRouter.get("/black-friday/public", asyncHandler(async (_req, res) => {
+  const config = await settingsService.getBlackFridayConfig();
+  const now = Date.now();
+  const scheduled = now >= new Date(config.startsAt).getTime() && now < new Date(config.endsAt).getTime();
+  res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=120");
+  res.json({ campaign: config, isLive: config.enabled && scheduled, isScheduled: config.enabled && now < new Date(config.startsAt).getTime() });
+}));
+
+settingsRouter.get("/black-friday", requireAuth, requireRole("ADMIN"), asyncHandler(async (_req, res) => {
+  res.json({ campaign: await settingsService.getBlackFridayConfig() });
+}));
+
+settingsRouter.put("/black-friday", requireAuth, requireRole("ADMIN"), asyncHandler(async (req, res) => {
+  const config = blackFridaySchema.parse(req.body);
+  res.json({ campaign: await settingsService.saveBlackFridayConfig(config) });
+}));
+
 const updateSchema = z.object({ value: z.string().min(1).max(200) });
 
 settingsRouter.put(
