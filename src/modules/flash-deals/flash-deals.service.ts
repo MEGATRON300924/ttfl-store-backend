@@ -43,3 +43,15 @@ export async function adminCreate(adminId:string,input:{productId:string;discoun
 export async function adminRemove(id:string,adminId:string){await ensureTable();const result=await prisma.$executeRawUnsafe(`DELETE FROM flash_deals WHERE id=$1`,id);if(!result)throw AppError.notFound("Flash deal not found");await recordAudit({actorId:adminId,action:"ADMIN_FLASH_DEAL_CANCELLED",targetType:"FlashDeal",targetId:id});void queueMaxEvent("flash_deal.cancelled",{flashDealId:id,cancelledByAdmin:true});return{ok:true};}
 export async function remove(userId:string,id:string){await ensureTable();const vendor=await getVendorProfileForUser(userId);const result=await prisma.$executeRawUnsafe(`DELETE FROM flash_deals WHERE id=$1 AND vendor_id=$2`,id,vendor.id);if(!result)throw AppError.notFound("Flash deal not found");void queueMaxEvent("flash_deal.cancelled",{flashDealId:id,vendorId:vendor.id});return{ok:true};}
 export async function getActivePrices(productIds:string[]){const deals=await getCheckoutDeals(productIds);return new Map([...deals.entries()].map(([id,d])=>[id,d.salePrice]));}
+
+export async function listPendingBlackFridayDeals() {
+  await ensureTable();
+  return prisma.$queryRawUnsafe<any[]>("SELECT fd.id,fd.product_id AS \"productId\",fd.discount_percent AS \"discountPercent\",fd.sale_price AS \"salePrice\",fd.starts_at AS \"startsAt\",fd.ends_at AS \"endsAt\",fd.quantity_cap AS \"quantityCap\",p.name,p.slug,p.price,v.\"storeName\" AS \"storeName\",v.\"storeSlug\" AS \"storeSlug\" FROM flash_deals fd JOIN products p ON p.id=fd.product_id JOIN vendor_profiles v ON v.id=fd.vendor_id WHERE fd.black_friday=true AND fd.black_friday_approved=false AND fd.active=true ORDER BY fd.created_at ASC");
+}
+
+export async function reviewBlackFridayDeal(id: string, approved: boolean) {
+  await ensureTable();
+  const result = await prisma.$executeRawUnsafe("UPDATE flash_deals SET black_friday_approved=$1,active=$2,updated_at=NOW() WHERE id=$3 AND black_friday=true", approved, approved, id);
+  if (!result) throw AppError.notFound("Black Friday proposal not found");
+  return { ok: true, approved };
+}
