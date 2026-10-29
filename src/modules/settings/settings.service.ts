@@ -29,8 +29,8 @@ export type BlackFridayConfig = {
 
 const BLACK_FRIDAY_DEFAULTS: BlackFridayConfig = {
   enabled: false,
-  startsAt: "2026-11-27T00:00:00.000Z",
-  endsAt: "2026-11-28T00:00:00.000Z",
+  startsAt: "2026-11-26T23:00:00.000Z",
+  endsAt: "2026-11-27T23:00:00.000Z",
   headline: "Black Friday at TTFL Store",
   subheadline: "Discover limited-time deals from Nigerian sellers.",
   discountMode: "vendor-approval",
