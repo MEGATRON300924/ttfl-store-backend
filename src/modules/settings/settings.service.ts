@@ -15,3 +15,69 @@ export async function getSetting(key:string){const row=await prisma.platformSett
 export async function getWhatsAppAdminNumbers(){const value=await getSetting(SETTING_KEYS.WHATSAPP_ADMIN_NUMBERS);return value.split(/[,\n]/).map(n=>n.trim()).filter(Boolean).map(n=>n.replace(/\D/g,"")).filter(n=>n.length>=7);}
 export async function getAllSettings(){const rows=await prisma.platformSetting.findMany({where:{key:{in:[...EDITABLE_KEYS]}}});const map={...DEFAULTS};for(const row of rows)map[row.key]=row.value;return map;}
 export async function setSetting(key:string,value:string){if(!EDITABLE_KEYS.has(key))throw AppError.badRequest("That platform setting cannot be changed","SETTING_NOT_EDITABLE");if(key===SETTING_KEYS.DELIVERY_FEE&&(!Number.isFinite(Number(value))||Number(value)<0))throw AppError.badRequest("Delivery fee must be a valid amount of ₦0 or more","INVALID_DELIVERY_FEE");return prisma.platformSetting.upsert({where:{key},create:{key,value},update:{value}});}
+
+
+export type BlackFridayConfig = {
+  enabled: boolean;
+  startsAt: string;
+  endsAt: string;
+  headline: string;
+  subheadline: string;
+  discountMode: "vendor" | "admin" | "vendor-approval";
+  participation: "both" | "vendors" | "ttfl";
+};
+
+const BLACK_FRIDAY_DEFAULTS: BlackFridayConfig = {
+  enabled: false,
+  startsAt: "2026-11-27T00:00:00.000Z",
+  endsAt: "2026-11-28T00:00:00.000Z",
+  headline: "Black Friday at TTFL Store",
+  subheadline: "Discover limited-time deals from Nigerian sellers.",
+  discountMode: "vendor-approval",
+  participation: "both",
+};
+
+const BLACK_FRIDAY_KEYS = {
+  enabled: "black_friday_enabled",
+  startsAt: "black_friday_starts_at",
+  endsAt: "black_friday_ends_at",
+  headline: "black_friday_headline",
+  subheadline: "black_friday_subheadline",
+  discountMode: "black_friday_discount_mode",
+  participation: "black_friday_participation",
+} as const;
+
+export async function getBlackFridayConfig(): Promise<BlackFridayConfig> {
+  const rows = await prisma.platformSetting.findMany({ where: { key: { in: Object.values(BLACK_FRIDAY_KEYS) } } });
+  const stored = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  const enabled = stored[BLACK_FRIDAY_KEYS.enabled] ?? String(BLACK_FRIDAY_DEFAULTS.enabled);
+  const discountMode = stored[BLACK_FRIDAY_KEYS.discountMode] ?? BLACK_FRIDAY_DEFAULTS.discountMode;
+  const participation = stored[BLACK_FRIDAY_KEYS.participation] ?? BLACK_FRIDAY_DEFAULTS.participation;
+  return {
+    enabled: enabled === "true",
+    startsAt: stored[BLACK_FRIDAY_KEYS.startsAt] ?? BLACK_FRIDAY_DEFAULTS.startsAt,
+    endsAt: stored[BLACK_FRIDAY_KEYS.endsAt] ?? BLACK_FRIDAY_DEFAULTS.endsAt,
+    headline: stored[BLACK_FRIDAY_KEYS.headline] ?? BLACK_FRIDAY_DEFAULTS.headline,
+    subheadline: stored[BLACK_FRIDAY_KEYS.subheadline] ?? BLACK_FRIDAY_DEFAULTS.subheadline,
+    discountMode: (["vendor", "admin", "vendor-approval"].includes(discountMode) ? discountMode : BLACK_FRIDAY_DEFAULTS.discountMode) as BlackFridayConfig["discountMode"],
+    participation: (["both", "vendors", "ttfl"].includes(participation) ? participation : BLACK_FRIDAY_DEFAULTS.participation) as BlackFridayConfig["participation"],
+  };
+}
+
+export async function saveBlackFridayConfig(config: BlackFridayConfig) {
+  const values: Record<string, string> = {
+    [BLACK_FRIDAY_KEYS.enabled]: String(config.enabled),
+    [BLACK_FRIDAY_KEYS.startsAt]: config.startsAt,
+    [BLACK_FRIDAY_KEYS.endsAt]: config.endsAt,
+    [BLACK_FRIDAY_KEYS.headline]: config.headline,
+    [BLACK_FRIDAY_KEYS.subheadline]: config.subheadline,
+    [BLACK_FRIDAY_KEYS.discountMode]: config.discountMode,
+    [BLACK_FRIDAY_KEYS.participation]: config.participation,
+  };
+  await prisma.$transaction(Object.entries(values).map(([key, value]) => prisma.platformSetting.upsert({
+    where: { key },
+    create: { key, value },
+    update: { value },
+  })));
+  return getBlackFridayConfig();
+}
