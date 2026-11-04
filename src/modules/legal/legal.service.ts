@@ -1,8 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/utils/app-error";
 
-export const CURRENT_TERMS_VERSION = "2026-10-01-v1";
-export const CURRENT_TERMS_UPDATED_AT = "2026-10-01";
+export const CURRENT_TERMS_VERSION = "2026-11-04-v2";
+export const CURRENT_TERMS_UPDATED_AT = "2026-11-04";
 
 export function getCurrentTerms() {
   return {
