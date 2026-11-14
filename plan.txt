@@ -100,3 +100,25 @@ Implement a shared legal/business verification workflow across TTFL Store, TTFL 
 - No CI workflow runs or commit status checks were returned for the route-registration commit.
 - Runtime DB table creation, TypeScript build, API authorization and Render deployment are not yet verified.
 - Do not expose Foods restaurants publicly until the backend deployment and API checks pass.
+
+
+### Foods checkout and delivery validation — 2026-11-14
+- [x] Extended checkout input with a customer delivery-area field and a Foods delivery preference (restaurant rider or TTFL delivery).
+- [x] Checkout now ensures the Foods category exists before classifying food products.
+- [x] Foods products cannot be mixed with non-Foods products in a single checkout.
+- [x] Checkout verifies each restaurant is published and accepting orders.
+- [x] Checkout verifies the selected delivery method is enabled by every restaurant in the cart.
+- [x] Checkout matches the customer's state, city and area against each restaurant's enabled coverage records.
+- [x] Checkout uses the vendor's area-specific delivery fee and records the selected delivery method on the existing VendorOrder.
+- [x] Minimum order checks use resolved item prices (including selected variants and applicable deal prices), not client-supplied totals.
+- [ ] Validate TypeScript, CI, database behavior and Paystack end-to-end after deployment.
+- [ ] Add rider dispatch/assignment and driver tracking for TTFL delivery; the current delivery method field is only the persisted selection, not a dispatch integration.
+
+Checkout commits:
+- Validator input: 89b2076f8024195f6a56e762e91b81b076e1f429
+- Coverage and fee calculation: f03de462a1b33f317d9e1c2e9cc8717f91bd6ef6
+- Variant-aware minimum order fix: 574fba76b958a5d518760458e04dc6389d5b4ed7
+- Ensure Foods category before checkout classification: c2ab0dfa8745b31dd3bb95523f72901392529e12
+
+Validation note:
+- GitHub file writes succeeded. The GitHub Actions helper available for this task only returned pull-request-triggered runs, so it did not provide a push-run result for these commits. No successful build or Render deployment is claimed.
