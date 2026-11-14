@@ -10,7 +10,7 @@ import { ensureStoreProfileTables, type StoreBadge } from "@/modules/store-profi
 import { getPlanForTier } from "@/modules/vendor-plans/vendor-plans.service";
 
 function normalizeStoreSlug(value: string) { return value.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, ""); }
-export async function getMyVendorProfile(userId: string) { return getVendorProfileForUser(userId); }
+export async function getMyVendorProfile(userId: string) { await ensureStoreProfileTables(); return getVendorProfileForUser(userId); }
 export async function updateMyVendorProfile(userId: string, data: { storeName: string; storeSlug: string; bio?: string | null; location?: string | null; whatsappNumber?: string | null }, ipAddress?: string) { const existing = await getVendorProfileForUser(userId); const storeSlug = normalizeStoreSlug(data.storeSlug); if (!storeSlug) throw AppError.badRequest("A valid store URL is required", "INVALID_STORE_SLUG"); const conflict = await prisma.vendorProfile.findFirst({ where: { storeSlug, NOT: { id: existing.id } }, select: { id: true } }); if (conflict) throw AppError.conflict("That store URL is already in use"); const profile = await prisma.vendorProfile.update({ where: { id: existing.id }, data: { storeName: data.storeName, storeSlug, bio: data.bio ?? null, location: data.location ?? null, whatsappNumber: data.whatsappNumber ?? null } }); await recordAudit({ actorId: userId, action: "VENDOR_PROFILE_UPDATED", targetType: "VendorProfile", targetId: profile.id, ipAddress, metadata: { fields: ["storeName", "storeSlug", "bio", "location", "whatsappNumber"] } }); return profile; }
 async function ensureVendorBookingSettings() {
   await prisma.$executeRawUnsafe(`
