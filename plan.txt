@@ -70,3 +70,9 @@ Implement a shared legal/business verification workflow across TTFL Store, TTFL 
 
 - [x] Latest backend GitHub Actions typecheck, tests, and build passed on commit `c8f2db7983ee5bd34cab8ca20c13e18053b9df7d`.
 - [ ] Render auto-deploy for commit `c8f2db7983ee5bd34cab8ca20c13e18053b9df7d` was queued at the last inspection; prior commit `b5e8e478996475d93618f9a2f260facc1b882860` was live. Verify the newest deployment reaches LIVE before end-to-end testing.
+
+
+### Deployment update — 2026-11-14
+- [x] Render deployment for code commit `d6c8d40cd48c3de7ed045299a7472002cfb71245` reached LIVE (`dep-dbs4kdcnjr1c73at5l3g`). Startup logs confirm the backend process is listening on port 4000.
+- [ ] A later script/plan-only commit is queued for auto-deploy; it does not change the live verification API code.
+- [ ] Full authenticated vendor submission, private document retrieval, and admin approval test still requires a real vendor/admin session and should be completed before announcing the workflow as end-to-end verified.
