@@ -47,3 +47,23 @@ Implement a shared legal/business verification workflow across TTFL Store, TTFL 
 
 ## Next steps
 - Complete the repository audit and implement the shared backend workflow first, then wire each frontend to it.
+
+
+## Progress update — 2026-11-14
+- [x] Added `vendor_legal_verifications` persistence with legal entity details, representative/contact/address fields, document metadata, submission state, review state, reviewer, and rejection reason.
+- [x] Added authenticated vendor APIs to save details, upload supporting documents, inspect status, and submit for review.
+- [x] Legal documents upload to Cloudinary as authenticated raw assets; public APIs do not expose document URLs. Admin-only endpoint issues short-lived signed download URLs.
+- [x] Added admin queue/details API and approve/reject decision API with audit logging.
+- [x] Added Registered Store badge and database constraint migration; legal approval awards Verified Store + Business Store together.
+- [x] Ordinary vendor approval and admin subscription grants no longer confer legal verification. Enterprise plan badge remains separate.
+- [x] Legacy Verified/Business badges are removed unless the legal verification record is approved; vendor verified flag is synchronised to legal approval state.
+- [x] Added Cars store linking endpoint so Cars sellers with a TTFL vendor profile can reuse the same legal verification.
+- [x] Backend CI passed on commit `b5e8e478996475d93618f9a2f260facc1b882860`; later Cars linking and public-read migration commits are queued/in progress for another CI pass.
+- [ ] Confirm latest backend CI, runtime DB migration, Cloudinary authenticated-document delivery, and end-to-end review behavior.
+
+### Key commits
+- Verification API module: `b5e8e478996475d93618f9a2f260facc1b882860`
+- Route registration: `94531f1e29c199c10923d3e22973a70e3446b2b6`
+- Vendor approval/subscription semantics: `5daf23682aaa441c4802416b1fb436f09edb5bdc`
+- Registered badge and public migration: `2cad6e3f7f57822651cde614ffe2bb160662b70b`
+- Cars vendor linking: `94ed9fae0280def6de58b0b72ab42edaa8d0f739`
