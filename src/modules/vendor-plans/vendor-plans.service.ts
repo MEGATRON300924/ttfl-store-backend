@@ -10,13 +10,13 @@ export const PLAN_ENTITLEMENTS: Record<VendorTier, { comingSoon: number | null; 
   ENTERPRISE: { comingSoon: null, sponsored: 100, featuredProducts: 20, featuredStores: 10, flashDeals: 25, advancedAnalytics: true, bulkTools: true, apiAccess: true },
 };
 const PLAN_FEATURES: Record<VendorTier, string[]> = {
-  FREE: ["Up to 20 products", "Basic store page", "TTFL checkout, external links and WhatsApp selling", "Basic order management", "Customer reviews", "Basic analytics", "3 Coming Soon products", "Notify Me waitlists", "Basic discounts"],
-  PRO: ["Up to 200 products", "Everything in Free", "20 Coming Soon products", "3 active Flash Deals", "5 Sponsored Products", "2 Featured Products", "Advanced analytics", "Launch scheduling", "Priority support"],
-  BUSINESS: ["Up to 1,000 products", "Everything in Pro", "100 Coming Soon products", "10 active Flash Deals", "20 Sponsored Products", "8 Featured Products", "2 Featured Stores", "Advanced promotion analytics", "Bulk catalog tools", "Priority support"],
+  FREE: ["Up to 50 products", "Basic store page", "TTFL checkout, external links and WhatsApp selling", "Basic order management", "Customer reviews", "Basic analytics", "3 Coming Soon products", "Notify Me waitlists", "Basic discounts"],
+  PRO: ["Up to 500 products", "Everything in Free", "20 Coming Soon products", "3 active Flash Deals", "5 Sponsored Products", "2 Featured Products", "Advanced analytics", "Launch scheduling", "Priority support"],
+  BUSINESS: ["Up to 10,000 products", "Everything in Pro", "100 Coming Soon products", "10 active Flash Deals", "20 Sponsored Products", "8 Featured Products", "2 Featured Stores", "Advanced promotion analytics", "Bulk catalog tools", "Priority support"],
   ENTERPRISE: ["Unlimited products", "Everything in Business", "Unlimited Coming Soon products", "25 active Flash Deals", "100 Sponsored Products", "20 Featured Products", "10 Featured Stores", "Advanced promotion analytics", "Bulk catalog tools", "API access", "Dedicated support"],
 };
 const FALLBACK_DEFAULTS: Record<VendorTier, { name: string; price: number; productLimit: number | null; commissionRate: number }> = {
-  FREE: { name: "Free", price: 0, productLimit: 20, commissionRate: 8 }, PRO: { name: "Pro", price: 15000, productLimit: 200, commissionRate: 6 }, BUSINESS: { name: "Business", price: 45000, productLimit: 1000, commissionRate: 4 }, ENTERPRISE: { name: "Enterprise", price: 150000, productLimit: null, commissionRate: 2 },
+  FREE: { name: "Free", price: 0, productLimit: 50, commissionRate: 12 }, PRO: { name: "Pro", price: 2500, productLimit: 500, commissionRate: 8 }, BUSINESS: { name: "Business", price: 5000, productLimit: 10000, commissionRate: 6 }, ENTERPRISE: { name: "Enterprise", price: 10000, productLimit: null, commissionRate: 5 },
 };
 export function getPlanFeatures(tier: VendorTier) { return PLAN_FEATURES[tier]; }
 export function getPlanEntitlements(tier: VendorTier) { return PLAN_ENTITLEMENTS[tier]; }
