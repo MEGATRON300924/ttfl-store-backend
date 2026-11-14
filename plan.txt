@@ -76,3 +76,27 @@ Implement a shared legal/business verification workflow across TTFL Store, TTFL 
 - [x] Render deployment for code commit `d6c8d40cd48c3de7ed045299a7472002cfb71245` reached LIVE (`dep-dbs4kdcnjr1c73at5l3g`). Startup logs confirm the backend process is listening on port 4000.
 - [ ] A later script/plan-only commit is queued for auto-deploy; it does not change the live verification API code.
 - [ ] Full authenticated vendor submission, private document retrieval, and admin approval test still requires a real vendor/admin session and should be completed before announcing the workflow as end-to-end verified.
+
+
+## TTFL Foods integration — 2026-11-14
+- [x] Audited the shared Prisma models and confirmed existing VendorProfile, Product, Order, VendorOrder, Paystack and vendor-order fulfillment infrastructure can be reused.
+- [x] Audited Cars storefront linking. Foods restaurant profiles are tied directly to the existing vendor_profiles row; no Foods-specific user or seller account is created.
+- [x] Added Foods API module at src/modules/foods/foods.routes.ts.
+- [x] Added runtime-safe SQL setup for foods_restaurant_profiles and foods_delivery_areas; no existing marketplace tables are altered.
+- [x] Added public restaurant directory/detail/menu read APIs.
+- [x] Added authenticated vendor restaurant profile and service-area management APIs.
+- [x] Added menu CRUD endpoints that reuse the existing Product service and Foods category, retaining TTFL vendor approval and product validation.
+- [x] Registered /api/foods in src/app.ts.
+- [ ] Add checkout-time service-area validation, restaurant opening-hours enforcement, food-order delivery mode persistence, rider dispatch/assignment and order tracking.
+- [ ] Add integration tests for public visibility, vendor ownership, delivery-area filtering, menu CRUD and approval gating.
+- [ ] Confirm Render deployment and run authenticated end-to-end tests.
+
+### Foods backend commits
+- Foods API routes: 63b920e6973cfdb70c9ea8866fddc28ccadf48a9
+- Route registration: 69d984513c079a9721274bfb0e7b981cc5669d08
+
+### Validation status
+- GitHub file writes succeeded.
+- No CI workflow runs or commit status checks were returned for the route-registration commit.
+- Runtime DB table creation, TypeScript build, API authorization and Render deployment are not yet verified.
+- Do not expose Foods restaurants publicly until the backend deployment and API checks pass.
