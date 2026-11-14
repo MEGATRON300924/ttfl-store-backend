@@ -25,7 +25,7 @@ export async function checkout(customerId: string, customerEmail: string, input:
   const productIds = input.items.map((item) => item.productId);
   const products: Product[] = await prisma.product.findMany({ where: { id: { in: productIds }, deletedAt: null } });
   const byId = new Map(products.map((product) => [product.id, product]));
-  const foodsCategory = await prisma.category.findUnique({ where: { slug: "foods" }, select: { id: true } });
+  const foodsCategory = await prisma.category.upsert({ where: { slug: "foods" }, update: { name: "Foods" }, create: { name: "Foods", slug: "foods", icon: "utensils" }, select: { id: true } });
   const foodProductIds = new Set(products.filter((product) => foodsCategory && product.categoryId === foodsCategory.id).map((product) => product.id));
   const hasFoodItems = foodProductIds.size > 0;
   if (hasFoodItems && foodProductIds.size !== products.length) {
