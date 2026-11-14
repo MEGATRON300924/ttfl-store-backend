@@ -25,6 +25,56 @@ export async function checkout(customerId: string, customerEmail: string, input:
   const productIds = input.items.map((item) => item.productId);
   const products: Product[] = await prisma.product.findMany({ where: { id: { in: productIds }, deletedAt: null } });
   const byId = new Map(products.map((product) => [product.id, product]));
+  const foodsCategory = await prisma.category.findUnique({ where: { slug: "foods" }, select: { id: true } });
+  const foodProductIds = new Set(products.filter((product) => foodsCategory && product.categoryId === foodsCategory.id).map((product) => product.id));
+  const hasFoodItems = foodProductIds.size > 0;
+  if (hasFoodItems && foodProductIds.size !== products.length) {
+    throw AppError.badRequest("TTFL Foods items must be checked out separately from other TTFL Store products.", "MIXED_FOOD_AND_STORE_CART");
+  }
+  const foodDeliveryMethod = input.foodsDeliveryMethod ?? "RESTAURANT";
+  const foodDeliveryByVendor = new Map<string, { fee: number; method: string }>();
+  if (hasFoodItems) {
+    if (!input.delivery.area) throw AppError.badRequest("Add your delivery area to check restaurant coverage.", "FOOD_DELIVERY_AREA_REQUIRED");
+    for (const vendorId of new Set(products.map((product) => product.vendorId))) {
+      const profile = await prisma.$queryRawUnsafe<any[]>(
+        `SELECT restaurant_riders AS "restaurantRiders", ttfl_delivery AS "ttflDelivery",
+          min_order_amount AS "minOrderAmount", accepts_orders AS "acceptsOrders", is_published AS "isPublished"
+         FROM foods_restaurant_profiles WHERE vendor_id=$1 LIMIT 1`,
+        vendorId,
+      );
+      if (!profile[0] || !profile[0].isPublished || !profile[0].acceptsOrders) {
+        throw AppError.badRequest("A restaurant in your cart is not currently accepting orders.", "RESTAURANT_NOT_ACCEPTING_ORDERS");
+      }
+      if (foodDeliveryMethod === "RESTAURANT" && !profile[0].restaurantRiders) {
+        throw AppError.badRequest("A restaurant in your cart does not offer its own delivery. Choose TTFL delivery if available.", "FOOD_DELIVERY_METHOD_UNAVAILABLE");
+      }
+      if (foodDeliveryMethod === "TTFL" && !profile[0].ttflDelivery) {
+        throw AppError.badRequest("A restaurant in your cart has not enabled TTFL delivery.", "FOOD_DELIVERY_METHOD_UNAVAILABLE");
+      }
+      const areas = await prisma.$queryRawUnsafe<any[]>(
+        `SELECT delivery_fee AS "deliveryFee", minimum_order AS "minimumOrder"
+         FROM foods_delivery_areas
+         WHERE vendor_id=$1 AND enabled=TRUE
+           AND lower(state)=lower($2) AND lower(city)=lower($3) AND lower(area)=lower($4)
+         LIMIT 1`,
+        vendorId, input.delivery.state, input.delivery.city, input.delivery.area,
+      );
+      if (!areas[0]) {
+        throw AppError.badRequest("This restaurant does not deliver to the selected area.", "FOOD_AREA_NOT_SERVICED");
+      }
+      const vendorSubtotal = products.filter((product) => product.vendorId === vendorId)
+        .reduce((sum, product) => {
+          const line = input.items.find((item) => item.productId === product.id);
+          return sum + (line ? Number(product.price) * line.quantity : 0);
+        }, 0);
+      const minimumOrder = Math.max(Number(profile[0].minOrderAmount) || 0, Number(areas[0].minimumOrder) || 0);
+      if (vendorSubtotal < minimumOrder) {
+        throw AppError.badRequest(`The minimum order for one of your restaurants is ₦${minimumOrder.toLocaleString()}.`, "FOOD_MINIMUM_ORDER_NOT_MET");
+      }
+      foodDeliveryByVendor.set(vendorId, { fee: Math.max(0, Number(areas[0].deliveryFee) || 0), method: foodDeliveryMethod });
+    }
+  }
+
   const deals = await getCheckoutDeals(productIds);
   const groups = new Map<string, { items: { product: Product; quantity: number; unitPrice: number; variantKey?: string; variantLabel?: string; variantOptions?: Record<string, string> }[] }>();
 
@@ -63,7 +113,12 @@ export async function checkout(customerId: string, customerEmail: string, input:
   const rewardPoints = Math.min(rewardPointsRequested, rewardMaxByOrder);
   const configuredDeliveryFee = Math.max(0, Number(await getSettingNumber("delivery_fee")) || 0);
   const vendorDeliveryFees = new Map<string, number>();
-  for (const [vendorId, group] of groups) {
+  if (hasFoodItems) {
+    for (const [vendorId, delivery] of foodDeliveryByVendor) {
+      vendorDeliveryFees.set(vendorId, Math.round(delivery.fee * 100) / 100);
+    }
+  }
+  if (!hasFoodItems) for (const [vendorId, group] of groups) {
     const hasProductSpecificFee = group.items.some((item) => item.product.deliveryFee !== null && item.product.deliveryFee !== undefined);
     const vendorFee = hasProductSpecificFee
       ? group.items.reduce((sum, item) => sum + (item.product.deliveryFee == null ? 0 : Number(item.product.deliveryFee)) * item.quantity, 0)
@@ -89,7 +144,7 @@ export async function checkout(customerId: string, customerEmail: string, input:
     const subtotal = vendorSubtotals.get(vendorId)!;
     const rate = await resolveCommissionRate(vendorId);
     const { commissionAmount, vendorEarnings } = calculateCommission(subtotal, rate);
-    vendorOrderData.push({ vendor: { connect: { id: vendorId } }, subtotal, commissionRate: rate, commissionAmount, vendorEarnings, deliveryFee: vendorDeliveryFees.get(vendorId) ?? 0, items: { create: group.items.map((item) => { const specs = item.product.specifications && typeof item.product.specifications === "object" && !Array.isArray(item.product.specifications) ? item.product.specifications as Record<string, unknown> : {}; const isPreOrder = specs._productType === "pre-order"; const itemName = item.variantLabel ? `${item.product.name} — ${item.variantLabel}` : item.product.name; return { productId: item.product.id, productName: `${isPreOrder ? "[Pre-order] " : ""}${itemName}`, unitPrice: item.unitPrice, quantity: item.quantity, lineTotal: item.unitPrice * item.quantity, variantKey: item.variantKey, variantLabel: item.variantLabel, variantOptions: item.variantOptions as Prisma.InputJsonValue | undefined }; }) } });
+    vendorOrderData.push({ vendor: { connect: { id: vendorId } }, subtotal, commissionRate: rate, commissionAmount, vendorEarnings, deliveryFee: vendorDeliveryFees.get(vendorId) ?? 0, deliveryMethod: foodDeliveryByVendor.get(vendorId)?.method ?? undefined, items: { create: group.items.map((item) => { const specs = item.product.specifications && typeof item.product.specifications === "object" && !Array.isArray(item.product.specifications) ? item.product.specifications as Record<string, unknown> : {}; const isPreOrder = specs._productType === "pre-order"; const itemName = item.variantLabel ? `${item.product.name} — ${item.variantLabel}` : item.product.name; return { productId: item.product.id, productName: `${isPreOrder ? "[Pre-order] " : ""}${itemName}`, unitPrice: item.unitPrice, quantity: item.quantity, lineTotal: item.unitPrice * item.quantity, variantKey: item.variantKey, variantLabel: item.variantLabel, variantOptions: item.variantOptions as Prisma.InputJsonValue | undefined }; }) } });
   }
 
   const orderNumber = await generateOrderNumber();
