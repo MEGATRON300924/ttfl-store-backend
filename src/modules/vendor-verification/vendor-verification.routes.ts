@@ -8,7 +8,8 @@ import { requireAuth, requireRole } from "@/middleware/auth";
 import { AppError } from "@/utils/app-error";
 import { prisma } from "@/lib/prisma";
 import { getVendorProfileForUser } from "@/lib/vendor-access";
-import { recordAudit } from "@/lib/audit";\nimport { ensureStoreProfileTables } from "@/modules/store-profile/store-profile.service";
+import { recordAudit } from "@/lib/audit";
+import { ensureStoreProfileTables } from "@/modules/store-profile/store-profile.service";
 
 export const vendorVerificationRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
