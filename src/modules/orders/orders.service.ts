@@ -33,6 +33,7 @@ export async function checkout(customerId: string, customerEmail: string, input:
   }
   const foodDeliveryMethod = input.foodsDeliveryMethod ?? "RESTAURANT";
   const foodDeliveryByVendor = new Map<string, { fee: number; method: string }>();
+  const foodMinimumByVendor = new Map<string, number>();
   if (hasFoodItems) {
     if (!input.delivery.area) throw AppError.badRequest("Add your delivery area to check restaurant coverage.", "FOOD_DELIVERY_AREA_REQUIRED");
     for (const vendorId of new Set(products.map((product) => product.vendorId))) {
@@ -62,15 +63,8 @@ export async function checkout(customerId: string, customerEmail: string, input:
       if (!areas[0]) {
         throw AppError.badRequest("This restaurant does not deliver to the selected area.", "FOOD_AREA_NOT_SERVICED");
       }
-      const vendorSubtotal = products.filter((product) => product.vendorId === vendorId)
-        .reduce((sum, product) => {
-          const line = input.items.find((item) => item.productId === product.id);
-          return sum + (line ? Number(product.price) * line.quantity : 0);
-        }, 0);
       const minimumOrder = Math.max(Number(profile[0].minOrderAmount) || 0, Number(areas[0].minimumOrder) || 0);
-      if (vendorSubtotal < minimumOrder) {
-        throw AppError.badRequest(`The minimum order for one of your restaurants is ₦${minimumOrder.toLocaleString()}.`, "FOOD_MINIMUM_ORDER_NOT_MET");
-      }
+      foodMinimumByVendor.set(vendorId, minimumOrder);
       foodDeliveryByVendor.set(vendorId, { fee: Math.max(0, Number(areas[0].deliveryFee) || 0), method: foodDeliveryMethod });
     }
   }
@@ -96,6 +90,15 @@ export async function checkout(customerId: string, customerEmail: string, input:
     groups.set(product.vendorId, group);
   }
 
+  if (hasFoodItems) {
+    for (const [vendorId, group] of groups) {
+      const vendorSubtotal = group.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+      const minimumOrder = foodMinimumByVendor.get(vendorId) ?? 0;
+      if (vendorSubtotal < minimumOrder) {
+        throw AppError.badRequest(`The minimum order for one of your restaurants is ₦${minimumOrder.toLocaleString()}.`, "FOOD_MINIMUM_ORDER_NOT_MET");
+      }
+    }
+  }
   let subtotalAmount = 0;
   const vendorOrderData: Prisma.VendorOrderCreateWithoutOrderInput[] = [];
   const vendorSubtotals = new Map<string, number>();
