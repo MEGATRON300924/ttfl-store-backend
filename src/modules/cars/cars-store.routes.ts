@@ -63,6 +63,15 @@ carsStoreRouter.get("/me", requireAuth, asyncHandler(async (req, res) => {
   res.json({ carsStore: rows[0] ?? null, existingStore: vendor ?? null });
 }));
 
+carsStoreRouter.post("/link-existing", requireAuth, asyncHandler(async (req,res)=>{
+  await ensureCarsStoreTable();
+  const vendor=await prisma.vendorProfile.findUnique({where:{userId:req.user!.sub},select:{id:true}});
+  if(!vendor) throw AppError.badRequest("Create your TTFL Store seller profile first, then link it to TTFL Cars.","MAIN_VENDOR_PROFILE_REQUIRED");
+  const rows=await prisma.$queryRawUnsafe<any[]>(`UPDATE cars_store_profiles SET source_vendor_id=$1,updated_at=NOW() WHERE user_id=$2 RETURNING id,store_name AS "storeName",store_slug AS "storeSlug",source_vendor_id AS "sourceVendorId"`,vendor.id,req.user!.sub);
+  if(!rows[0]) throw AppError.notFound("Your TTFL Cars store was not found.","CARS_STORE_NOT_FOUND");
+  res.json({carsStore:rows[0],message:"Your Cars store is now linked to your TTFL seller profile."});
+}));
+
 carsStoreRouter.post("/me", requireAuth, asyncHandler(async (req, res) => {
   await ensureCarsStoreTable();
   const input = storeSchema.parse(req.body);
