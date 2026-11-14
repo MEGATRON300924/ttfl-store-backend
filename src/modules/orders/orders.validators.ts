@@ -13,6 +13,7 @@ export const checkoutSchema = z.object({
   couponCode: z.string().min(1).max(30).optional(),
   rewardPoints: z.number().int().min(0).max(1_000_000).optional(),
   adCampaignId: z.string().uuid().optional(),
+  foodsDeliveryMethod: z.enum(["RESTAURANT", "TTFL"]).optional(),
   delivery: z.object({
     name: z.string().min(2).max(120),
     phone: z.string().min(7).max(20),
@@ -20,6 +21,7 @@ export const checkoutSchema = z.object({
     line2: z.string().max(200).optional(),
     city: z.string().min(2).max(80),
     state: z.string().min(2).max(80),
+    area: z.string().trim().min(2).max(120).optional(),
     digitalPostcode: z.string().trim().min(3).max(32).optional(),
     country: z.string().min(2).max(80).default("Nigeria"),
   }),
