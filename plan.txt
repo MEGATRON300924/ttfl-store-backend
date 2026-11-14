@@ -122,3 +122,10 @@ Checkout commits:
 
 Validation note:
 - GitHub file writes succeeded. The GitHub Actions helper available for this task only returned pull-request-triggered runs, so it did not provide a push-run result for these commits. No successful build or Render deployment is claimed.
+
+
+### Foods storefront authentication origin — 2026-11-14
+- [x] Added the verified production storefront origin https://foods.ttflstore.name.ng to the shared backend's trusted CORS storefront allowlist.
+- This is required because TTFL authentication uses shared .ttflstore.name.ng cookies and the Foods frontend calls the backend through its same-origin Vercel rewrite.
+- Backend CORS change commit is pending deployment verification.
+- [ ] Confirm Render deployment reaches LIVE and verify Foods /api/auth/me and /api/auth/refresh through the production host.
