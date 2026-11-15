@@ -157,3 +157,6 @@ Validation note:
 
 - Final expiry cadence: worker checks timed gift expiry every 60 seconds; authenticated subscription reads also enforce expiry on demand.
 - Existing paid or past-due recurring subscriptions are cancelled before an admin gift replaces them.
+
+- Final gift hardening (lifetime marker, safe legacy backfill, cancellation of replaced paid/past-due Paystack subscriptions, 60-second expiry cadence): `6852519be126a39070355f2510bd09d537e81bf3`.
+- CI for the prior backend commit passed typecheck, tests and build; CI for the latest commit is running.
