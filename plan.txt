@@ -163,3 +163,6 @@ Validation note:
 
 - Free-plan feature descriptions now remove external links/WhatsApp from the Free tier and explicitly add them to paid tiers; persisted plan features are normalized when read, fetched or saved: `2dc3e6fd163572edad0a8d0836c7add38787ad3f`.
 - Public product search and product-detail responses mask external URLs and WhatsApp numbers for vendors without an active paid plan; referral endpoint remains server-gated: `470a0b1c4e02900a22e3dd3af739308a67422c28`.
+
+- Latest backend CI run 633 passed Prisma generation, TypeScript typecheck, automated tests and production build for the gifted-plan expiry, legacy gift backfill, Paystack cancellation, plan feature normalization and paid-only selling API changes.
+- Pull request #3 remains draft and mergeable; Render deployment and production email delivery are still pending.
