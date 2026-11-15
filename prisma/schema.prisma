@@ -977,3 +977,24 @@ model ProductAvailabilityNotification {
   @@index([productId], name: "product_availability_notifications_product_idx")
   @@map("product_availability_notifications")
 }
+
+ 
+model NewsArticle {
+  id String @id @default(uuid())
+  title String
+  slug String @unique
+  excerpt String
+  content String
+  coverImageUrl String? @map("cover_image_url")
+  coverImageAlt String? @map("cover_image_alt")
+  seoTitle String? @map("seo_title")
+  seoDescription String? @map("seo_description")
+  status String @default("DRAFT")
+  publishedAt DateTime? @map("published_at")
+  createdById String? @map("created_by_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@index([status, publishedAt(sort: Desc)])
+  @@index([updatedAt(sort: Desc)])
+  @@map("news_articles")
+}
