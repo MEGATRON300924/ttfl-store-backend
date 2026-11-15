@@ -180,3 +180,7 @@ Validation note:
 - [ ] Add regression tests for draft privacy, publishing, slug uniqueness, image upload authorization and article metadata.
 - [ ] Run Prisma generation, TypeScript typecheck, tests and production build.
 - [ ] Deploy backend before enabling storefront News pages; verify database bootstrap and live image upload.
+
+- CI run 643 passed Prisma generation, TypeScript typecheck and tests; production build exposed that the runtime SQL bootstrap needs DATABASE_URL and must not run in a CI/build-only environment.
+- [x] Moved news-table bootstrap out of the build script and kept it in the Render prestart/runtime path, where DATABASE_URL is available.
+- [ ] Re-run CI to confirm production build passes.
