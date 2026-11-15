@@ -142,3 +142,9 @@ Validation note:
 - [ ] Add and verify vendor-specific gift confirmation page and product form entitlement messaging in the frontend.
 - [ ] Verify the Paystack payment-method setup/renewal experience; current payout bank-account settings are not subscription payment methods.
 - [ ] Run backend typecheck/tests and deploy only after checks pass.
+
+### Implementation commits — 2026-11-15
+- Gift expiry flag, hourly expiry and on-demand downgrade, paid-only external/WhatsApp product selling, and vendor gift email: `264fc4c0c0984f271f92e2bd2fee966ed25fc1bf`.
+- Ensure the gifted marker is cleared after expiry: `7c874fb047a2a1fba8e1ead0644509d83efc58b1`.
+- Restrict admin gift API to paid tiers only: `911fa0cb4bc7c3d07a752ac6d3c697305029ff80`.
+- Validation: source changes committed; TypeScript build, automated tests, Render deployment and live email delivery have not yet been verified.
