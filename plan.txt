@@ -160,3 +160,6 @@ Validation note:
 
 - Final gift hardening (lifetime marker, safe legacy backfill, cancellation of replaced paid/past-due Paystack subscriptions, 60-second expiry cadence): `6852519be126a39070355f2510bd09d537e81bf3`.
 - CI for the prior backend commit passed typecheck, tests and build; CI for the latest commit is running.
+
+- Free-plan feature descriptions now remove external links/WhatsApp from the Free tier and explicitly add them to paid tiers; persisted plan features are normalized when read, fetched or saved: `2dc3e6fd163572edad0a8d0836c7add38787ad3f`.
+- Public product search and product-detail responses mask external URLs and WhatsApp numbers for vendors without an active paid plan; referral endpoint remains server-gated: `470a0b1c4e02900a22e3dd3af739308a67422c28`.
