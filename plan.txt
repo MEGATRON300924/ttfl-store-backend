@@ -154,3 +154,6 @@ Validation note:
 - Legacy gift backfill and expiry guard hardening: `652fdf9180d9969c189cbace00dbc67eeb4ca406`.
 - Existing Paystack renewal cancellation and lifetime-gift handling: `f96cc1bc4214424d866b9ff92dffbdd145a7c5d4`.
 - Public product detail masking for Free vendors: `ab813f523c3016799b956b15cbe8683c4069c37d`.
+
+- Final expiry cadence: worker checks timed gift expiry every 60 seconds; authenticated subscription reads also enforce expiry on demand.
+- Existing paid or past-due recurring subscriptions are cancelled before an admin gift replaces them.

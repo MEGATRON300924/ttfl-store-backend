@@ -47,7 +47,7 @@ export async function setCommissionOverride(vendorProfileId: string, ratePercent
 export async function grantVendorSubscription(vendorProfileId: string, tier: "FREE" | "PRO" | "BUSINESS" | "ENTERPRISE", lifetime: boolean, adminId: string, ipAddress?: string) {
   await ensureGiftedSubscriptionSchema();
   const existingSubscription = await prisma.vendorSubscription.findUnique({ where: { vendorId: vendorProfileId }, include: { plan: true } });
-  if (existingSubscription?.status === "ACTIVE" && !existingSubscription.isGifted && Number(existingSubscription.plan.price) > 0) {
+  if ((existingSubscription?.status === "ACTIVE" || existingSubscription?.status === "PAST_DUE") && !existingSubscription.isGifted && Number(existingSubscription.plan.price) > 0) {
     const owner = await prisma.vendorProfile.findUnique({ where: { id: vendorProfileId }, select: { user: { select: { email: true } } } });
     if (!owner?.user.email) throw AppError.badRequest("The vendor account has no email address for subscription management.", "VENDOR_EMAIL_REQUIRED");
     // Prevent a previous paid Paystack subscription from charging while a complimentary plan is active.
