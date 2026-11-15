@@ -187,3 +187,6 @@ Validation note:
 
 - [x] Backend CI run 644 passed Prisma generation, TypeScript typecheck, automated tests and production build after moving the database bootstrap to runtime startup.
 - [x] Existing gifted-plan / paid-selling backend release was deployed successfully to Render at 2026-11-15 09:42 UTC; the news API branch is not merged or deployed.
+
+- [x] Final news backend CI run 646 passed Prisma generation, TypeScript typecheck, automated tests and production build after the URL-preserving slug edit.
+- [x] Editing an article headline no longer silently changes its public URL; an admin must explicitly edit the slug to change the URL.
