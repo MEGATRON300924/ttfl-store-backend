@@ -147,3 +147,23 @@ export async function deleteStoreBranding(publicId: string) {
     logger.warn("Cloudinary store branding delete failed (non-fatal)", { publicId, err });
   }
 }
+
+
+export async function uploadNewsImage(buffer: Buffer, mimetype: string): Promise<{ url: string; publicId: string }> {
+  ensureConfigured();
+  if (!ALLOWED_IMAGE_MIME_TYPES.has(mimetype)) throw AppError.badRequest("Only JPEG, PNG, WebP, or AVIF images are allowed", "INVALID_FILE_TYPE");
+  if (buffer.length > MAX_IMAGE_SIZE_BYTES) throw AppError.badRequest("Images must be under 5MB", "FILE_TOO_LARGE");
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: "ttfl-store/news", resource_type: "image", transformation: [{ width: 1800, height: 1200, crop: "limit", quality: "auto", fetch_format: "auto" }] },
+      (error, result) => {
+        if (error || !result) {
+          logger.error("Cloudinary news image upload failed", { error });
+          return reject(AppError.internal("News image upload failed, please try again", "NEWS_IMAGE_UPLOAD_FAILED"));
+        }
+        resolve({ url: result.secure_url, publicId: result.public_id });
+      }
+    );
+    stream.end(buffer);
+  });
+}
