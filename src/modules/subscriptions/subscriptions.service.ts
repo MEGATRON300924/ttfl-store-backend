@@ -20,7 +20,7 @@ async function expireIfNeeded(vendorId: string) {
   if (subscription && (subscription.status === "CANCELLED" || subscription.isGifted) && subscription.renewalDate && subscription.renewalDate <= new Date()) {
     const freePlan = await getPlanForTier("FREE");
     await prisma.$transaction([
-      prisma.vendorSubscription.update({ where: { id: subscription.id }, data: { status: "EXPIRED" } }),
+      prisma.vendorSubscription.update({ where: { id: subscription.id }, data: { status: "EXPIRED", isGifted: false } }),
       prisma.vendorProfile.update({ where: { id: vendorId }, data: { tier: freePlan.tier } }),
     ]);
   }

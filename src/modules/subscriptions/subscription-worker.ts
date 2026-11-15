@@ -18,7 +18,7 @@ export async function expireCancelledSubscriptions() {
 
   for (const subscription of expired) {
     await prisma.$transaction([
-      prisma.vendorSubscription.update({ where: { id: subscription.id }, data: { status: "EXPIRED" } }),
+      prisma.vendorSubscription.update({ where: { id: subscription.id }, data: { status: "EXPIRED", isGifted: false } }),
       prisma.vendorProfile.update({ where: { id: subscription.vendorId }, data: { tier: freePlan.tier } }),
     ]);
   }
