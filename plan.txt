@@ -129,3 +129,16 @@ Validation note:
 - This is required because TTFL authentication uses shared .ttflstore.name.ng cookies and the Foods frontend calls the backend through its same-origin Vercel rewrite.
 - Backend CORS change commit is pending deployment verification.
 - [ ] Confirm Render deployment reaches LIVE and verify Foods /api/auth/me and /api/auth/refresh through the production host.
+
+
+## Gifted vendor plans and paid-only external selling — 2026-11-15
+- [x] Audited existing admin gift flow: the admin vendor page supports a one-month gift or lifetime access.
+- [x] Found expiry defect: finite gifts were marked ACTIVE, but the hourly expiry worker only expired CANCELLED subscriptions.
+- [x] Added a persistent isGifted flag and runtime-safe PostgreSQL column guard.
+- [x] Updated the hourly worker and authenticated subscription read path to expire timed gifts and return the vendor tier to FREE after the gift end date; lifetime gifts remain non-expiring.
+- [x] Added a vendor gift notification email with plan name, access duration, included features, expiry and a private dashboard link.
+- [x] Enforced active paid-plan checks for EXTERNAL_LINK and WHATSAPP selling methods at product create, edit and referral-click endpoints. Existing stored external/WhatsApp listings cannot bypass the restriction after a downgrade or gift expiry.
+- [ ] Add regression tests for gifted-plan expiry and paid-only selling service paths.
+- [ ] Add and verify vendor-specific gift confirmation page and product form entitlement messaging in the frontend.
+- [ ] Verify the Paystack payment-method setup/renewal experience; current payout bank-account settings are not subscription payment methods.
+- [ ] Run backend typecheck/tests and deploy only after checks pass.

@@ -1,14 +1,19 @@
 import { prisma } from "@/lib/prisma";
 import { getPlanForTier } from "@/modules/vendor-plans/vendor-plans.service";
+import { ensureGiftedSubscriptionSchema } from "./gifted-subscription-schema";
 import { logger } from "@/lib/logger";
 
 const INTERVAL_MS = 60 * 60 * 1000;
 
 export async function expireCancelledSubscriptions() {
+  await ensureGiftedSubscriptionSchema();
   const freePlan = await getPlanForTier("FREE");
   const expired = await prisma.vendorSubscription.findMany({
-    where: { status: "CANCELLED", renewalDate: { lte: new Date() } },
-    select: { id: true, vendorId: true },
+    where: {
+      renewalDate: { lte: new Date() },
+      OR: [{ status: "CANCELLED" }, { isGifted: true }],
+    },
+    select: { id: true, vendorId: true, isGifted: true },
   });
 
   for (const subscription of expired) {
@@ -18,7 +23,7 @@ export async function expireCancelledSubscriptions() {
     ]);
   }
 
-  if (expired.length > 0) logger.info(`Expired ${expired.length} cancelled vendor subscription(s)`);
+  if (expired.length > 0) logger.info(`Expired ${expired.length} cancelled or gifted vendor subscription(s)`);
 }
 
 export function startSubscriptionWorker() {

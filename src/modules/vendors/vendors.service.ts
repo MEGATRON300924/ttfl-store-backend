@@ -8,6 +8,9 @@ import { logger } from "@/lib/logger";
 import { getVendorProfileForUser } from "@/lib/vendor-access";
 import { ensureStoreProfileTables, type StoreBadge } from "@/modules/store-profile/store-profile.service";
 import { getPlanForTier } from "@/modules/vendor-plans/vendor-plans.service";
+import { vendorPlanGiftedEmail } from "@/lib/email";
+import { env } from "@/config/env";
+import { ensureGiftedSubscriptionSchema } from "@/modules/subscriptions/gifted-subscription-schema";
 
 function normalizeStoreSlug(value: string) { return value.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, ""); }
 export async function getMyVendorProfile(userId: string) { await ensureStoreProfileTables(); return getVendorProfileForUser(userId); }
@@ -41,17 +44,31 @@ export async function setCommissionOverride(vendorProfileId: string, ratePercent
 
 /** Admin-granted plan: activates the selected plan without Paystack and can optionally make it lifetime. */
 export async function grantVendorSubscription(vendorProfileId: string, tier: "FREE" | "PRO" | "BUSINESS" | "ENTERPRISE", lifetime: boolean, adminId: string, ipAddress?: string) {
+  await ensureGiftedSubscriptionSchema();
   const plan = await getPlanForTier(tier);
   const now = new Date();
   const renewalDate = lifetime ? null : new Date(now.getFullYear(), now.getMonth() + 1, now.getDate(), now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
   await ensureStoreProfileTables();
   const result = await prisma.$transaction(async (tx) => {
     const profile = await tx.vendorProfile.update({ where: { id: vendorProfileId }, data: { tier, status: "APPROVED" } });
-    const subscription = await tx.vendorSubscription.upsert({ where: { vendorId: vendorProfileId }, create: { vendorId: vendorProfileId, planId: plan.id, status: "ACTIVE", startDate: now, renewalDate, cancelledAt: null }, update: { planId: plan.id, status: "ACTIVE", startDate: now, renewalDate, cancelledAt: null }, include: { plan: true } });
+    const subscription = await tx.vendorSubscription.upsert({
+      where: { vendorId: vendorProfileId },
+      create: { vendorId: vendorProfileId, planId: plan.id, status: "ACTIVE", startDate: now, renewalDate, cancelledAt: null, isGifted: !lifetime },
+      update: { planId: plan.id, status: "ACTIVE", startDate: now, renewalDate, cancelledAt: null, isGifted: !lifetime },
+      include: { plan: true },
+    });
     await tx.$executeRawUnsafe(`INSERT INTO store_badges (id, vendor_id, badge) VALUES ($1, $2, 'REGISTERED') ON CONFLICT (vendor_id, badge) DO NOTHING`, randomUUID(), vendorProfileId);
     if (tier === "ENTERPRISE") await tx.$executeRawUnsafe(`INSERT INTO store_badges (id, vendor_id, badge) VALUES ($1, $2, 'ENTERPRISE') ON CONFLICT (vendor_id, badge) DO NOTHING`, randomUUID(), vendorProfileId);
     return { profile, subscription };
   });
-  await recordAudit({ actorId: adminId, action: "VENDOR_TIER_CHANGED", targetType: "VendorSubscription", targetId: result.subscription.id, ipAddress, metadata: { tier, lifetime, adminGranted: true, legallyVerified: false } });
+  await recordAudit({ actorId: adminId, action: "VENDOR_TIER_CHANGED", targetType: "VendorSubscription", targetId: result.subscription.id, ipAddress, metadata: { tier, lifetime, gifted: !lifetime, expiresAt: renewalDate, adminGranted: true, legallyVerified: false } });
+  const recipient = await prisma.user.findUnique({ where: { id: result.profile.userId }, select: { email: true, firstName: true } });
+  if (recipient?.email) {
+    const features = Array.isArray(plan.features) ? plan.features.filter((item): item is string => typeof item === "string") : [];
+    const duration = lifetime ? "lifetime" : "1 month";
+    const confirmationUrl = `${env.appUrl.replace(/\/$/, "")}/vendor/dashboard/subscription/gift`;
+    const notification = vendorPlanGiftedEmail(recipient.firstName, plan.name, duration, features, renewalDate, confirmationUrl);
+    void sendEmail({ to: recipient.email, subject: notification.subject, html: notification.html, event: notification.event }).catch((error) => console.error("Failed to send gifted vendor plan email:", error));
+  }
   return result;
 }
