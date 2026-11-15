@@ -170,3 +170,23 @@ Validation note:
 - Added a shared runtime type guard so `externalUrl` and `whatsappNumber` cannot be injected by Free vendors even when the product selling method is set to checkout; switching a product to checkout clears those fields.
 - Calendar-month expiry now clamps to the final day of the following month (e.g. a gift granted on January 31 expires at the end of February rather than overflowing into March).
 - CI runs 635–637 caught schema typing issues in the paid-contact guards; fixed by using a typed runtime guard. Latest backend CI run 640 passed Prisma generation, typecheck, tests and build.
+
+
+## TTFL Store News publishing — 2026-11-15
+- [x] Created a dedicated NewsArticle data model with draft/published state, unique SEO slug, article body, cover image, image alt text, SEO title/description, publication timestamps and author account reference.
+- [x] Added runtime PostgreSQL schema creation for deployments using the repository's existing compatibility-script workflow; included the schema guard in backend build, startup and safe-push scripts.
+- [x] Added public article list/detail endpoints that expose published articles only and hide drafts from public requests.
+- [x] Added admin-only article CRUD endpoints and admin-only Cloudinary cover-image upload endpoint.
+- [ ] Add regression tests for draft privacy, publishing, slug uniqueness, image upload authorization and article metadata.
+- [ ] Run Prisma generation, TypeScript typecheck, tests and production build.
+- [ ] Deploy backend before enabling storefront News pages; verify database bootstrap and live image upload.
+
+- CI run 643 passed Prisma generation, TypeScript typecheck and tests; production build exposed that the runtime SQL bootstrap needs DATABASE_URL and must not run in a CI/build-only environment.
+- [x] Moved news-table bootstrap out of the build script and kept it in the Render prestart/runtime path, where DATABASE_URL is available.
+- [ ] Re-run CI to confirm production build passes.
+
+- [x] Backend CI run 644 passed Prisma generation, TypeScript typecheck, automated tests and production build after moving the database bootstrap to runtime startup.
+- [x] Existing gifted-plan / paid-selling backend release was deployed successfully to Render at 2026-11-15 09:42 UTC; the news API branch is not merged or deployed.
+
+- [x] Final news backend CI run 646 passed Prisma generation, TypeScript typecheck, automated tests and production build after the URL-preserving slug edit.
+- [x] Editing an article headline no longer silently changes its public URL; an admin must explicitly edit the slug to change the URL.

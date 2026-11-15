@@ -5,10 +5,17 @@ import { requireAuth, requireRole } from "@/middleware/auth";
 import { AppError } from "@/utils/app-error";
 import { prisma } from "@/lib/prisma";
 import { getVendorProfileForUser } from "@/lib/vendor-access";
-import { validateUploadFile, validateUploadVideo, uploadProductImage, uploadProductVideo, deleteProductImage, deleteProductVideo, uploadAvatar, uploadStoreBranding, deleteStoreBranding, uploadPartnerEventMedia } from "./uploads.service";
+import { validateUploadFile, validateUploadVideo, uploadProductImage, uploadProductVideo, deleteProductImage, deleteProductVideo, uploadAvatar, uploadStoreBranding, deleteStoreBranding, uploadPartnerEventMedia, uploadNewsImage } from "./uploads.service";
 
 export const uploadsRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+ 
+uploadsRouter.post("/news-image", requireAuth, requireRole("ADMIN"), upload.single("image"), asyncHandler(async (req, res) => {
+  if (!req.file) throw AppError.badRequest("No image file provided", "NO_FILE");
+  validateUploadFile({ mimetype: req.file.mimetype, size: req.file.size });
+  res.status(201).json(await uploadNewsImage(req.file.buffer, req.file.mimetype));
+}));
+
 
 
 uploadsRouter.post("/partner-event-media", requireAuth, upload.single("media"), asyncHandler(async (req, res) => {
