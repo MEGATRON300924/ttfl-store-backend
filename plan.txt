@@ -166,3 +166,7 @@ Validation note:
 
 - Latest backend CI run 633 passed Prisma generation, TypeScript typecheck, automated tests and production build for the gifted-plan expiry, legacy gift backfill, Paystack cancellation, plan feature normalization and paid-only selling API changes.
 - Pull request #3 remains draft and mergeable; Render deployment and production email delivery are still pending.
+
+- Added a shared runtime type guard so `externalUrl` and `whatsappNumber` cannot be injected by Free vendors even when the product selling method is set to checkout; switching a product to checkout clears those fields.
+- Calendar-month expiry now clamps to the final day of the following month (e.g. a gift granted on January 31 expires at the end of February rather than overflowing into March).
+- CI runs 635–637 caught schema typing issues in the paid-contact guards; fixed by using a typed runtime guard. Latest backend CI run 640 passed Prisma generation, typecheck, tests and build.
