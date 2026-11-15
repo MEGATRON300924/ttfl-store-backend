@@ -189,7 +189,7 @@ vendorsRouter.post("/admin/:id/tier", requireAuth, requireRole("ADMIN"), asyncHa
 }));
 
 const grantSubscriptionSchema = z.object({
-  tier: z.enum(["FREE", "PRO", "BUSINESS", "ENTERPRISE"]),
+  tier: z.enum(["PRO", "BUSINESS", "ENTERPRISE"]),
   lifetime: z.boolean().default(false),
 });
 vendorsRouter.post("/admin/:id/grant-subscription", requireAuth, requireRole("ADMIN"), asyncHandler(async (req, res) => {

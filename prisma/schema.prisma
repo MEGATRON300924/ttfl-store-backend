@@ -613,6 +613,7 @@ model VendorSubscription {
   startDate DateTime @default(now())
   renewalDate DateTime?
   cancelledAt DateTime?
+  isGifted Boolean @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   payments SubscriptionPayment[]

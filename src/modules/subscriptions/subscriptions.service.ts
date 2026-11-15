@@ -5,6 +5,7 @@ import { disableSubscription, enableSubscription, getCustomer, getOrCreateMonthl
 import { recordAudit } from "@/lib/audit";
 import { getPlanForTier } from "@/modules/vendor-plans/vendor-plans.service";
 import type { VendorTier } from "@prisma/client";
+import { ensureGiftedSubscriptionSchema } from "./gifted-subscription-schema";
 
 function addBillingPeriod(date: Date, period: "MONTHLY" | "YEARLY"): Date {
   const next = new Date(date);
@@ -14,11 +15,12 @@ function addBillingPeriod(date: Date, period: "MONTHLY" | "YEARLY"): Date {
 }
 
 async function expireIfNeeded(vendorId: string) {
+  await ensureGiftedSubscriptionSchema();
   const subscription = await prisma.vendorSubscription.findUnique({ where: { vendorId }, include: { plan: true } });
-  if (subscription?.status === "CANCELLED" && subscription.renewalDate && subscription.renewalDate <= new Date()) {
+  if (subscription && (subscription.status === "CANCELLED" || subscription.isGifted) && subscription.renewalDate && subscription.renewalDate <= new Date()) {
     const freePlan = await getPlanForTier("FREE");
     await prisma.$transaction([
-      prisma.vendorSubscription.update({ where: { id: subscription.id }, data: { status: "EXPIRED" } }),
+      prisma.vendorSubscription.update({ where: { id: subscription.id }, data: { status: "EXPIRED", isGifted: false } }),
       prisma.vendorProfile.update({ where: { id: vendorId }, data: { tier: freePlan.tier } }),
     ]);
   }
@@ -33,14 +35,14 @@ export async function initiatePlanChange(vendorId: string, vendorEmail: string, 
   await expireIfNeeded(vendorId);
   const plan = await getPlanForTier(targetTier);
   if (Number(plan.price) === 0) {
-    const subscription = await prisma.vendorSubscription.upsert({ where: { vendorId }, create: { vendorId, planId: plan.id, status: "ACTIVE" }, update: { planId: plan.id, status: "ACTIVE", renewalDate: null, cancelledAt: null } });
+    const subscription = await prisma.vendorSubscription.upsert({ where: { vendorId }, create: { vendorId, planId: plan.id, status: "ACTIVE" }, update: { planId: plan.id, status: "ACTIVE", renewalDate: null, cancelledAt: null, isGifted: false } });
     await prisma.vendorProfile.update({ where: { id: vendorId }, data: { tier: targetTier } });
     return { subscription, checkoutUrl: null };
   }
   const recurringPlan = await getOrCreateMonthlyPlan({ tier: targetTier, amountNaira: Number(plan.price) });
   const reference = `ttfl_sub_${vendorId}_${Date.now()}`;
   const paystack = await initializeTransaction({ email: vendorEmail, amountNaira: Number(plan.price), reference, callbackUrl: `${env.appUrl}/vendor/dashboard/subscription/confirm`, metadata: { vendorId, targetTier, kind: "subscription", planCode: recurringPlan.plan_code }, plan: recurringPlan.plan_code, channels: ["card"] });
-  const subscription = await prisma.vendorSubscription.upsert({ where: { vendorId }, create: { vendorId, planId: plan.id, status: "PAST_DUE" }, update: { planId: plan.id, status: "PAST_DUE", cancelledAt: null } });
+  const subscription = await prisma.vendorSubscription.upsert({ where: { vendorId }, create: { vendorId, planId: plan.id, status: "PAST_DUE" }, update: { planId: plan.id, status: "PAST_DUE", cancelledAt: null, isGifted: false } });
   await prisma.subscriptionPayment.create({ data: { subscriptionId: subscription.id, reference, amount: plan.price, status: "PENDING" } });
   return { subscription, checkoutUrl: paystack.authorization_url };
 }
@@ -71,7 +73,7 @@ export async function verifyAndActivateSubscription(reference: string) {
     if (!subscription) return;
     const now = new Date();
     await tx.subscriptionPayment.update({ where: { reference }, data: { status: "PAID", gatewayResponse: verification as unknown as object } });
-    await tx.vendorSubscription.update({ where: { id: subscription.id }, data: { status: "ACTIVE", startDate: now, renewalDate: addBillingPeriod(now, subscription.plan.billingPeriod), cancelledAt: null } });
+    await tx.vendorSubscription.update({ where: { id: subscription.id }, data: { status: "ACTIVE", startDate: now, renewalDate: addBillingPeriod(now, subscription.plan.billingPeriod), cancelledAt: null, isGifted: false } });
     await tx.vendorProfile.update({ where: { id: subscription.vendorId }, data: { tier: subscription.plan.tier } });
     activated = true;
   });
@@ -103,7 +105,7 @@ export async function handlePaystackSubscriptionEvent(event: string, data: any) 
     else if (existing.status !== "PAID") await prisma.subscriptionPayment.update({ where: { reference }, data: { status: "PAID", gatewayResponse: data as object } });
     const now = new Date();
     await prisma.$transaction([
-      prisma.vendorSubscription.update({ where: { id: local.id }, data: { status: "ACTIVE", renewalDate: addBillingPeriod(now, local.plan.billingPeriod), cancelledAt: null } }),
+      prisma.vendorSubscription.update({ where: { id: local.id }, data: { status: "ACTIVE", renewalDate: addBillingPeriod(now, local.plan.billingPeriod), cancelledAt: null, isGifted: false } }),
       prisma.vendorProfile.update({ where: { id: vendor.id }, data: { tier: local.plan.tier } }),
     ]);
     return true;
@@ -165,7 +167,7 @@ export async function resumeSubscription(vendorId: string, vendorEmail: string) 
     if (error instanceof AppError) throw error;
     throw AppError.internal("We could not resume the recurring Paystack subscription. Please try again.", "PAYSTACK_RESUME_FAILED");
   }
-  const updated = await prisma.vendorSubscription.update({ where: { vendorId }, data: { status: "ACTIVE", cancelledAt: null }, include: { plan: true } });
+  const updated = await prisma.vendorSubscription.update({ where: { vendorId }, data: { status: "ACTIVE", cancelledAt: null, isGifted: false }, include: { plan: true } });
   await recordAudit({ action: "SUBSCRIPTION_CHANGED", targetType: "VendorSubscription", targetId: updated.id, metadata: { cancellationReversed: true, planTier: updated.plan.tier } });
   return { subscription: updated };
 }
