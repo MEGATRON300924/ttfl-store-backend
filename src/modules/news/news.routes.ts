@@ -77,8 +77,8 @@ newsRouter.patch("/admin/articles/:id", requireAuth, requireRole("ADMIN"), async
   const data = articleSchema.partial().parse(req.body);
   const existing = await prisma.newsArticle.findUnique({ where: { id: req.params.id } });
   if (!existing) throw AppError.notFound("News article not found", "NEWS_ARTICLE_NOT_FOUND");
-  const slug = data.slug !== undefined || data.title !== undefined
-    ? await uniqueSlug(data.slug || data.title || existing.title, existing.id)
+  const slug = data.slug !== undefined && data.slug.trim()
+    ? await uniqueSlug(data.slug, existing.id)
     : existing.slug;
   const status = data.status ?? existing.status;
   const publishedAt = status === "PUBLISHED"
