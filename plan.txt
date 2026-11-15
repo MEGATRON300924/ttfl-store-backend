@@ -190,3 +190,7 @@ Validation note:
 
 - [x] Final news backend CI run 646 passed Prisma generation, TypeScript typecheck, automated tests and production build after the URL-preserving slug edit.
 - [x] Editing an article headline no longer silently changes its public URL; an admin must explicitly edit the slug to change the URL.
+
+- [x] News publishing API PR #4 merged to main as c6c4766a5d6047e72a085daa61ffbb56315043ef.
+- [x] Render deployment dep-dbsrrlc9v7es73c8hav0 is LIVE. Startup completed the news schema bootstrap successfully ("TTFL Store news article table ensured.") and the backend started listening on port 4000.
+- [ ] Verify authenticated admin article creation and Cloudinary cover-image upload in production; public list/detail endpoints should then be checked with a real published article.
