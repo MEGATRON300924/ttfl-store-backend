@@ -44,6 +44,8 @@ export async function changeVendorTier(vendorProfileId: string, tier: "FREE" | "
 export async function setCommissionOverride(vendorProfileId: string, ratePercent: number | null, adminId: string, ipAddress?: string) { const profile = await prisma.vendorProfile.update({ where: { id: vendorProfileId }, data: { commissionRateOverride: ratePercent } }); await recordAudit({ actorId: adminId, action: "VENDOR_TIER_CHANGED", targetType: "VendorProfile", targetId: vendorProfileId, metadata: { commissionRateOverride: ratePercent }, ipAddress }); return profile; }
 
 /** Admin-granted plan: activates the selected plan without Paystack and can optionally make it lifetime. */
+function addOneCalendarMonth(date: Date) { const next = new Date(date); const day = next.getDate(); next.setDate(1); next.setMonth(next.getMonth() + 1); const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate(); next.setDate(Math.min(day, lastDay)); return next; }
+
 export async function grantVendorSubscription(vendorProfileId: string, tier: "FREE" | "PRO" | "BUSINESS" | "ENTERPRISE", lifetime: boolean, adminId: string, ipAddress?: string) {
   await ensureGiftedSubscriptionSchema();
   const existingSubscription = await prisma.vendorSubscription.findUnique({ where: { vendorId: vendorProfileId }, include: { plan: true } });
@@ -55,7 +57,7 @@ export async function grantVendorSubscription(vendorProfileId: string, tier: "FR
   }
   const plan = await getPlanForTier(tier);
   const now = new Date();
-  const renewalDate = lifetime ? null : new Date(now.getFullYear(), now.getMonth() + 1, now.getDate(), now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+  const renewalDate = lifetime ? null : addOneCalendarMonth(now);
   await ensureStoreProfileTables();
   const result = await prisma.$transaction(async (tx) => {
     const profile = await tx.vendorProfile.update({ where: { id: vendorProfileId }, data: { tier, status: "APPROVED" } });
