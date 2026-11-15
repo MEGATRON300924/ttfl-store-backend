@@ -184,3 +184,6 @@ Validation note:
 - CI run 643 passed Prisma generation, TypeScript typecheck and tests; production build exposed that the runtime SQL bootstrap needs DATABASE_URL and must not run in a CI/build-only environment.
 - [x] Moved news-table bootstrap out of the build script and kept it in the Render prestart/runtime path, where DATABASE_URL is available.
 - [ ] Re-run CI to confirm production build passes.
+
+- [x] Backend CI run 644 passed Prisma generation, TypeScript typecheck, automated tests and production build after moving the database bootstrap to runtime startup.
+- [x] Existing gifted-plan / paid-selling backend release was deployed successfully to Render at 2026-11-15 09:42 UTC; the news API branch is not merged or deployed.
