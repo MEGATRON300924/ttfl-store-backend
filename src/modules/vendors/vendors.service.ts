@@ -11,6 +11,7 @@ import { getPlanForTier } from "@/modules/vendor-plans/vendor-plans.service";
 import { vendorPlanGiftedEmail } from "@/lib/email";
 import { env } from "@/config/env";
 import { ensureGiftedSubscriptionSchema } from "@/modules/subscriptions/gifted-subscription-schema";
+import { cancelSubscription } from "@/modules/subscriptions/subscriptions.service";
 
 function normalizeStoreSlug(value: string) { return value.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, ""); }
 export async function getMyVendorProfile(userId: string) { await ensureStoreProfileTables(); return getVendorProfileForUser(userId); }
@@ -45,6 +46,13 @@ export async function setCommissionOverride(vendorProfileId: string, ratePercent
 /** Admin-granted plan: activates the selected plan without Paystack and can optionally make it lifetime. */
 export async function grantVendorSubscription(vendorProfileId: string, tier: "FREE" | "PRO" | "BUSINESS" | "ENTERPRISE", lifetime: boolean, adminId: string, ipAddress?: string) {
   await ensureGiftedSubscriptionSchema();
+  const existingSubscription = await prisma.vendorSubscription.findUnique({ where: { vendorId: vendorProfileId }, include: { plan: true } });
+  if (existingSubscription?.status === "ACTIVE" && !existingSubscription.isGifted && Number(existingSubscription.plan.price) > 0) {
+    const owner = await prisma.vendorProfile.findUnique({ where: { id: vendorProfileId }, select: { user: { select: { email: true } } } });
+    if (!owner?.user.email) throw AppError.badRequest("The vendor account has no email address for subscription management.", "VENDOR_EMAIL_REQUIRED");
+    // Prevent a previous paid Paystack subscription from charging while a complimentary plan is active.
+    await cancelSubscription(vendorProfileId, owner.user.email);
+  }
   const plan = await getPlanForTier(tier);
   const now = new Date();
   const renewalDate = lifetime ? null : new Date(now.getFullYear(), now.getMonth() + 1, now.getDate(), now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
@@ -53,7 +61,7 @@ export async function grantVendorSubscription(vendorProfileId: string, tier: "FR
     const profile = await tx.vendorProfile.update({ where: { id: vendorProfileId }, data: { tier, status: "APPROVED" } });
     const subscription = await tx.vendorSubscription.upsert({
       where: { vendorId: vendorProfileId },
-      create: { vendorId: vendorProfileId, planId: plan.id, status: "ACTIVE", startDate: now, renewalDate, cancelledAt: null, isGifted: !lifetime },
+      create: { vendorId: vendorProfileId, planId: plan.id, status: "ACTIVE", startDate: now, renewalDate, cancelledAt: null, isGifted: true },
       update: { planId: plan.id, status: "ACTIVE", startDate: now, renewalDate, cancelledAt: null, isGifted: !lifetime },
       include: { plan: true },
     });
@@ -61,7 +69,7 @@ export async function grantVendorSubscription(vendorProfileId: string, tier: "FR
     if (tier === "ENTERPRISE") await tx.$executeRawUnsafe(`INSERT INTO store_badges (id, vendor_id, badge) VALUES ($1, $2, 'ENTERPRISE') ON CONFLICT (vendor_id, badge) DO NOTHING`, randomUUID(), vendorProfileId);
     return { profile, subscription };
   });
-  await recordAudit({ actorId: adminId, action: "VENDOR_TIER_CHANGED", targetType: "VendorSubscription", targetId: result.subscription.id, ipAddress, metadata: { tier, lifetime, gifted: !lifetime, expiresAt: renewalDate, adminGranted: true, legallyVerified: false } });
+  await recordAudit({ actorId: adminId, action: "VENDOR_TIER_CHANGED", targetType: "VendorSubscription", targetId: result.subscription.id, ipAddress, metadata: { tier, lifetime, gifted: true, expiresAt: renewalDate, adminGranted: true, legallyVerified: false } });
   const recipient = await prisma.user.findUnique({ where: { id: result.profile.userId }, select: { email: true, firstName: true } });
   if (recipient?.email) {
     const features = Array.isArray(plan.features) ? plan.features.filter((item): item is string => typeof item === "string") : [];
