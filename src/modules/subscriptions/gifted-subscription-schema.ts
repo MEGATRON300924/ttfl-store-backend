@@ -21,6 +21,8 @@ export async function ensureGiftedSubscriptionSchema() {
           AND al.metadata ->> 'adminGranted' = 'true'
           AND vp.id = vs."planId"
           AND vp.price > 0
+          AND vs.status = 'ACTIVE'
+          AND vs."startDate" BETWEEN al."createdAt" - INTERVAL '5 minutes' AND al."createdAt" + INTERVAL '5 minutes'
           AND vs."isGifted" = FALSE
       `);
     })().catch((error) => {
