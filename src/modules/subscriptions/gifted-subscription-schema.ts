@@ -14,12 +14,12 @@ export async function ensureGiftedSubscriptionSchema() {
       await prisma.$executeRawUnsafe(`
         UPDATE vendor_subscriptions AS vs
         SET "isGifted" = TRUE
-        FROM audit_logs AS al
-        JOIN vendor_plans AS vp ON vp.id = vs."planId"
+        FROM audit_logs AS al, vendor_plans AS vp
         WHERE al."targetType" = 'VendorSubscription'
           AND al."targetId" = vs.id
           AND al.action = 'VENDOR_TIER_CHANGED'
           AND al.metadata ->> 'adminGranted' = 'true'
+          AND vp.id = vs."planId"
           AND vp.price > 0
           AND vs."isGifted" = FALSE
       `);
