@@ -3,7 +3,7 @@ import { getPlanForTier } from "@/modules/vendor-plans/vendor-plans.service";
 import { ensureGiftedSubscriptionSchema } from "./gifted-subscription-schema";
 import { logger } from "@/lib/logger";
 
-const INTERVAL_MS = 60 * 60 * 1000;
+const INTERVAL_MS = 60 * 1000;
 
 export async function expireCancelledSubscriptions() {
   await ensureGiftedSubscriptionSchema();
