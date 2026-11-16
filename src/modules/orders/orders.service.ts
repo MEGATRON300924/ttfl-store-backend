@@ -10,6 +10,7 @@ import { sendWhatsAppNotification, newOrderWhatsAppMessage } from "@/lib/whatsap
 import { recordAudit } from "@/lib/audit";
 import { recordPurchase, reversePurchase, reservePointsForOrder, finalizeReservedPoints, releaseReservedPoints, ensureRewardsReady } from "@/modules/rewards/rewards.service";
 import { recordConversionEvent } from "@/modules/ads/ads.service";
+import { resolveCheckoutAttribution, attachOrder } from "@/modules/affiliates/affiliates.service";
 import { logger } from "@/lib/logger";
 import { createNotification } from "@/modules/notifications/notifications.service";
 import { getSettingNumber } from "@/modules/settings/settings.service";
@@ -153,6 +154,7 @@ export async function checkout(customerId: string, customerEmail: string, input:
   const orderNumber = await generateOrderNumber();
   const paymentReference = `ttfl_${orderNumber}_${Date.now()}`;
   const order = await prisma.order.create({ data: { orderNumber, customerId, totalAmount, subtotalAmount, discountAmount: discountAmount + rewardPoints + shippingDiscountAmount, deliveryAmount, couponCode, paymentReference, deliveryName: input.delivery.name, deliveryPhone: input.delivery.phone, deliveryLine1: input.delivery.line1, deliveryLine2: input.delivery.line2, deliveryCity: input.delivery.city, deliveryState: input.delivery.state, deliveryPostcode: input.delivery.digitalPostcode, deliveryCountry: input.delivery.country, vendorOrders: { create: vendorOrderData } }, include: { vendorOrders: { include: { items: true } } } });
+  if(input.affiliateCode&&input.affiliateSessionId){try{const attribution=await resolveCheckoutAttribution(input.affiliateCode,input.affiliateSessionId,customerId);if(attribution)await attachOrder(order.id,attribution.id,attribution.commissionRate);}catch(error){logger.warn("Affiliate attribution could not be attached during checkout",{orderId:order.id,error});}}
   try { await prisma.$transaction(async (tx) => { await reserveForOrder(tx, order.id, order.vendorOrders.flatMap((vendorOrder) => vendorOrder.items.map((item) => ({ productId: item.productId, quantity: item.quantity })))); }); if(rewardPoints>0) await reservePointsForOrder(customerId,order.id,rewardPoints); } catch (error) { await releaseForOrder(order.id, "RELEASED"); await releaseReservedPoints(order.id); throw error; }
   if (couponId) await recordRedemption(couponId, customerId, order.id, discountAmount + shippingDiscountAmount);
   const splitCode = await createOrderSplitCode(order);
