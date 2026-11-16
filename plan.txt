@@ -219,3 +219,9 @@ Validation note:
 
 ### Release coordination
 - Frontend requires this backend branch because checkout now submits `affiliateCode` and `affiliateSessionId`. Keep both PRs unmerged until backend CI and frontend CI pass.
+
+
+### Validation update — 2026-11-16
+- [x] GitHub Actions backend CI run #650 passed all stages: Prisma client generation, TypeScript typecheck, automated tests, and production build.
+- [ ] Authenticated live API and Paystack end-to-end checks still require the backend branch to be deployed alongside the frontend branch.
+- [ ] No Render deployment or production release has been made.
