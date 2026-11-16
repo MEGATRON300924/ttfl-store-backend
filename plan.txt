@@ -194,3 +194,28 @@ Validation note:
 - [x] News publishing API PR #4 merged to main as c6c4766a5d6047e72a085daa61ffbb56315043ef.
 - [x] Render deployment dep-dbsrrlc9v7es73c8hav0 is LIVE. Startup completed the news schema bootstrap successfully ("TTFL Store news article table ensured.") and the backend started listening on port 4000.
 - [ ] Verify authenticated admin article creation and Cloudinary cover-image upload in production; public list/detail endpoints should then be checked with a real published article.
+
+
+## Affiliate programme and commission reliability — 2026-11-16
+- [x] Audited affiliate routes, SQL-backed affiliate tables, referral click tracking, customer conversion endpoint, vendor reward lifecycle, checkout, and Paystack payment finalization.
+- [x] Added optional validated affiliate code/session fields to checkout; server verifies the matching customer click belongs to the same affiliate and session before attaching order attribution.
+- [x] Commission creation now runs from server-side successful payment finalization, including webhook/callback reconciliation; unique order constraints make repeated payment verification idempotent.
+- [x] Isolated affiliate ledger recording from payment finalization so an affiliate schema/ledger failure is logged but cannot roll back a confirmed customer payment.
+- [x] Cached the runtime affiliate table bootstrap to avoid repeating DDL on every request.
+- [x] Affiliate registration now respects the program-enabled setting.
+- [x] Fixed vendor reward decline persistence and prevented the same declined invite from reopening; a different affiliate can still invite that user.
+- [ ] Run backend Prisma generation, TypeScript typecheck, automated tests and production build.
+- [ ] Validate customer referral click → order attribution → Paystack paid order → one commission row and one dashboard increment, including duplicate webhook/callback delivery.
+- [ ] Validate vendor invite claim, decline, re-invite and reward redemption with authenticated test accounts.
+- [ ] Deploy to Render only after CI passes and frontend release is coordinated.
+
+### Backend commits
+- Join gate, declined reward state, and checkout attribution resolver: `462373d2ed9d455ac9811d4b8d0909231ee0d620`
+- Checkout schema and order attribution: `0ff6a5640a7a67b158ddd73d80ab0ed4314231b7`, `30cb23c5ca8c6a42fd898de38db0ab6ae6a2600b`
+- Server-side commission recording: `105a20ac396ee38b52455e1f12b76885737342dd`
+- Cached affiliate schema bootstrap: `36793e5438247c146c94a78f6682651a20a29b2d`
+- Payment/affiliate failure isolation: `fc5a4b4bb88a54f7e5e260a6c13f2465559cb6fa`
+- Declined invite visibility guard: `716598996ee9d32c8d073d5c91e61cba7c2c2583`
+
+### Release coordination
+- Frontend requires this backend branch because checkout now submits `affiliateCode` and `affiliateSessionId`. Keep both PRs unmerged until backend CI and frontend CI pass.
