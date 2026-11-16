@@ -9,7 +9,11 @@ const DEFAULT_RATE=5;
 type AttributionRow={affiliate_id:string;commission_rate:string};
 type ReferralType="CUSTOMER"|"VENDOR";
 
+let affiliateTablesReady:Promise<void>|null=null;
+
 export async function ensureAffiliateTables(){
+  if(!affiliateTablesReady){
+    affiliateTablesReady=(async()=>{
   await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS affiliates (id TEXT PRIMARY KEY,user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,code TEXT NOT NULL UNIQUE,status TEXT NOT NULL DEFAULT 'ACTIVE',commission_rate NUMERIC(5,2) NOT NULL DEFAULT 5,clicks INTEGER NOT NULL DEFAULT 0,conversions INTEGER NOT NULL DEFAULT 0,pending_earnings NUMERIC(12,2) NOT NULL DEFAULT 0,paid_earnings NUMERIC(12,2) NOT NULL DEFAULT 0,display_name TEXT,display_avatar_url TEXT,vendor_code TEXT UNIQUE,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
   await prisma.$executeRawUnsafe(`ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS display_name TEXT`);
   await prisma.$executeRawUnsafe(`ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS display_avatar_url TEXT`);
@@ -25,6 +29,9 @@ export async function ensureAffiliateTables(){
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS affiliate_commissions_status_idx ON affiliate_commissions(status)`);
   await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS affiliate_vendor_rewards (id TEXT PRIMARY KEY,affiliate_id TEXT NOT NULL REFERENCES affiliates(id) ON DELETE CASCADE,referred_user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,status TEXT NOT NULL DEFAULT 'CLAIMED',reward_tier TEXT NOT NULL,reward_months INTEGER NOT NULL,claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),redeemed_at TIMESTAMPTZ,expires_at TIMESTAMPTZ,declined_at TIMESTAMPTZ,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS affiliate_vendor_rewards_affiliate_idx ON affiliate_vendor_rewards(affiliate_id)`);
+    })().catch(error=>{affiliateTablesReady=null;throw error;});
+  }
+  await affiliateTablesReady;
 }
 
 function makeCode(firstName:string,lastName:string){const base=`${firstName}${lastName}`.replace(/[^a-z0-9]/gi,"").toUpperCase().slice(0,10)||"TTFL";return `${base}-${randomBytes(3).toString("hex").toUpperCase()}`;}
