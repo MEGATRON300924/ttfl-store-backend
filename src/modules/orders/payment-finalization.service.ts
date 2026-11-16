@@ -49,7 +49,6 @@ export async function verifyAndFinalizePaymentSafely(reference: string) {
   const requestedAmountNaira = requestedAmountKobo / 100;
   if (Math.round(requestedAmountNaira * 100) !== Math.round(Number(initialOrder.totalAmount) * 100)) { await releaseReservedPoints(initialOrder.id); throw AppError.badRequest("Payment amount does not match order total", "AMOUNT_MISMATCH"); }
 
-  await ensureAffiliateTables();
   await prisma.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${reference}))`;
     const current = await tx.order.findUnique({ where: { id: initialOrder.id }, select: { paymentStatus: true } });
@@ -60,8 +59,16 @@ export async function verifyAndFinalizePaymentSafely(reference: string) {
       update: { status: "PAID", amount: requestedAmountNaira, channel: verification.channel, gatewayResponse: verification as unknown as Prisma.InputJsonValue }
     });
     await tx.order.update({ where: { id: initialOrder.id }, data: { paymentStatus: "PAID", paidAt: new Date() } });
-    await recordPaidOrder(tx, initialOrder.id, Number(initialOrder.subtotalAmount ?? initialOrder.totalAmount));
   });
+
+  // Affiliate accounting is deliberately isolated from payment finalization:
+  // a ledger/schema failure must never roll back a confirmed customer payment.
+  try {
+    await ensureAffiliateTables();
+    await prisma.$transaction(tx => recordPaidOrder(tx, initialOrder.id, Number(initialOrder.subtotalAmount ?? initialOrder.totalAmount)));
+  } catch (error) {
+    logger.error("Affiliate commission recording failed after confirmed payment", { reference, orderId: initialOrder.id, error });
+  }
 
   const order = await prisma.order.findUniqueOrThrow({ where: { id: initialOrder.id }, include: { vendorOrders: { include: { items: true } } } });
 
