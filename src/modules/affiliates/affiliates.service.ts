@@ -86,7 +86,7 @@ export async function getVendorInvite(code:string,sessionId?:string,userId?:stri
   const rows=await prisma.$queryRawUnsafe<any[]>(`SELECT a.id,a.user_id,a.display_name,a.display_avatar_url,u."avatarUrl" FROM affiliates a JOIN users u ON u.id=a.user_id WHERE a.vendor_code=$1 AND a.status='ACTIVE' LIMIT 1`,code.trim().toUpperCase());const affiliate=rows[0];if(!affiliate)return{show:false};
   if(userId&&userId===affiliate.user_id)return{show:false};
   if(sessionId){const click=await prisma.$queryRawUnsafe<Array<{id:string}>>(`SELECT id FROM affiliate_clicks WHERE affiliate_id=$1 AND session_id=$2 AND referral_type='VENDOR' AND created_at>=NOW()-INTERVAL '30 days' ORDER BY created_at DESC LIMIT 1`,affiliate.id,sessionId);if(!click[0])return{show:false};}
-  if(userId){const claimed=await prisma.$queryRawUnsafe<Array<{status:string;rewardTier:string;rewardMonths:number}>>(`SELECT status,reward_tier AS "rewardTier",reward_months AS "rewardMonths" FROM affiliate_vendor_rewards WHERE referred_user_id=$1 LIMIT 1`,userId);if(claimed[0]&&claimed[0].status!=="DECLINED")return{show:false,alreadyClaimed:true,status:claimed[0].status};}
+  if(userId){const claimed=await prisma.$queryRawUnsafe<Array<{status:string;affiliateId:string}>>(`SELECT status,affiliate_id AS "affiliateId" FROM affiliate_vendor_rewards WHERE referred_user_id=$1 LIMIT 1`,userId);if(claimed[0]&&(claimed[0].status!=="DECLINED"||claimed[0].affiliateId===affiliate.id))return{show:false,alreadyClaimed:true,status:claimed[0].status};}
   return{show:true,affiliate:{id:affiliate.id,displayName:affiliate.display_name||"TTFL Affiliate",avatarUrl:affiliate.display_avatar_url||affiliate.avatar_url||null},perk:{tier:program.vendorRewardTier,months:program.vendorRewardMonths}};
 }
 
