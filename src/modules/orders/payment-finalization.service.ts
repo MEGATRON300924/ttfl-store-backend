@@ -3,6 +3,7 @@ import { verifyTransaction } from "@/lib/paystack";
 import { releaseForOrder, consumeForOrder } from "@/modules/flash-deals/flash-deals.service";
 import { recordPurchase, finalizeReservedPoints, releaseReservedPoints } from "@/modules/rewards/rewards.service";
 import { recordConversionEvent } from "@/modules/ads/ads.service";
+import { recordPaidOrder } from "@/modules/affiliates/affiliates.service";
 import { sendEmail, orderConfirmationEmail, orderPaymentFailedEmail, vendorNewOrderEmail, adminNewOrderEmail } from "@/lib/email";
 import { sendWhatsAppNotification, newOrderWhatsAppMessage } from "@/lib/whatsapp-notifications";
 import { createNotification } from "@/modules/notifications/notifications.service";
@@ -58,6 +59,7 @@ export async function verifyAndFinalizePaymentSafely(reference: string) {
       update: { status: "PAID", amount: requestedAmountNaira, channel: verification.channel, gatewayResponse: verification as unknown as Prisma.InputJsonValue }
     });
     await tx.order.update({ where: { id: initialOrder.id }, data: { paymentStatus: "PAID", paidAt: new Date() } });
+    await recordPaidOrder(tx, initialOrder.id, Number(initialOrder.subtotalAmount ?? initialOrder.totalAmount));
   });
 
   const order = await prisma.order.findUniqueOrThrow({ where: { id: initialOrder.id }, include: { vendorOrders: { include: { items: true } } } });
