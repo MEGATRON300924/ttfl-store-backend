@@ -3,6 +3,7 @@ import { verifyTransaction } from "@/lib/paystack";
 import { releaseForOrder, consumeForOrder } from "@/modules/flash-deals/flash-deals.service";
 import { recordPurchase, finalizeReservedPoints, releaseReservedPoints } from "@/modules/rewards/rewards.service";
 import { recordConversionEvent } from "@/modules/ads/ads.service";
+import { ensureAffiliateTables, recordPaidOrder } from "@/modules/affiliates/affiliates.service";
 import { sendEmail, orderConfirmationEmail, orderPaymentFailedEmail, vendorNewOrderEmail, adminNewOrderEmail } from "@/lib/email";
 import { sendWhatsAppNotification, newOrderWhatsAppMessage } from "@/lib/whatsapp-notifications";
 import { createNotification } from "@/modules/notifications/notifications.service";
@@ -59,6 +60,15 @@ export async function verifyAndFinalizePaymentSafely(reference: string) {
     });
     await tx.order.update({ where: { id: initialOrder.id }, data: { paymentStatus: "PAID", paidAt: new Date() } });
   });
+
+  // Affiliate accounting is deliberately isolated from payment finalization:
+  // a ledger/schema failure must never roll back a confirmed customer payment.
+  try {
+    await ensureAffiliateTables();
+    await prisma.$transaction(tx => recordPaidOrder(tx, initialOrder.id, Number(initialOrder.subtotalAmount ?? initialOrder.totalAmount)));
+  } catch (error) {
+    logger.error("Affiliate commission recording failed after confirmed payment", { reference, orderId: initialOrder.id, error });
+  }
 
   const order = await prisma.order.findUniqueOrThrow({ where: { id: initialOrder.id }, include: { vendorOrders: { include: { items: true } } } });
 

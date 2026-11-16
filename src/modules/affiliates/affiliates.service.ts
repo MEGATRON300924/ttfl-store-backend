@@ -9,7 +9,11 @@ const DEFAULT_RATE=5;
 type AttributionRow={affiliate_id:string;commission_rate:string};
 type ReferralType="CUSTOMER"|"VENDOR";
 
+let affiliateTablesReady:Promise<void>|null=null;
+
 export async function ensureAffiliateTables(){
+  if(!affiliateTablesReady){
+    affiliateTablesReady=(async()=>{
   await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS affiliates (id TEXT PRIMARY KEY,user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,code TEXT NOT NULL UNIQUE,status TEXT NOT NULL DEFAULT 'ACTIVE',commission_rate NUMERIC(5,2) NOT NULL DEFAULT 5,clicks INTEGER NOT NULL DEFAULT 0,conversions INTEGER NOT NULL DEFAULT 0,pending_earnings NUMERIC(12,2) NOT NULL DEFAULT 0,paid_earnings NUMERIC(12,2) NOT NULL DEFAULT 0,display_name TEXT,display_avatar_url TEXT,vendor_code TEXT UNIQUE,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
   await prisma.$executeRawUnsafe(`ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS display_name TEXT`);
   await prisma.$executeRawUnsafe(`ALTER TABLE affiliates ADD COLUMN IF NOT EXISTS display_avatar_url TEXT`);
@@ -25,6 +29,9 @@ export async function ensureAffiliateTables(){
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS affiliate_commissions_status_idx ON affiliate_commissions(status)`);
   await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS affiliate_vendor_rewards (id TEXT PRIMARY KEY,affiliate_id TEXT NOT NULL REFERENCES affiliates(id) ON DELETE CASCADE,referred_user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,status TEXT NOT NULL DEFAULT 'CLAIMED',reward_tier TEXT NOT NULL,reward_months INTEGER NOT NULL,claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),redeemed_at TIMESTAMPTZ,expires_at TIMESTAMPTZ,declined_at TIMESTAMPTZ,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS affiliate_vendor_rewards_affiliate_idx ON affiliate_vendor_rewards(affiliate_id)`);
+    })().catch(error=>{affiliateTablesReady=null;throw error;});
+  }
+  await affiliateTablesReady;
 }
 
 function makeCode(firstName:string,lastName:string){const base=`${firstName}${lastName}`.replace(/[^a-z0-9]/gi,"").toUpperCase().slice(0,10)||"TTFL";return `${base}-${randomBytes(3).toString("hex").toUpperCase()}`;}
@@ -35,6 +42,8 @@ export async function getProgram(){await ensureAffiliateTables();return{enabled:
 
 export async function join(userId:string){
   await ensureAffiliateTables();
+  const program=await getProgram();
+  if(!program.enabled)throw AppError.badRequest("The affiliate program is currently unavailable","AFFILIATE_PROGRAM_DISABLED");
   const user=await prisma.user.findUnique({where:{id:userId}});
   if(!user)throw AppError.notFound("User not found");
   const existing=await prisma.$queryRawUnsafe<Array<{id:string;code:string;vendor_code:string|null;status:string;commission_rate:string;display_name:string|null;display_avatar_url:string|null}>>(`SELECT id,code,vendor_code,status,commission_rate::text,display_name,display_avatar_url FROM affiliates WHERE user_id=$1 LIMIT 1`,userId);
@@ -77,7 +86,7 @@ export async function getVendorInvite(code:string,sessionId?:string,userId?:stri
   const rows=await prisma.$queryRawUnsafe<any[]>(`SELECT a.id,a.user_id,a.display_name,a.display_avatar_url,u."avatarUrl" FROM affiliates a JOIN users u ON u.id=a.user_id WHERE a.vendor_code=$1 AND a.status='ACTIVE' LIMIT 1`,code.trim().toUpperCase());const affiliate=rows[0];if(!affiliate)return{show:false};
   if(userId&&userId===affiliate.user_id)return{show:false};
   if(sessionId){const click=await prisma.$queryRawUnsafe<Array<{id:string}>>(`SELECT id FROM affiliate_clicks WHERE affiliate_id=$1 AND session_id=$2 AND referral_type='VENDOR' AND created_at>=NOW()-INTERVAL '30 days' ORDER BY created_at DESC LIMIT 1`,affiliate.id,sessionId);if(!click[0])return{show:false};}
-  if(userId){const claimed=await prisma.$queryRawUnsafe<Array<{status:string;rewardTier:string;rewardMonths:number}>>(`SELECT status,reward_tier AS "rewardTier",reward_months AS "rewardMonths" FROM affiliate_vendor_rewards WHERE referred_user_id=$1 LIMIT 1`,userId);if(claimed[0])return{show:false,alreadyClaimed:true,status:claimed[0].status};}
+  if(userId){const claimed=await prisma.$queryRawUnsafe<Array<{status:string;affiliateId:string}>>(`SELECT status,affiliate_id AS "affiliateId" FROM affiliate_vendor_rewards WHERE referred_user_id=$1 LIMIT 1`,userId);if(claimed[0]&&(claimed[0].status!=="DECLINED"||claimed[0].affiliateId===affiliate.id))return{show:false,alreadyClaimed:true,status:claimed[0].status};}
   return{show:true,affiliate:{id:affiliate.id,displayName:affiliate.display_name||"TTFL Affiliate",avatarUrl:affiliate.display_avatar_url||affiliate.avatar_url||null},perk:{tier:program.vendorRewardTier,months:program.vendorRewardMonths}};
 }
 
@@ -85,16 +94,26 @@ export async function claimVendorReward(userId:string,code:string,sessionId:stri
   await ensureAffiliateTables();const program=await getProgram();if(!program.enabled||!program.vendorReferralsEnabled||!program.vendorRewardEnabled)throw AppError.badRequest("Vendor referral rewards are currently unavailable","VENDOR_REFERRAL_DISABLED");
   const rows=await prisma.$queryRawUnsafe<any[]>(`SELECT a.id,a.user_id,a.display_name FROM affiliates a WHERE a.vendor_code=$1 AND a.status='ACTIVE' LIMIT 1`,code.trim().toUpperCase());const affiliate=rows[0];if(!affiliate)throw AppError.notFound("Referral invitation not found","REFERRAL_NOT_FOUND");if(affiliate.user_id===userId)throw AppError.badRequest("You cannot claim your own referral reward","SELF_REFERRAL");
   const click=await prisma.$queryRawUnsafe<Array<{id:string}>>(`SELECT id FROM affiliate_clicks WHERE affiliate_id=$1 AND session_id=$2 AND referral_type='VENDOR' AND created_at>=NOW()-INTERVAL '30 days' ORDER BY created_at DESC LIMIT 1`,affiliate.id,sessionId);if(!click[0])throw AppError.badRequest("This reward must be claimed from the original vendor referral link","REFERRAL_SESSION_INVALID");
-  const existing=await prisma.$queryRawUnsafe<Array<{id:string;status:string}>>(`SELECT id,status FROM affiliate_vendor_rewards WHERE referred_user_id=$1 LIMIT 1`,userId);if(existing[0])return{claimed:false,alreadyClaimed:true,status:existing[0].status};
   const months=Math.max(1,await getSettingNumber(SETTING_KEYS.AFFILIATE_VENDOR_REWARD_MONTHS));const tier=await getSetting(SETTING_KEYS.AFFILIATE_VENDOR_REWARD_TIER) as VendorTier;
   if(!(["PRO","BUSINESS","ENTERPRISE"] as string[]).includes(tier))throw AppError.badRequest("The configured vendor reward plan is invalid","INVALID_VENDOR_REWARD_PLAN");
-  const id=randomBytes(16).toString("hex");
-  await prisma.$executeRawUnsafe(`INSERT INTO affiliate_vendor_rewards(id,affiliate_id,referred_user_id,status,reward_tier,reward_months) VALUES($1,$2,$3,'CLAIMED',$4,$5)`,id,affiliate.id,userId,tier,months);
+  const existing=await prisma.$queryRawUnsafe<Array<{id:string;status:string;affiliate_id:string}>>(`SELECT id,status,affiliate_id FROM affiliate_vendor_rewards WHERE referred_user_id=$1 LIMIT 1`,userId);
+  if(existing[0]&&existing[0].status!=="DECLINED")return{claimed:false,alreadyClaimed:true,status:existing[0].status};
+  const id=existing[0]?.id??randomBytes(16).toString("hex");
+  if(existing[0])await prisma.$executeRawUnsafe(`UPDATE affiliate_vendor_rewards SET affiliate_id=$1,status='CLAIMED',reward_tier=$2,reward_months=$3,claimed_at=NOW(),declined_at=NULL,redeemed_at=NULL,expires_at=NULL,updated_at=NOW() WHERE id=$4`,affiliate.id,tier,months,id);
+  else await prisma.$executeRawUnsafe(`INSERT INTO affiliate_vendor_rewards(id,affiliate_id,referred_user_id,status,reward_tier,reward_months) VALUES($1,$2,$3,'CLAIMED',$4,$5)`,id,affiliate.id,userId,tier,months);
   return{claimed:true,alreadyClaimed:false,status:"CLAIMED",reward:{id,tier,months},affiliate:{displayName:affiliate.display_name||"TTFL Affiliate"}};
 }
 
 export async function declineVendorReward(userId:string,code:string,sessionId:string){
-  await ensureAffiliateTables();const invite=await getVendorInvite(code,sessionId,userId);if(!invite.show)return{declined:false};const rows=await prisma.$queryRawUnsafe<Array<{id:string}>>(`SELECT a.id FROM affiliates a WHERE a.vendor_code=$1 LIMIT 1`,code.trim().toUpperCase());if(!rows[0])return{declined:false};await prisma.$executeRawUnsafe(`UPDATE affiliate_vendor_rewards SET status='DECLINED',declined_at=NOW(),updated_at=NOW() WHERE referred_user_id=$1 AND affiliate_id=$2 AND status='DECLINED'`,userId,rows[0].id);return{declined:true};
+  await ensureAffiliateTables();const program=await getProgram();if(!program.enabled||!program.vendorReferralsEnabled||!program.vendorRewardEnabled)return{declined:false};
+  const rows=await prisma.$queryRawUnsafe<Array<{id:string;user_id:string}>>(`SELECT id,user_id FROM affiliates WHERE vendor_code=$1 AND status='ACTIVE' LIMIT 1`,code.trim().toUpperCase());const affiliate=rows[0];if(!affiliate||affiliate.user_id===userId)return{declined:false};
+  const click=await prisma.$queryRawUnsafe<Array<{id:string}>>(`SELECT id FROM affiliate_clicks WHERE affiliate_id=$1 AND session_id=$2 AND referral_type='VENDOR' AND created_at>=NOW()-INTERVAL '30 days' LIMIT 1`,affiliate.id,sessionId);if(!click[0])return{declined:false};
+  const months=Math.max(1,await getSettingNumber(SETTING_KEYS.AFFILIATE_VENDOR_REWARD_MONTHS));const tier=await getSetting(SETTING_KEYS.AFFILIATE_VENDOR_REWARD_TIER);
+  const existing=await prisma.$queryRawUnsafe<Array<{id:string;status:string}>>(`SELECT id,status FROM affiliate_vendor_rewards WHERE referred_user_id=$1 LIMIT 1`,userId);
+  if(existing[0]&&existing[0].status!=="DECLINED")return{declined:false};
+  if(existing[0])await prisma.$executeRawUnsafe(`UPDATE affiliate_vendor_rewards SET affiliate_id=$1,status='DECLINED',reward_tier=$2,reward_months=$3,declined_at=NOW(),updated_at=NOW() WHERE id=$4`,affiliate.id,tier,months,existing[0].id);
+  else await prisma.$executeRawUnsafe(`INSERT INTO affiliate_vendor_rewards(id,affiliate_id,referred_user_id,status,reward_tier,reward_months,declined_at) VALUES($1,$2,$3,'DECLINED',$4,$5,NOW())`,randomBytes(16).toString('hex'),affiliate.id,userId,tier,months);
+  return{declined:true};
 }
 
 export async function getMyVendorRewards(userId:string){
@@ -123,5 +142,13 @@ export async function redeemVendorReward(userId:string){
 }
 
 export async function resolveAttribution(code:string|undefined,customerId:string){if(!code)return null;await ensureAffiliateTables();const rows=await prisma.$queryRawUnsafe<Array<{id:string;user_id:string;commission_rate:string}>>(`SELECT id,user_id,commission_rate::text FROM affiliates WHERE code=$1 AND status='ACTIVE' LIMIT 1`,code.trim().toUpperCase());if(!rows[0]||rows[0].user_id===customerId)return null;return{id:rows[0].id,commissionRate:Number(rows[0].commission_rate)};}
+
+export async function resolveCheckoutAttribution(code:string|undefined,sessionId:string|undefined,customerId:string){
+  if(!code||!sessionId)return null;
+  const program=await getProgram();if(!program.enabled||!program.customerReferralsEnabled)return null;
+  const attribution=await resolveAttribution(code,customerId);if(!attribution)return null;
+  const click=await prisma.$queryRawUnsafe<Array<{id:string}>>(`SELECT id FROM affiliate_clicks WHERE affiliate_id=$1 AND session_id=$2 AND referral_type='CUSTOMER' AND created_at>=NOW()-INTERVAL '30 days' ORDER BY created_at DESC LIMIT 1`,attribution.id,sessionId);
+  return click[0]?attribution:null;
+}
 export async function attachOrder(orderId:string,affiliateId:string,commissionRate:number){await ensureAffiliateTables();await prisma.$executeRawUnsafe(`INSERT INTO affiliate_attributions(id,affiliate_id,order_id,commission_rate) VALUES($1,$2,$3,$4) ON CONFLICT(order_id) DO NOTHING`,randomBytes(16).toString("hex"),affiliateId,orderId,commissionRate);}
 export async function recordPaidOrder(tx:any,orderId:string,orderAmount:number){const attribution=await tx.$queryRawUnsafe(`SELECT affiliate_id,commission_rate::text FROM affiliate_attributions WHERE order_id=$1 LIMIT 1`) as AttributionRow[];if(!attribution[0])return;const rate=Number(attribution[0].commission_rate);const amount=Math.round(orderAmount*rate)/100;await tx.$queryRawUnsafe(`WITH inserted AS (INSERT INTO affiliate_commissions(id,affiliate_id,order_id,order_amount,amount,status) VALUES($1,$2,$3,$4,$5,'PENDING') ON CONFLICT(order_id) DO NOTHING RETURNING affiliate_id,amount) UPDATE affiliates a SET conversions=conversions+1,pending_earnings=pending_earnings+inserted.amount,updated_at=NOW() FROM inserted WHERE a.id=inserted.affiliate_id`,randomBytes(16).toString("hex"),attribution[0].affiliate_id,orderId,orderAmount,amount);}
