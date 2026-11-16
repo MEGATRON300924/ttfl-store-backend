@@ -3,7 +3,7 @@ import { verifyTransaction } from "@/lib/paystack";
 import { releaseForOrder, consumeForOrder } from "@/modules/flash-deals/flash-deals.service";
 import { recordPurchase, finalizeReservedPoints, releaseReservedPoints } from "@/modules/rewards/rewards.service";
 import { recordConversionEvent } from "@/modules/ads/ads.service";
-import { recordPaidOrder } from "@/modules/affiliates/affiliates.service";
+import { ensureAffiliateTables, recordPaidOrder } from "@/modules/affiliates/affiliates.service";
 import { sendEmail, orderConfirmationEmail, orderPaymentFailedEmail, vendorNewOrderEmail, adminNewOrderEmail } from "@/lib/email";
 import { sendWhatsAppNotification, newOrderWhatsAppMessage } from "@/lib/whatsapp-notifications";
 import { createNotification } from "@/modules/notifications/notifications.service";
@@ -49,6 +49,7 @@ export async function verifyAndFinalizePaymentSafely(reference: string) {
   const requestedAmountNaira = requestedAmountKobo / 100;
   if (Math.round(requestedAmountNaira * 100) !== Math.round(Number(initialOrder.totalAmount) * 100)) { await releaseReservedPoints(initialOrder.id); throw AppError.badRequest("Payment amount does not match order total", "AMOUNT_MISMATCH"); }
 
+  await ensureAffiliateTables();
   await prisma.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${reference}))`;
     const current = await tx.order.findUnique({ where: { id: initialOrder.id }, select: { paymentStatus: true } });
