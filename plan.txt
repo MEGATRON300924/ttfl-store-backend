@@ -232,3 +232,16 @@ Validation note:
 - Merge commit: `03084a89f9c91b77b79542e061063213c726983e`.
 - Backend CI on the merged branch head passed before merge.
 - [ ] Confirm Render deployment and run authenticated API/Paystack end-to-end verification.
+
+
+## Affiliate dashboard production database fix — 2026-11-16
+- [x] Traced the live affiliate registration/dashboard failure to the affiliate dashboard commission-history query.
+- [x] Confirmed Prisma's `Order.orderNumber` field has no `@map`, so PostgreSQL stores it as the quoted camelCase column `"orderNumber"`, not `order_number`.
+- [x] Updated the dashboard query to select `o."orderNumber" AS order_number`, preserving the response shape expected by the frontend.
+- [ ] Run backend CI (Prisma generation, typecheck, tests, production build).
+- [ ] Merge and confirm Render deployment.
+- [ ] Re-test affiliate join and dashboard with an authenticated account; verify commission history loads without SQL errors.
+
+### Fix branch
+- Branch: `fix/affiliate-dashboard-order-number-column`
+- This addresses the production PostgreSQL error `42703: column o.order_number does not exist` observed in Render logs on 2026-11-16.
