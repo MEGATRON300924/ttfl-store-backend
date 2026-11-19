@@ -36,7 +36,7 @@ function isPrivateAddress(address: string): boolean {
   return true;
 }
 
-async function validateSupplierUrl(raw: string): Promise<URL> {
+export async function validateSupplierUrl(raw: string): Promise<URL> {
   let url: URL;
   try { url = new URL(raw); } catch { throw AppError.badRequest("Enter a valid AliExpress product URL.", "INVALID_SUPPLIER_URL"); }
   if (url.protocol !== "https:" || url.username || url.password || !ALLOWED_HOSTS.has(url.hostname.toLowerCase())) {
@@ -84,7 +84,7 @@ function collectProductNodes(value: unknown, output: Record<string, unknown>[], 
   for (const nested of Object.values(item)) collectProductNodes(nested, output, depth + 1);
 }
 
-function extractMetadata(html: string, sourceUrl: URL): ProductMetadata {
+export function extractMetadata(html: string, sourceUrl: URL): ProductMetadata {
   const products: Record<string, unknown>[] = [];
   const scripts = html.matchAll(/<script[^>]+type=[\"']application\/ld\+json[\"'][^>]*>([\s\S]*?)<\/script>/gi);
   for (const match of scripts) {
