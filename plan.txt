@@ -320,3 +320,5 @@ Validation note:
 - [x] Add automated tests for unconfigured hours, open windows, closing-time rejection, overnight schedules and closed days.
 - [ ] Run backend Prisma generation, typecheck, tests and production build; deploy only after CI passes.
 - Branch: feat/foods-opening-hours-enforcement.
+
+- [x] CI run 668 found an over-escaped time parser regex: typecheck passed, but two opening-hours tests failed. Corrected the regex to parse HH:MM values; a fresh CI run is required.
