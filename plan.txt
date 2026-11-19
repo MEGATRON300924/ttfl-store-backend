@@ -287,3 +287,12 @@ Validation note:
 - [x] Added Jumia metadata/NGN extraction coverage and lookalike-domain rejection coverage.
 - [ ] Run backend Prisma generation, typecheck, tests and production build; inspect Render deploy and verify the live authenticated Jiji importer endpoint.
 - [ ] Do not claim Jiji/Jumia imports are live until the corrected backend deploy is verified.
+
+
+### Jiji/Jumia validation correction — 2026-11-19 status
+- [x] Root cause confirmed: merged supplier importer code still used the AliExpress-only `ALLOWED_HOSTS` validator and retained a literal escaped newline in the parser source, causing the backend main-branch TypeScript check to fail.
+- [x] Replaced the stale validator with `supplierForHost`, corrected the parser source newline, and added the Jumia Nigeria host/CDN adapter.
+- [x] Added Jumia metadata/currency/image and lookalike-host tests.
+- [x] Backend PR #9: https://github.com/MEGATRON300924/ttfl-store-backend/pull/9
+- [x] Backend CI run `44499343375` passed Prisma generation, typecheck, tests and production build on head `30308eb36d56ff8666ef6d3dd9de3a3e2fd5d08e`.
+- [ ] PR merge, Render deployment and authenticated live Jiji/Jumia test remain pending.
