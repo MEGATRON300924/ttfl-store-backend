@@ -107,7 +107,8 @@ function collectProductNodes(value: unknown, output: Record<string, unknown>[], 
   for (const nested of Object.values(item)) collectProductNodes(nested, output, depth + 1);
 }
 
-export function extractMetadata(html: string, sourceUrl: URL): ProductMetadata {\n  const supplier = supplierForHost(sourceUrl.hostname) ?? "AliExpress";
+export function extractMetadata(html: string, sourceUrl: URL): ProductMetadata {
+  const supplier = supplierForHost(sourceUrl.hostname) ?? "AliExpress";
   const products: Record<string, unknown>[] = [];
   const scripts = html.matchAll(/<script[^>]+type=[\"']application\/ld\+json[\"'][^>]*>([\s\S]*?)<\/script>/gi);
   for (const match of scripts) {
