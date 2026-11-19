@@ -376,3 +376,15 @@ Validation note:
 - Branch: `feat/foods-store-onboarding`.
 - Consolidated implementation commit: `9289dda6ed6d5ee05adc832f7eb246cca6598f6d`.
 - Status: source changes prepared; CI, deployment and authenticated runtime tests pending.
+
+
+## Customer delivery coordinates — 2026-11-19
+- [x] Add optional latitude/longitude to the checkout delivery schema with range and coordinate-pair validation.
+- [x] Persist customer-selected delivery coordinates on the existing order record; coordinates are scoped to that order and are not exposed as public customer profile data.
+- [x] Add a runtime-safe database compatibility script and register it in the existing prestart schema checks.
+- [ ] Run Prisma generation, typecheck, tests and production build after this follow-up.
+- [ ] Verify order coordinates are returned only through authorized customer/vendor order reads; add rider-scoped tracking access in the live GPS phase.
+- Customer coordinate source: optional customer map pin or browser GPS. Address text and existing delivery-area validation remain required; GPS does not bypass restaurant delivery coverage.
+- Branch: `feat/foods-store-onboarding`.
+- Previous restaurant-coordinate commit: `dfb838f2943087164c45a8b5d2e28af147dce4a0`.
+- Status: source prepared; CI and runtime DB migration pending.

@@ -13,6 +13,7 @@ const checks = [
   "ensure-europe-market-schema.cjs",
   "ensure-digital-postcode-schema.cjs",
   "ensure-delivery-pricing-schema.cjs",
+  "ensure-foods-location-schema.cjs",
   "ensure-product-delivery-fee-schema.cjs",
   "ensure-store-reports-schema.cjs",
   "ensure-review-category-schema.cjs",
