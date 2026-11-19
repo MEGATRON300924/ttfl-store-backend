@@ -146,3 +146,85 @@ export async function updateCheckpoint(userId: string, vendorOrderId: string, ch
 
   return { order: updated, event };
 }
+
+export async function listAdminTtflDeliveries() {
+  const deliveries = await prisma.vendorOrder.findMany({
+    where: {
+      deliveryMethod: "TTFL",
+      status: { in: ["PROCESSING", "SHIPPED", "OUT_FOR_DELIVERY"] },
+      order: { paymentStatus: "PAID" },
+    },
+    include: {
+      order: { select: { orderNumber: true, paymentStatus: true, deliveryName: true, deliveryPhone: true, deliveryLine1: true, deliveryLine2: true, deliveryCity: true, deliveryState: true, deliveryPostcode: true, createdAt: true, customer: { select: { firstName: true, lastName: true, email: true } } } },
+      vendor: { select: { id: true, storeName: true, storeSlug: true } },
+      items: { select: { productName: true, quantity: true } },
+      trackingEvents: { where: { checkpoint: 5 }, take: 1 },
+    },
+    orderBy: { createdAt: "asc" },
+    take: 100,
+  });
+  return deliveries.map((delivery) => ({
+    id: delivery.id,
+    orderNumber: delivery.order.orderNumber,
+    status: delivery.status,
+    createdAt: delivery.order.createdAt,
+    customer: {
+      name: delivery.order.deliveryName,
+      phone: delivery.order.deliveryPhone,
+      email: delivery.order.customer.email,
+    },
+    address: [delivery.order.deliveryLine1, delivery.order.deliveryLine2, delivery.order.deliveryCity, delivery.order.deliveryState, delivery.order.deliveryPostcode].filter(Boolean).join(", "),
+    vendor: delivery.vendor,
+    items: delivery.items,
+    rider: delivery.trackingEvents[0] ? {
+      name: delivery.trackingEvents[0].riderName,
+      phone: delivery.trackingEvents[0].riderPhone,
+      trackingUrl: delivery.trackingEvents[0].trackingUrl,
+    } : null,
+  }));
+}
+
+export async function assignTtflDriver(
+  vendorOrderId: string,
+  input: { riderName: string; riderPhone: string; trackingUrl?: string; description?: string },
+) {
+  const vendorOrder = await prisma.vendorOrder.findUnique({
+    where: { id: vendorOrderId },
+    include: {
+      order: { include: { customer: { select: { id: true, email: true, firstName: true } } } },
+      vendor: { select: { storeName: true, storeSlug: true } },
+      trackingEvents: true,
+    },
+  });
+  if (!vendorOrder) throw AppError.notFound("Delivery order not found", "DELIVERY_ORDER_NOT_FOUND");
+  if (vendorOrder.deliveryMethod !== "TTFL") throw AppError.badRequest("This order is not assigned to TTFL delivery", "NOT_TTFL_DELIVERY");
+  if (vendorOrder.order.paymentStatus !== "PAID") throw AppError.badRequest("Only paid orders can be dispatched", "ORDER_NOT_PAID");
+  if (["CANCELLED", "DELIVERED", "REFUNDED"].includes(vendorOrder.status)) throw AppError.badRequest("This order can no longer be dispatched", "DELIVERY_LOCKED");
+
+  const definition = CHECKPOINTS[4];
+  const description = input.description?.trim() || "A TTFL delivery rider has been assigned to your order.";
+  const existingEvent = vendorOrder.trackingEvents.find((event) => event.checkpoint === 5);
+  const event = await prisma.trackingEvent.upsert({
+    where: { vendorOrderId_checkpoint: { vendorOrderId, checkpoint: 5 } },
+    create: { vendorOrderId, checkpoint: 5, title: definition.title, description, avatar: "motorcycle", trackingUrl: input.trackingUrl?.trim() || null, riderName: input.riderName.trim(), riderPhone: input.riderPhone.trim() },
+    update: { description, avatar: "motorcycle", trackingUrl: input.trackingUrl?.trim() || null, riderName: input.riderName.trim(), riderPhone: input.riderPhone.trim() },
+  });
+  const updated = await prisma.vendorOrder.update({
+    where: { id: vendorOrderId },
+    data: { status: "OUT_FOR_DELIVERY" },
+  });
+  if (!existingEvent) {
+    void sendEmail({
+      to: vendorOrder.order.customer.email,
+      ...orderTrackingCheckpointEmail(vendorOrder.order.orderNumber, 5, description),
+    }).catch((error) => logger.warn("Failed to send TTFL rider assignment email", { vendorOrderId, error }));
+  }
+  void createNotification(vendorOrder.order.customer.id, {
+    title: "TTFL rider assigned",
+    body: description,
+    type: "ORDER",
+    url: "/orders/" + encodeURIComponent(vendorOrder.order.orderNumber),
+    data: { type: "order.ttfl_rider_assigned", orderNumber: vendorOrder.order.orderNumber, riderName: input.riderName.trim() },
+  }).catch((error) => logger.warn("Failed to create TTFL rider assignment notification", { vendorOrderId, error }));
+  return { vendorOrder: updated, event, message: "TTFL delivery rider assigned." };
+}
