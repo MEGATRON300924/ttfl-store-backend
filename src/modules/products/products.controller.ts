@@ -6,8 +6,10 @@ import { createProductSchema, updateProductSchema, productSearchSchema, referral
 import { subscribe as subscribeAvailability } from "./product-availability.service";
 import { replaceProductVideos } from "./product-media.service";
 import { z } from "zod";
+import { importSupplierProduct } from "./supplier-import.service";
 
 function requestMeta(req: Request) { const userAgent = req.headers["user-agent"]; return { userAgent, ipAddress: req.ip, deviceType: detectDeviceType(userAgent) }; }
+export const importUrl = async (req: Request, res: Response) => { const input = z.object({ url: z.string().url().max(2048) }).parse(req.body ?? {}); res.json(await importSupplierProduct(input.url)); };
 export const search = asyncHandler(async (req: Request, res: Response) => { const params = productSearchSchema.parse(req.query); res.json(await productsService.searchProducts(params)); });
 export const getBySlug = asyncHandler(async (req: Request, res: Response) => { const market = req.query.market === "EU" ? "EU" : req.query.market === "US" ? "US" : "NG"; const product = await productsService.getProductBySlug(req.params.slug, market); res.json({ product }); });
 export const create = asyncHandler(async (req: Request, res: Response) => { const product = await productsService.createProduct(req.user!.sub, createProductSchema.parse(req.body)); res.status(201).json({ product }); });
