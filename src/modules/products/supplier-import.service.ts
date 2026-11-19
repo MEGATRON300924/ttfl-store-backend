@@ -107,6 +107,100 @@ function collectProductNodes(value: unknown, output: Record<string, unknown>[], 
   for (const nested of Object.values(item)) collectProductNodes(nested, output, depth + 1);
 }
 
+
+type AliExpressEmbeddedData = {
+  name: string | null;
+  description: string | null;
+  images: string[];
+  price: number | null;
+  currency: string | null;
+};
+
+function extractJsonObjectAfter(source: string, start: number): unknown | null {
+  const open = source.indexOf("{", start);
+  if (open < 0) return null;
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let index = open; index < source.length; index += 1) {
+    const char = source[index];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') quoted = false;
+      continue;
+    }
+    if (char === '"') quoted = true;
+    else if (char === "{") depth += 1;
+    else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        try { return JSON.parse(source.slice(open, index + 1)); } catch { return null; }
+      }
+    }
+  }
+  return null;
+}
+
+function extractAliExpressEmbeddedData(html: string): AliExpressEmbeddedData {
+  const roots: unknown[] = [];
+  for (const match of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) {
+    const script = match[1];
+    if (script.length > 1_000_000) continue;
+    const trimmed = script.trim();
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      try { roots.push(JSON.parse(trimmed)); } catch { /* Script is not standalone JSON. */ }
+    }
+    const assignment = /(?:window\.)?runParams\s*=\s*/g;
+    let found: RegExpExecArray | null;
+    while ((found = assignment.exec(script)) !== null) {
+      const parsed = extractJsonObjectAfter(script, found.index + found[0].length);
+      if (parsed) roots.push(parsed);
+    }
+  }
+
+  const modules: Record<string, Record<string, unknown>> = {};
+  const seen = new Set<object>();
+  let visited = 0;
+  const walk = (value: unknown, depth = 0): void => {
+    if (!value || typeof value !== "object" || depth > 14 || visited > 30000 || seen.has(value as object)) return;
+    seen.add(value as object);
+    visited += 1;
+    if (Array.isArray(value)) {
+      for (const child of value) walk(child, depth + 1);
+      return;
+    }
+    const object = value as Record<string, unknown>;
+    for (const key of ["titleModule", "imageModule", "priceModule", "descriptionModule"]) {
+      const candidate = object[key];
+      if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+        modules[key] = candidate as Record<string, unknown>;
+      }
+    }
+    for (const child of Object.values(object)) walk(child, depth + 1);
+  };
+  for (const root of roots) walk(root);
+
+  const title = modules.titleModule?.subject ?? modules.titleModule?.title;
+  const description = modules.descriptionModule?.description ?? modules.descriptionModule?.productDescription;
+  const imageModule = modules.imageModule ?? {};
+  const rawImages = imageModule.imagePathList ?? imageModule.imageUrlList ?? imageModule.images;
+  const images = Array.isArray(rawImages) ? rawImages.filter((item): item is string => typeof item === "string") : [];
+  const priceModule = modules.priceModule ?? {};
+  const amountObject = priceModule.minAmount && typeof priceModule.minAmount === "object"
+    ? priceModule.minAmount as Record<string, unknown> : {};
+  const rawPrice = amountObject.value ?? priceModule.minPrice ?? priceModule.maxPrice;
+  const price = Number(typeof rawPrice === "string" ? rawPrice.replace(/,/g, "") : rawPrice);
+  const currency = amountObject.currency ?? priceModule.currencyCode ?? priceModule.currency;
+  return {
+    name: plainText(title, 160),
+    description: plainText(description, 5000),
+    images,
+    price: Number.isFinite(price) && price > 0 ? price : null,
+    currency: typeof currency === "string" ? currency.toUpperCase().slice(0, 3) : null,
+  };
+}
+
 export function extractMetadata(html: string, sourceUrl: URL): ProductMetadata {
   const supplier = supplierForHost(sourceUrl.hostname) ?? "AliExpress";
   const products: Record<string, unknown>[] = [];
@@ -115,12 +209,13 @@ export function extractMetadata(html: string, sourceUrl: URL): ProductMetadata {
     try { collectProductNodes(JSON.parse(decodeHtml(match[1])), products); } catch { /* Ignore malformed third-party JSON-LD. */ }
   }
   const product = products[0];
+  const embedded = supplier === "AliExpress" ? extractAliExpressEmbeddedData(html) : null;
   const offerValue = product?.offers;
   const offer = Array.isArray(offerValue) ? offerValue[0] : offerValue;
   const offerObject = offer && typeof offer === "object" ? offer as Record<string, unknown> : {};
-  const priceValue = Number(offerObject.price ?? offerObject.lowPrice ?? metaContent(html, "product:price:amount"));
-  const currencyValue = offerObject.priceCurrency ?? metaContent(html, "product:price:currency");
-  const rawImages = product?.image ?? metaContent(html, "og:image");
+  const priceValue = Number(offerObject.price ?? offerObject.lowPrice ?? metaContent(html, "product:price:amount") ?? embedded?.price);
+  const currencyValue = offerObject.priceCurrency ?? metaContent(html, "product:price:currency") ?? embedded?.currency;
+  const rawImages = product?.image ?? metaContent(html, "og:image") ?? embedded?.images;
   const imageValues = Array.isArray(rawImages) ? rawImages : rawImages ? [rawImages] : [];
   const images = Array.from(new Set(imageValues.flatMap((item) => {
     const candidate = typeof item === "string" ? item : item && typeof item === "object" ? (item as Record<string, unknown>).url : null;
@@ -133,8 +228,8 @@ export function extractMetadata(html: string, sourceUrl: URL): ProductMetadata {
     } catch { return []; }
   }))).slice(0, 8);
   return {
-    name: plainText(product?.name) ?? plainText(metaContent(html, "og:title")) ?? plainText(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1], 160),
-    description: plainText(product?.description) ?? plainText(metaContent(html, "og:description"), 5000) ?? plainText(metaContent(html, "description"), 5000),
+    name: plainText(product?.name) ?? plainText(metaContent(html, "og:title")) ?? embedded?.name ?? plainText(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1], 160),
+    description: plainText(product?.description) ?? plainText(metaContent(html, "og:description"), 5000) ?? plainText(metaContent(html, "description"), 5000) ?? embedded?.description,
     images,
     supplierPrice: Number.isFinite(priceValue) && priceValue > 0 ? priceValue : null,
     supplierCurrency: typeof currencyValue === "string" ? currencyValue.toUpperCase().slice(0, 3) : (supplier === "Jiji" && Number.isFinite(priceValue) && priceValue > 0 ? "NGN" : null),
