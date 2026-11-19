@@ -309,3 +309,5 @@ Validation note:
 
 - PR #10: https://github.com/MEGATRON300924/ttfl-store-backend/pull/10 (open; not merged).
 - CI run `44500904253` was queued and entered validation for head `a1546617e2fd8b2c38e8bca580b810013c9de482`; final result pending at this update.
+
+- CI run `44500904253` found a strict TypeScript nullability error in the optional embedded description fallback; fixed with an explicit null fallback. Test/build stages were skipped until typecheck passes.
