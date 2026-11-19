@@ -15,7 +15,7 @@ import { logger } from "@/lib/logger";
 import { createNotification } from "@/modules/notifications/notifications.service";
 import { getSettingNumber } from "@/modules/settings/settings.service";
 import { resolveCheckoutUnitPrice } from "./variant-pricing";
-import { getHours } from "@/modules/store-hours/store-hours.service";
+import { getHours, hasConfiguredHours } from "@/modules/store-hours/store-hours.service";
 import { isWithinConfiguredHours } from "@/modules/foods/foods-hours";
 import type { CheckoutInput } from "./orders.validators";
 import type { Prisma, OrderStatus, Product } from "@prisma/client";
@@ -49,8 +49,8 @@ export async function checkout(customerId: string, customerEmail: string, input:
       if (!profile[0] || !profile[0].isPublished || !profile[0].acceptsOrders) {
         throw AppError.badRequest("A restaurant in your cart is not currently accepting orders.", "RESTAURANT_NOT_ACCEPTING_ORDERS");
       }
-      const businessHours = await getHours(vendorId);
-      if (!isWithinConfiguredHours(businessHours)) {
+      const [businessHours, hoursConfigured] = await Promise.all([getHours(vendorId), hasConfiguredHours(vendorId)]);
+      if (!isWithinConfiguredHours(businessHours, new Date(), hoursConfigured)) {
         throw AppError.badRequest("This restaurant is currently outside its opening hours.", "RESTAURANT_CLOSED");
       }
       if (foodDeliveryMethod === "RESTAURANT" && !profile[0].restaurantRiders) {
