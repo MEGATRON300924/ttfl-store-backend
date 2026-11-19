@@ -336,3 +336,6 @@ Validation note:
 - [ ] Run backend CI and validate the queue/assignment API with an admin account.
 - [ ] Add the Foods admin dispatch screen and verify a complete dispatch from the UI.
 - [ ] This is manual dispatch; automatic rider matching, rider accounts and live GPS are not part of this patch.
+
+- [x] Backend CI run 44505828460 passed Prisma generation, TypeScript typecheck, tests and production build for the rider-assignment implementation.
+- [ ] Merge and deploy the manual TTFL rider-assignment API; then validate with an admin account.
