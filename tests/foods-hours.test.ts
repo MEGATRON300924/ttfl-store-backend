@@ -12,7 +12,11 @@ const week = (overrides: Record<number, { isOpen: boolean; openTime: string | nu
 
 describe("Foods opening hours", () => {
   it("keeps existing restaurants orderable when no hours are configured", () => {
-    assert.equal(isWithinConfiguredHours(week({}), new Date("2026-11-19T10:00:00Z")), true);
+    assert.equal(isWithinConfiguredHours(week({}), new Date("2026-11-19T10:00:00Z"), false), true);
+  });
+
+  it("rejects orders when a configured schedule has every day closed", () => {
+    assert.equal(isWithinConfiguredHours(week({}), new Date("2026-11-19T10:00:00Z"), true), false);
   });
 
   it("allows orders inside Africa/Lagos opening hours", () => {
