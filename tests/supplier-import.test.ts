@@ -22,6 +22,14 @@ test("supplier metadata parser extracts product JSON-LD and safe image URLs", ()
   assert.deepEqual(result.images, ["https://ae01.alicdn.com/kf/item.jpg"]);
 });
 
+test("AliExpress parser extracts runParams product modules and CDN images", () => {
+  const html = '<script>window.runParams = {"data":{"titleModule":{"subject":"Portable 4K Projector"},"imageModule":{"imagePathList":["https://ae01.alicdn.com/kf/projector-main.jpg","//ae01.alicdn.com/kf/projector-side.jpg"]},"priceModule":{"minAmount":{"value":"24310.00","currency":"NGN"}}}};</script>';
+  const result = extractMetadata(html, new URL("https://www.aliexpress.com/item/1005013021251988.html"));
+  assert.equal(result.name, "Portable 4K Projector");
+  assert.equal(result.supplierPrice, 24310);
+  assert.equal(result.supplierCurrency, "NGN");
+  assert.deepEqual(result.images, ["https://ae01.alicdn.com/kf/projector-main.jpg", "https://ae01.alicdn.com/kf/projector-side.jpg"]);
+});
 test("supplier metadata parser falls back to Open Graph fields", () => {
   const html = `<meta property="og:title" content="Portable Speaker"><meta property="og:description" content="Compact Bluetooth speaker"><meta property="og:image" content="https://www.aliexpress.com/images/speaker.jpg">`;
   const result = extractMetadata(html, new URL("https://www.aliexpress.com/item/123.html"));
