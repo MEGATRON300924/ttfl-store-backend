@@ -296,3 +296,13 @@ Validation note:
 - [x] Backend PR #9: https://github.com/MEGATRON300924/ttfl-store-backend/pull/9
 - [x] Backend CI run `44499343375` passed Prisma generation, typecheck, tests and production build on head `30308eb36d56ff8666ef6d3dd9de3a3e2fd5d08e`.
 - [ ] PR merge, Render deployment and authenticated live Jiji/Jumia test remain pending.
+
+
+## AliExpress embedded product data extraction — 2026-11-19
+- [x] Confirmed the reported NO_PRODUCT_METADATA error occurs after the supplier URL is accepted and the page fetch returns HTML; the existing parser only handled JSON-LD and Open Graph metadata.
+- [x] Added a bounded parser for AliExpress window.runParams and standalone embedded JSON script payloads, extracting title, description, image paths, and price/currency modules when present.
+- [x] Kept image URL validation restricted to HTTPS and the existing AliExpress/CDN allowlist; protocol-relative CDN image URLs are normalized against the product URL.
+- [x] Added a regression fixture matching AliExpress runParams module structure.
+- [ ] Run Prisma generation, typecheck, tests and production build; review parser tests and merge only after checks pass.
+- [ ] Deploy the backend and test the reported product URL through the authenticated live importer. AliExpress may still serve anti-bot/challenge HTML; do not claim extraction works until the live test confirms it.
+- Branch: fix/aliexpress-embedded-product-data.
