@@ -3,9 +3,9 @@ import test from "node:test";
 import { extractMetadata, validateSupplierUrl } from "../src/modules/products/supplier-import.service";
 
 test("supplier URL validation only accepts HTTPS supported-store hosts", async () => {
-  await assert.rejects(() => validateSupplierUrl("http://www.aliexpress.com/item/123.html"), /HTTPS supported-store/);
-  await assert.rejects(() => validateSupplierUrl("https://example.com/product"), /HTTPS supported-store/);
-  await assert.rejects(() => validateSupplierUrl("https://127.0.0.1/product"), /HTTPS supported-store/);
+  await assert.rejects(() => validateSupplierUrl("http://www.aliexpress.com/item/123.html"), /Supported stores/);
+  await assert.rejects(() => validateSupplierUrl("https://example.com/product"), /Supported stores/);
+  await assert.rejects(() => validateSupplierUrl("https://127.0.0.1/product"), /Supported stores/);
 });
 
 test("supplier metadata parser extracts product JSON-LD and safe image URLs", () => {
