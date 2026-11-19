@@ -347,3 +347,6 @@ Validation note:
 - [x] Add explicit Paystack verification-state classification (pending, success, fail-closed unknown) with automated unit tests.
 - [ ] Run backend CI for Paystack status tests.
 - [ ] Full Paystack gateway end-to-end test still requires an explicitly configured test-mode key and a safe test transaction; never run a live charge as a test.
+
+- [x] Paystack status classifier CI run 44506263699 passed Prisma generation, TypeScript typecheck, tests and production build.
+- [ ] Merge and deploy the classifier tests; full gateway E2E remains pending a safe Paystack test-mode transaction.
