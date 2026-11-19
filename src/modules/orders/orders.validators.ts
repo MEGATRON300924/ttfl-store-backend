@@ -26,6 +26,12 @@ export const checkoutSchema = z.object({
     area: z.string().trim().min(2).max(120).optional(),
     digitalPostcode: z.string().trim().min(3).max(32).optional(),
     country: z.string().min(2).max(80).default("Nigeria"),
+    latitude: z.number().min(-90).max(90).optional(),
+    longitude: z.number().min(-180).max(180).optional(),
+  }).superRefine((data, ctx) => {
+    if ((data.latitude === undefined) !== (data.longitude === undefined)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Delivery latitude and longitude must be supplied together.", path: ["latitude"] });
+    }
   }),
 });
 
