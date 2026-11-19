@@ -353,3 +353,13 @@ Validation note:
 
 - [x] Final Paystack classifier CI run 44506510171 passed Prisma generation, typecheck, tests and production build.
 - [ ] Merge and deploy Paystack status handling; do not run live charges.
+
+
+## TTFL Foods separate restaurant identity — 2026-11-19
+- [x] Extend the existing Foods restaurant profile with its own restaurant name, URL slug and address while retaining the shared TTFL vendor account, approval status, products, checkout, Paystack and subscription source of truth.
+- [x] Backfill legacy Foods profiles from the linked main Store vendor name, slug, address and WhatsApp contact when the profile is first read.
+- [x] Add unique restaurant-slug handling and allow up to 40 cuisine tags for the full cuisine selector.
+- [ ] Add regression coverage for slug uniqueness, legacy profile backfill, public directory/detail/menu lookups and vendor ownership.
+- [x] Ensure restaurant detail responses return the restaurant-specific name, slug and address, not the linked main Store values.
+- [ ] Run backend CI (Prisma generation, typecheck, tests, production build), then deploy once after the coordinated frontend PRs are ready.
+- [ ] Rider accounts/live GPS, vendor-customer chat and external delivery-partner adapters remain separate planned work; do not represent them as implemented.
