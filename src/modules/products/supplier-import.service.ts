@@ -2,7 +2,27 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { AppError } from "@/utils/app-error";
 
-const ALLOWED_HOSTS = new Set(["aliexpress.com", "www.aliexpress.com", "m.aliexpress.com"]);
+type Supplier = "AliExpress" | "Jiji" | "SHEIN";
+const EXACT_HOSTS: Record<Supplier, Set<string>> = {
+  AliExpress: new Set(["aliexpress.com", "www.aliexpress.com", "m.aliexpress.com"]),
+  Jiji: new Set(["jiji.ng", "www.jiji.ng", "m.jiji.ng"]),
+  SHEIN: new Set(["shein.com"]),
+};
+function supplierForHost(hostname: string): Supplier | null {
+  const host = hostname.toLowerCase().replace(/\.$/, "");
+  if (EXACT_HOSTS.AliExpress.has(host)) return "AliExpress";
+  if (EXACT_HOSTS.Jiji.has(host)) return "Jiji";
+  if (host === "shein.com" || host.endsWith(".shein.com")) return "SHEIN";
+  return null;
+}
+function isAllowedImageHost(hostname: string, supplier: Supplier, pageHost: string): boolean {
+  const host = hostname.toLowerCase();
+  const suffix = supplier === "Jiji" ? ".jiji.ng" : supplier === "SHEIN" ? ".shein.com" : ".aliexpress.com";
+  if (host === pageHost || host.endsWith(suffix)) return true;
+  if (supplier === "AliExpress") return host === "alicdn.com" || host.endsWith(".alicdn.com") || host === "aliexpress-media.com" || host.endsWith(".aliexpress-media.com");
+  if (supplier === "SHEIN") return host === "ltwebstatic.com" || host.endsWith(".ltwebstatic.com");
+  return false;
+}
 const MAX_HTML_BYTES = 2_000_000;
 const FETCH_TIMEOUT_MS = 12_000;
 const FX_CACHE_MS = 15 * 60 * 1000;
@@ -84,7 +104,7 @@ function collectProductNodes(value: unknown, output: Record<string, unknown>[], 
   for (const nested of Object.values(item)) collectProductNodes(nested, output, depth + 1);
 }
 
-export function extractMetadata(html: string, sourceUrl: URL): ProductMetadata {
+export function extractMetadata(html: string, sourceUrl: URL): ProductMetadata {\n  const supplier = supplierForHost(sourceUrl.hostname) ?? "AliExpress";
   const products: Record<string, unknown>[] = [];
   const scripts = html.matchAll(/<script[^>]+type=[\"']application\/ld\+json[\"'][^>]*>([\s\S]*?)<\/script>/gi);
   for (const match of scripts) {
@@ -104,7 +124,7 @@ export function extractMetadata(html: string, sourceUrl: URL): ProductMetadata {
     try {
       const imageUrl = new URL(candidate, sourceUrl);
       const host = imageUrl.hostname.toLowerCase();
-      if (imageUrl.protocol !== "https:" || !(host === sourceUrl.hostname || host.endsWith(".alicdn.com") || host === "alicdn.com" || host.endsWith(".aliexpress-media.com") || host === "aliexpress-media.com")) return [];
+      if (imageUrl.protocol !== "https:" || !isAllowedImageHost(host, supplier, sourceUrl.hostname.toLowerCase())) return [];
       return [imageUrl.toString()];
     } catch { return []; }
   }))).slice(0, 8);
@@ -113,7 +133,7 @@ export function extractMetadata(html: string, sourceUrl: URL): ProductMetadata {
     description: plainText(product?.description) ?? plainText(metaContent(html, "og:description"), 5000) ?? plainText(metaContent(html, "description"), 5000),
     images,
     supplierPrice: Number.isFinite(priceValue) && priceValue > 0 ? priceValue : null,
-    supplierCurrency: typeof currencyValue === "string" ? currencyValue.toUpperCase().slice(0, 3) : null,
+    supplierCurrency: typeof currencyValue === "string" ? currencyValue.toUpperCase().slice(0, 3) : (supplier === "Jiji" && Number.isFinite(priceValue) && priceValue > 0 ? "NGN" : null),
   };
 }
 
@@ -133,7 +153,7 @@ async function fetchSupplierHtml(initialUrl: URL): Promise<{ html: string; final
         current = await validateSupplierUrl(new URL(location, current).toString());
         continue;
       }
-      if (!response.ok) throw AppError.badRequest("AliExpress did not return a product page. The listing may be unavailable or protected.", "SUPPLIER_PAGE_UNAVAILABLE");
+      if (!response.ok) throw AppError.badRequest("The supplier did not return a product page. The listing may be unavailable or protected.", "SUPPLIER_PAGE_UNAVAILABLE");
       const contentType = response.headers.get("content-type") ?? "";
       if (!contentType.toLowerCase().includes("text/html")) throw AppError.badRequest("The supplied URL did not return an HTML product page.", "SUPPLIER_NOT_HTML");
       const declaredLength = Number(response.headers.get("content-length") ?? 0);
@@ -155,7 +175,7 @@ async function fetchSupplierHtml(initialUrl: URL): Promise<{ html: string; final
       return { html: new TextDecoder().decode(bytes), finalUrl: current };
     } catch (error) {
       if (error instanceof AppError) throw error;
-      throw AppError.badRequest("AliExpress could not be reached or timed out. Try again or enter the product details manually.", "SUPPLIER_FETCH_FAILED");
+      throw AppError.badRequest("The supplier store could not be reached or timed out. Try again or enter the product details manually.", "SUPPLIER_FETCH_FAILED");
     } finally {
       clearTimeout(timeout);
     }
@@ -181,7 +201,7 @@ export async function importSupplierProduct(rawUrl: string) {
   const { html, finalUrl } = await fetchSupplierHtml(url);
   const metadata = extractMetadata(html, finalUrl);
   if (!metadata.name && !metadata.description && metadata.images.length === 0) {
-    throw AppError.badRequest("We couldn't extract product details from this page. AliExpress may be blocking automated access; please enter the details manually.", "NO_PRODUCT_METADATA");
+    throw AppError.badRequest("We couldn't extract product details from this page. The store may be blocking automated access; please enter the details manually.", "NO_PRODUCT_METADATA");
   }
   let price: { usd: number | null; ngn: number | null; ngnPerUsd: number | null; source: string; timestamp: string | null } = {
     usd: null, ngn: null, ngnPerUsd: null, source: "open.er-api.com", timestamp: null,
@@ -203,7 +223,7 @@ export async function importSupplierProduct(rawUrl: string) {
   }
   return {
     sourceUrl: finalUrl.toString(),
-    supplier: "AliExpress",
+    supplier: supplierForHost(finalUrl.hostname) ?? "Unknown",
     extracted: { name: metadata.name, description: metadata.description, images: metadata.images },
     supplierPrice: metadata.supplierPrice === null ? null : { amount: metadata.supplierPrice, currency: metadata.supplierCurrency },
     conversion: price,

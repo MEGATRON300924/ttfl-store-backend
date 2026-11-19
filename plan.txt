@@ -268,3 +268,13 @@ Validation note:
 - [x] Automated suite passed all 6 tests, including the new AliExpress URL allowlist and metadata extraction cases.
 - [x] Prisma generation and TypeScript production build passed.
 - [ ] Render deployment and authenticated production endpoint test remain pending; PR #7 is open and not merged.
+
+
+### Multi-store supplier support — 2026-11-19
+- [x] Expanded the supplier host registry to support AliExpress, Jiji Nigeria (`jiji.ng`) and SHEIN regional subdomains (`*.shein.com`).
+- [x] Retained HTTPS-only URL validation, DNS private-address rejection, redirect revalidation, timeouts and response-size limits for every supported supplier.
+- [x] Added Jiji NGN fallback only when Jiji supplies a price but omits currency metadata; SHEIN currency is never guessed.
+- [x] Added supplier-specific image host validation for Jiji and SHEIN CDN assets.
+- [x] Added automated parser coverage for Jiji and SHEIN plus lookalike-domain rejection.
+- [ ] Re-run backend CI on latest commit and review parser behavior against live public examples without bypassing access controls.
+- [ ] Add other stores only through explicit host adapters and tests; do not open arbitrary URL fetching.
