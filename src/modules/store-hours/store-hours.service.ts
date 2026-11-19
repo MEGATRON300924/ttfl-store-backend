@@ -24,6 +24,11 @@ function normalize(rows:any[]):StoreHour[]{
   const map=new Map(rows.map(r=>[Number(r.dayOfWeek),r]));
   return DAYS.map((day,dayOfWeek)=>{const r=map.get(dayOfWeek);return{dayOfWeek,day,isOpen:r?.isOpen??false,openTime:r?.openTime?.slice(0,5)??null,closeTime:r?.closeTime?.slice(0,5)??null};});
 }
+export async function hasConfiguredHours(vendorId:string){
+  await ensureReady();
+  const rows=await prisma.$queryRawUnsafe<Array<{configured:boolean}>>(`SELECT EXISTS(SELECT 1 FROM store_business_hours WHERE vendor_id=$1) AS configured`,vendorId);
+  return Boolean(rows[0]?.configured);
+}
 export async function getHours(vendorId:string){
   await ensureReady();
   const rows=await prisma.$queryRawUnsafe<any[]>(`SELECT day_of_week AS "dayOfWeek",is_open AS "isOpen",open_time::text AS "openTime",close_time::text AS "closeTime" FROM store_business_hours WHERE vendor_id=$1 ORDER BY day_of_week`,vendorId);
