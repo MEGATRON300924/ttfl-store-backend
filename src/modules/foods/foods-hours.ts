@@ -23,8 +23,10 @@ function minutes(value: string | null): number | null {
 export function isWithinConfiguredHours(
   hours: FoodBusinessHour[],
   now: Date = new Date(),
+  configured = true,
 ): boolean {
-  if (!hours.some((hour) => hour.isOpen)) return true;
+  if (!configured) return true;
+  if (!hours.some((hour) => hour.isOpen)) return false;
 
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Africa/Lagos",
