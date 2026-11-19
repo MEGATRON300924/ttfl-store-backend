@@ -9,7 +9,7 @@ const EXACT_HOSTS: Record<Supplier, Set<string>> = {
   SHEIN: new Set(["shein.com"]),
 };
 function supplierForHost(hostname: string): Supplier | null {
-  const host = hostname.toLowerCase().replace(/\\.$/, "");
+  const host = hostname.toLowerCase().replace(/\.$/, "");
   if (EXACT_HOSTS.AliExpress.has(host)) return "AliExpress";
   if (EXACT_HOSTS.Jiji.has(host)) return "Jiji";
   if (host === "shein.com" || host.endsWith(".shein.com")) return "SHEIN";
