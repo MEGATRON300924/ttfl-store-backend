@@ -22,6 +22,9 @@ async function ensureFoodsTables() {
       id TEXT PRIMARY KEY,
       vendor_id TEXT NOT NULL UNIQUE REFERENCES vendor_profiles(id) ON DELETE CASCADE,
       description TEXT NULL,
+      restaurant_name TEXT NULL,
+      restaurant_slug TEXT NULL,
+      restaurant_address TEXT NULL,
       cuisine_tags TEXT[] NOT NULL DEFAULT '{}',
       phone_number TEXT NULL,
       prep_time_min INTEGER NOT NULL DEFAULT 20,
@@ -55,8 +58,29 @@ async function ensureFoodsTables() {
       CONSTRAINT foods_area_eta_check CHECK (estimated_minutes > 0)
     )
   `);
+  await prisma.$executeRawUnsafe(`ALTER TABLE foods_restaurant_profiles ADD COLUMN IF NOT EXISTS restaurant_name TEXT`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE foods_restaurant_profiles ADD COLUMN IF NOT EXISTS restaurant_slug TEXT`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE foods_restaurant_profiles ADD COLUMN IF NOT EXISTS restaurant_address TEXT`);
+  await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS foods_restaurant_profiles_slug_idx ON foods_restaurant_profiles(restaurant_slug) WHERE restaurant_slug IS NOT NULL`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS foods_delivery_areas_vendor_idx ON foods_delivery_areas(vendor_id, enabled)`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS foods_delivery_areas_location_idx ON foods_delivery_areas(state, city, area) WHERE enabled = TRUE`);
+}
+
+function restaurantSlugify(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-").replace(/^-|-$/g, "") || "restaurant";
+}
+
+async function uniqueRestaurantSlug(value: string, vendorId: string) {
+  const base = restaurantSlugify(value);
+  let slug = base;
+  let suffix = 1;
+  while (true) {
+    const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
+      `SELECT id FROM foods_restaurant_profiles WHERE restaurant_slug=$1 AND vendor_id<>$2 LIMIT 1`, slug, vendorId,
+    );
+    if (!rows[0]) return slug;
+    slug = `${base}-${++suffix}`;
+  }
 }
 
 async function getOwnRestaurant(userId: string) {
@@ -66,8 +90,13 @@ async function getOwnRestaurant(userId: string) {
     `INSERT INTO foods_restaurant_profiles (id, vendor_id) VALUES ($1,$2) ON CONFLICT (vendor_id) DO NOTHING`,
     randomUUID(), vendor.id,
   );
+  const defaultSlug = await uniqueRestaurantSlug(vendor.storeName, vendor.id);
+  await prisma.$executeRawUnsafe(
+    `UPDATE foods_restaurant_profiles SET restaurant_name=COALESCE(restaurant_name,$2), restaurant_slug=COALESCE(restaurant_slug,$3), restaurant_address=COALESCE(restaurant_address,$4), phone_number=COALESCE(phone_number,$5) WHERE vendor_id=$1`,
+    vendor.id, vendor.storeName, defaultSlug, vendor.location ?? null, vendor.whatsappNumber ?? null,
+  );
   const rows = await prisma.$queryRawUnsafe<any[]>(
-    `SELECT id, vendor_id AS "vendorId", description, cuisine_tags AS "cuisineTags",
+    `SELECT id, vendor_id AS "vendorId", restaurant_name AS "restaurantName", restaurant_slug AS "restaurantSlug", restaurant_address AS "restaurantAddress", description, cuisine_tags AS "cuisineTags",
       phone_number AS "phoneNumber", prep_time_min AS "prepTimeMin", prep_time_max AS "prepTimeMax",
       min_order_amount AS "minOrderAmount", accepts_orders AS "acceptsOrders", is_published AS "isPublished",
       restaurant_riders AS "restaurantRiders", ttfl_delivery AS "ttflDelivery"
@@ -76,10 +105,11 @@ async function getOwnRestaurant(userId: string) {
   );
   return { vendor, restaurant: rows[0] };
 }
-
 const profileSchema = z.object({
+  restaurantName: z.string().trim().min(2).max(100).optional(),
+  restaurantAddress: z.string().trim().min(5).max(300).optional(),
   description: z.string().trim().max(2000).nullable().optional(),
-  cuisineTags: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
+  cuisineTags: z.array(z.string().trim().min(1).max(40)).max(40).optional(),
   phoneNumber: z.string().trim().max(30).nullable().optional(),
   prepTimeMin: z.number().int().min(5).max(240).optional(),
   prepTimeMax: z.number().int().min(5).max(360).optional(),
@@ -114,19 +144,19 @@ foodsRouter.get("/restaurants", asyncHandler(async (req, res) => {
   const area = typeof req.query.area === "string" ? req.query.area.trim() : "";
   const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
   const rows = await prisma.$queryRawUnsafe<any[]>(
-    `SELECT vp.id AS "vendorId", vp."storeName" AS "storeName", vp."storeSlug" AS "storeSlug",
-      vp."logoUrl" AS "logoUrl", vp."bannerUrl" AS "bannerUrl", vp.location, vp.verified,
+    `SELECT vp.id AS "vendorId", COALESCE(frp.restaurant_name,vp."storeName") AS "storeName", COALESCE(frp.restaurant_slug,vp."storeSlug") AS "storeSlug",
+      vp."logoUrl" AS "logoUrl", vp."bannerUrl" AS "bannerUrl", COALESCE(frp.restaurant_address,vp.location) AS location, vp.verified,
       frp.description, frp.cuisine_tags AS "cuisineTags", frp.prep_time_min AS "prepTimeMin",
       frp.prep_time_max AS "prepTimeMax", frp.min_order_amount AS "minOrderAmount",
       frp.restaurant_riders AS "restaurantRiders", frp.ttfl_delivery AS "ttflDelivery"
      FROM foods_restaurant_profiles frp
      JOIN vendor_profiles vp ON vp.id=frp.vendor_id
      WHERE vp.status='APPROVED' AND frp.is_published=TRUE AND frp.accepts_orders=TRUE
-       AND ($1='' OR vp."storeName" ILIKE '%'||$1||'%' OR frp.description ILIKE '%'||$1||'%' OR EXISTS (SELECT 1 FROM unnest(frp.cuisine_tags) tag WHERE tag ILIKE '%'||$1||'%'))
+       AND ($1='' OR COALESCE(frp.restaurant_name,vp."storeName") ILIKE '%'||$1||'%' OR frp.description ILIKE '%'||$1||'%' OR EXISTS (SELECT 1 FROM unnest(frp.cuisine_tags) tag WHERE tag ILIKE '%'||$1||'%'))
        AND ($2='' OR EXISTS (SELECT 1 FROM foods_delivery_areas a WHERE a.vendor_id=vp.id AND a.enabled=TRUE AND lower(a.state)=lower($2)))
        AND ($3='' OR EXISTS (SELECT 1 FROM foods_delivery_areas a WHERE a.vendor_id=vp.id AND a.enabled=TRUE AND lower(a.city)=lower($3)))
        AND ($4='' OR EXISTS (SELECT 1 FROM foods_delivery_areas a WHERE a.vendor_id=vp.id AND a.enabled=TRUE AND lower(a.area)=lower($4)))
-     ORDER BY vp."storeName" ASC LIMIT 100`,
+     ORDER BY COALESCE(frp.restaurant_name,vp."storeName") ASC LIMIT 100`,
     q, state, city, area,
   );
   res.json({ restaurants: rows });
@@ -135,14 +165,14 @@ foodsRouter.get("/restaurants", asyncHandler(async (req, res) => {
 foodsRouter.get("/restaurants/:slug", asyncHandler(async (req, res) => {
   await ensureFoodsTables();
   const rows = await prisma.$queryRawUnsafe<any[]>(
-    `SELECT vp.id AS "vendorId", vp."storeName" AS "storeName", vp."storeSlug" AS "storeSlug",
-      vp."logoUrl" AS "logoUrl", vp."bannerUrl" AS "bannerUrl", vp.location, vp.verified,
+    `SELECT vp.id AS "vendorId", COALESCE(frp.restaurant_name,vp."storeName") AS "storeName", COALESCE(frp.restaurant_slug,vp."storeSlug") AS "storeSlug",
+      vp."logoUrl" AS "logoUrl", vp."bannerUrl" AS "bannerUrl", COALESCE(frp.restaurant_address,vp.location) AS location, vp.verified,
       frp.description, frp.cuisine_tags AS "cuisineTags", frp.phone_number AS "phoneNumber",
       frp.prep_time_min AS "prepTimeMin", frp.prep_time_max AS "prepTimeMax",
       frp.min_order_amount AS "minOrderAmount", frp.accepts_orders AS "acceptsOrders",
       frp.restaurant_riders AS "restaurantRiders", frp.ttfl_delivery AS "ttflDelivery"
      FROM foods_restaurant_profiles frp JOIN vendor_profiles vp ON vp.id=frp.vendor_id
-     WHERE vp."storeSlug"=$1 AND vp.status='APPROVED' AND frp.is_published=TRUE LIMIT 1`,
+     WHERE COALESCE(frp.restaurant_slug,vp."storeSlug")=$1 AND vp.status='APPROVED' AND frp.is_published=TRUE LIMIT 1`,
     req.params.slug,
   );
   if (!rows[0]) throw AppError.notFound("Restaurant not found.", "RESTAURANT_NOT_FOUND");
@@ -157,16 +187,13 @@ foodsRouter.get("/restaurants/:slug", asyncHandler(async (req, res) => {
 
 foodsRouter.get("/restaurants/:slug/menu", asyncHandler(async (req, res) => {
   await ensureFoodsTables();
-  const vendor = await prisma.vendorProfile.findFirst({
-    where: { storeSlug: req.params.slug, status: "APPROVED" },
-    select: { id: true },
-  });
-  if (!vendor) throw AppError.notFound("Restaurant not found.", "RESTAURANT_NOT_FOUND");
-  const profile = await prisma.$queryRawUnsafe<any[]>(
-    `SELECT is_published AS "isPublished" FROM foods_restaurant_profiles WHERE vendor_id=$1 LIMIT 1`,
-    vendor.id,
+  const vendorRows = await prisma.$queryRawUnsafe<any[]>(
+    `SELECT vp.id, frp.is_published AS "isPublished" FROM vendor_profiles vp JOIN foods_restaurant_profiles frp ON frp.vendor_id=vp.id
+     WHERE COALESCE(frp.restaurant_slug,vp."storeSlug")=$1 AND vp.status='APPROVED' LIMIT 1`,
+    req.params.slug,
   );
-  if (!profile[0]?.isPublished) throw AppError.notFound("Restaurant not found.", "RESTAURANT_NOT_FOUND");
+  const vendor = vendorRows[0];
+  if (!vendor?.isPublished) throw AppError.notFound("Restaurant not found.", "RESTAURANT_NOT_FOUND");
   const items = await prisma.product.findMany({
     where: { vendorId: vendor.id, deletedAt: null, status: "ACTIVE", comingSoon: false, category: { slug: "foods" } },
     include: { images: { orderBy: { position: "asc" } }, category: true },
@@ -189,22 +216,26 @@ foodsRouter.put("/me/profile", requireAuth, requireRole("VENDOR"), asyncHandler(
   const nextOwnRiders = data.restaurantRiders ?? restaurant.restaurantRiders;
   const nextTtflDelivery = data.ttflDelivery ?? restaurant.ttflDelivery;
   if (!nextOwnRiders && !nextTtflDelivery) throw AppError.badRequest("Enable restaurant delivery or TTFL delivery.", "DELIVERY_METHOD_REQUIRED");
+  const nextRestaurantSlug = data.restaurantName && data.restaurantName !== restaurant.restaurantName
+    ? await uniqueRestaurantSlug(data.restaurantName, vendor.id)
+    : null;
   await prisma.$executeRawUnsafe(
     `UPDATE foods_restaurant_profiles SET
       description=COALESCE($2,description), cuisine_tags=COALESCE($3::text[],cuisine_tags),
       phone_number=COALESCE($4,phone_number), prep_time_min=COALESCE($5,prep_time_min),
       prep_time_max=COALESCE($6,prep_time_max), min_order_amount=COALESCE($7,min_order_amount),
       accepts_orders=COALESCE($8,accepts_orders), is_published=COALESCE($9,is_published),
-      restaurant_riders=$10, ttfl_delivery=$11, updated_at=NOW()
+      restaurant_riders=$10, ttfl_delivery=$11, restaurant_name=COALESCE($12,restaurant_name),
+      restaurant_slug=COALESCE($13,restaurant_slug), restaurant_address=COALESCE($14,restaurant_address), updated_at=NOW()
      WHERE vendor_id=$1`,
     vendor.id, data.description ?? null, data.cuisineTags ?? null, data.phoneNumber ?? null,
     data.prepTimeMin ?? null, data.prepTimeMax ?? null, data.minOrderAmount ?? null,
     data.acceptsOrders ?? null, data.isPublished ?? null, nextOwnRiders, nextTtflDelivery,
+    data.restaurantName ?? null, nextRestaurantSlug, data.restaurantAddress ?? null,
   );
   const updated = await getOwnRestaurant(req.user!.sub);
   res.json({ restaurant: updated.restaurant, message: "Restaurant profile saved." });
 }));
-
 foodsRouter.get("/me/areas", requireAuth, requireRole("VENDOR"), asyncHandler(async (req, res) => {
   const { vendor } = await getOwnRestaurant(req.user!.sub);
   const areas = await prisma.$queryRawUnsafe<any[]>(
