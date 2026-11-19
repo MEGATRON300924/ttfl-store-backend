@@ -48,7 +48,17 @@ test("SHEIN product pages extract JSON-LD and SHEIN CDN images", () => {
   assert.deepEqual(result.images, ["https://img.ltwebstatic.com/images/blouse.jpg"]);
 });
 
+test("Jumia product pages extract metadata and Jumia CDN images", () => {
+  const html = `<meta property="og:title" content="Android smartphone"><meta property="og:description" content="Dual SIM smartphone"><meta property="product:price:amount" content="125000"><meta property="product:price:currency" content="NGN"><meta property="og:image" content="https://ng.jumia.is/unsafe/fit-in/500x500/product.jpg">`;
+  const result = extractMetadata(html, new URL("https://www.jumia.com.ng/catalog/product/123"));
+  assert.equal(result.name, "Android smartphone");
+  assert.equal(result.supplierPrice, 125000);
+  assert.equal(result.supplierCurrency, "NGN");
+  assert.deepEqual(result.images, ["https://ng.jumia.is/unsafe/fit-in/500x500/product.jpg"]);
+});
+
 test("supplier URL validation rejects lookalike domains", async () => {
   await assert.rejects(() => validateSupplierUrl("https://jiji.ng.attacker.example/item"), /Supported stores/);
   await assert.rejects(() => validateSupplierUrl("https://shein.com.attacker.example/product"), /Supported stores/);
+  await assert.rejects(() => validateSupplierUrl("https://jumia.com.ng.attacker.example/product"), /Supported stores/);
 });

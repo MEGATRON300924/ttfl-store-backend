@@ -278,3 +278,21 @@ Validation note:
 - [x] Added automated parser coverage for Jiji and SHEIN plus lookalike-domain rejection.
 - [ ] Re-run backend CI on latest commit and review parser behavior against live public examples without bypassing access controls.
 - [ ] Add other stores only through explicit host adapters and tests; do not open arbitrary URL fetching.
+
+
+## Jiji importer validation and Jumia support fix — 2026-11-19
+- [x] Replaced the stale AliExpress-only backend URL check with the explicit supplier host registry, so valid Jiji and SHEIN hosts are actually accepted.
+- [x] Added Jumia Nigeria (`jumia.com.ng`) with a bounded host allowlist and `jumia.is` image CDN validation; arbitrary Jumia-lookalike hosts remain rejected.
+- [x] Updated the unsupported-host response to list the supported stores and retained HTTPS-only validation, DNS private-address rejection, redirect revalidation, timeouts and HTML size limits.
+- [x] Added Jumia metadata/NGN extraction coverage and lookalike-domain rejection coverage.
+- [ ] Run backend Prisma generation, typecheck, tests and production build; inspect Render deploy and verify the live authenticated Jiji importer endpoint.
+- [ ] Do not claim Jiji/Jumia imports are live until the corrected backend deploy is verified.
+
+
+### Jiji/Jumia validation correction — 2026-11-19 status
+- [x] Root cause confirmed: merged supplier importer code still used the AliExpress-only `ALLOWED_HOSTS` validator and retained a literal escaped newline in the parser source, causing the backend main-branch TypeScript check to fail.
+- [x] Replaced the stale validator with `supplierForHost`, corrected the parser source newline, and added the Jumia Nigeria host/CDN adapter.
+- [x] Added Jumia metadata/currency/image and lookalike-host tests.
+- [x] Backend PR #9: https://github.com/MEGATRON300924/ttfl-store-backend/pull/9
+- [x] Backend CI run `44499343375` passed Prisma generation, typecheck, tests and production build on head `30308eb36d56ff8666ef6d3dd9de3a3e2fd5d08e`.
+- [ ] PR merge, Render deployment and authenticated live Jiji/Jumia test remain pending.

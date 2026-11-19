@@ -2,25 +2,28 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { AppError } from "@/utils/app-error";
 
-type Supplier = "AliExpress" | "Jiji" | "SHEIN";
+type Supplier = "AliExpress" | "Jiji" | "SHEIN" | "Jumia";
 const EXACT_HOSTS: Record<Supplier, Set<string>> = {
   AliExpress: new Set(["aliexpress.com", "www.aliexpress.com", "m.aliexpress.com"]),
   Jiji: new Set(["jiji.ng", "www.jiji.ng", "m.jiji.ng"]),
   SHEIN: new Set(["shein.com"]),
+  Jumia: new Set(["jumia.com.ng", "www.jumia.com.ng", "m.jumia.com.ng"]),
 };
 function supplierForHost(hostname: string): Supplier | null {
   const host = hostname.toLowerCase().replace(/\.$/, "");
   if (EXACT_HOSTS.AliExpress.has(host)) return "AliExpress";
   if (EXACT_HOSTS.Jiji.has(host)) return "Jiji";
   if (host === "shein.com" || host.endsWith(".shein.com")) return "SHEIN";
+  if (EXACT_HOSTS.Jumia.has(host)) return "Jumia";
   return null;
 }
 function isAllowedImageHost(hostname: string, supplier: Supplier, pageHost: string): boolean {
   const host = hostname.toLowerCase();
-  const suffix = supplier === "Jiji" ? ".jiji.ng" : supplier === "SHEIN" ? ".shein.com" : ".aliexpress.com";
+  const suffix = supplier === "Jiji" ? ".jiji.ng" : supplier === "SHEIN" ? ".shein.com" : supplier === "Jumia" ? ".jumia.com.ng" : ".aliexpress.com";
   if (host === pageHost || host.endsWith(suffix)) return true;
   if (supplier === "AliExpress") return host === "alicdn.com" || host.endsWith(".alicdn.com") || host === "aliexpress-media.com" || host.endsWith(".aliexpress-media.com");
   if (supplier === "SHEIN") return host === "ltwebstatic.com" || host.endsWith(".ltwebstatic.com");
+  if (supplier === "Jumia") return host === "jumia.is" || host.endsWith(".jumia.is");
   return false;
 }
 const MAX_HTML_BYTES = 2_000_000;
@@ -58,9 +61,9 @@ function isPrivateAddress(address: string): boolean {
 
 export async function validateSupplierUrl(raw: string): Promise<URL> {
   let url: URL;
-  try { url = new URL(raw); } catch { throw AppError.badRequest("Enter a valid AliExpress product URL.", "INVALID_SUPPLIER_URL"); }
-  if (url.protocol !== "https:" || url.username || url.password || !ALLOWED_HOSTS.has(url.hostname.toLowerCase())) {
-    throw AppError.badRequest("For this first release, import is supported only from an HTTPS AliExpress product page.", "UNSUPPORTED_SUPPLIER_HOST");
+  try { url = new URL(raw); } catch { throw AppError.badRequest("Enter a valid HTTPS product URL from a supported store.", "INVALID_SUPPLIER_URL"); }
+  if (url.protocol !== "https:" || url.username || url.password || supplierForHost(url.hostname) === null) {
+    throw AppError.badRequest("Supported stores: HTTPS AliExpress, Jiji Nigeria, SHEIN and Jumia product pages.", "UNSUPPORTED_SUPPLIER_HOST");
   }
   if (url.port && url.port !== "443") throw AppError.badRequest("The supplier URL uses an unsupported port.", "INVALID_SUPPLIER_URL");
   const addresses = await lookup(url.hostname, { all: true, verbatim: true }).catch(() => []);
@@ -104,7 +107,8 @@ function collectProductNodes(value: unknown, output: Record<string, unknown>[], 
   for (const nested of Object.values(item)) collectProductNodes(nested, output, depth + 1);
 }
 
-export function extractMetadata(html: string, sourceUrl: URL): ProductMetadata {\n  const supplier = supplierForHost(sourceUrl.hostname) ?? "AliExpress";
+export function extractMetadata(html: string, sourceUrl: URL): ProductMetadata {
+  const supplier = supplierForHost(sourceUrl.hostname) ?? "AliExpress";
   const products: Record<string, unknown>[] = [];
   const scripts = html.matchAll(/<script[^>]+type=[\"']application\/ld\+json[\"'][^>]*>([\s\S]*?)<\/script>/gi);
   for (const match of scripts) {
