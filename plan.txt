@@ -395,9 +395,12 @@ Validation note:
 - [x] Add rider assignment read, GPS update and explicit stop/revoke endpoints. Rider token is accepted only through a dedicated request header, not query parameters.
 - [x] Persist driver coordinates, accuracy, heading, speed and timestamp on the existing vendor-order record; expose fresh coordinates (maximum age 2 minutes) only while the order is OUT_FOR_DELIVERY.
 - [x] Add runtime-safe nullable-column setup for the existing vendor_orders table.
-- [ ] Add rider portal UI and one-time share-link display in Foods dispatch admin.
-- [ ] Add customer-facing live map to the main TTFL Store tracking page and verify 5–10 second polling behaviour.
-- [ ] Run backend CI and frontend previews; test token expiry/reassignment, unauthorized access, location permission denied, stop/revoke, stale GPS and delivered/cancelled orders.
+- [x] Add rider portal UI and one-time share-link display in Foods dispatch admin (implemented in Foods frontend PR #10).
+- [x] Add customer-facing live map to the main TTFL Store tracking page with 10-second polling; production frontend build is READY, but live data awaits backend deployment.
+- [x] Backend CI passed. Foods Vercel preview is READY and `/rider/portal` + `/admin/deliveries` return HTTP 200.
+- [ ] Test token expiry/reassignment, unauthorized access, location permission denied, stop/revoke, stale GPS and delivered/cancelled orders with a real assigned order.
 - Security: rider portal is a bearer-link MVP, not a full driver account. Treat the link like a password; share only with the assigned rider. A future driver identity system should replace this link model before larger fleet operations.
 - Branch: `feat/foods-store-onboarding`.
-- Status: backend implementation prepared; CI and runtime DB migration pending.
+- [x] Backend CI passed on commit `984a97705a05be54aa69fd4e46c75bc96c878e41` (Prisma generation, TypeScript, tests and production build).
+- [ ] Render runtime schema migration and authenticated API smoke tests remain pending; backend has not been deployed.
+- Status: backend source and CI ready; awaiting coordinated PR review/merge and runtime migration.
