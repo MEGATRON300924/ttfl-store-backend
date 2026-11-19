@@ -8,6 +8,7 @@ export const productsRouter = Router();
 productsRouter.get("/", productsController.search);
 productsRouter.get("/me/list", requireAuth, requireRole("VENDOR"), productsController.listMine);
 productsRouter.get("/me/sponsored", requireAuth, requireRole("VENDOR"), productsController.listMySponsored);
+productsRouter.post("/import-url", requireAuth, requireRole("VENDOR"), asyncHandler(productsController.importUrl));
 productsRouter.post("/", requireAuth, requireRole("VENDOR"), productsController.create);
 productsRouter.patch("/:id/sponsored", requireAuth, requireRole("VENDOR"), productsController.setSponsored);
 productsRouter.post("/:id/availability-notifications", productsController.notifyAvailability);
