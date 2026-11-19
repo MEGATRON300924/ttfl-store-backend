@@ -388,3 +388,16 @@ Validation note:
 - Branch: `feat/foods-store-onboarding`.
 - Previous restaurant-coordinate commit: `dfb838f2943087164c45a8b5d2e28af147dce4a0`.
 - Status: source prepared; CI and runtime DB migration pending.
+
+ 
+## TTFL Foods rider live-location phase — 2026-11-19
+- [x] Add hashed, expiring (8-hour) rider access credentials generated only when an admin assigns a paid TTFL-delivery order; raw tokens are returned once and never stored.
+- [x] Add rider assignment read, GPS update and explicit stop/revoke endpoints. Rider token is accepted only through a dedicated request header, not query parameters.
+- [x] Persist driver coordinates, accuracy, heading, speed and timestamp on the existing vendor-order record; expose fresh coordinates (maximum age 2 minutes) only while the order is OUT_FOR_DELIVERY.
+- [x] Add runtime-safe nullable-column setup for the existing vendor_orders table.
+- [ ] Add rider portal UI and one-time share-link display in Foods dispatch admin.
+- [ ] Add customer-facing live map to the main TTFL Store tracking page and verify 5–10 second polling behaviour.
+- [ ] Run backend CI and frontend previews; test token expiry/reassignment, unauthorized access, location permission denied, stop/revoke, stale GPS and delivered/cancelled orders.
+- Security: rider portal is a bearer-link MVP, not a full driver account. Treat the link like a password; share only with the assigned rider. A future driver identity system should replace this link model before larger fleet operations.
+- Branch: `feat/foods-store-onboarding`.
+- Status: backend implementation prepared; CI and runtime DB migration pending.

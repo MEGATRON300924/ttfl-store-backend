@@ -535,6 +535,14 @@ model VendorOrder {
   trackingNumber String?
   trackingUrl String?
   estimatedDeliveryAt DateTime?
+  driverAccessTokenHash String? @map("driver_access_token_hash")
+  driverAccessExpiresAt DateTime? @map("driver_access_expires_at")
+  driverLatitude Float? @map("driver_latitude")
+  driverLongitude Float? @map("driver_longitude")
+  driverAccuracy Float? @map("driver_accuracy")
+  driverHeading Float? @map("driver_heading")
+  driverSpeed Float? @map("driver_speed")
+  driverLocationUpdatedAt DateTime? @map("driver_location_updated_at")
   items OrderItem[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
