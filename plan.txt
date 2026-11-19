@@ -306,3 +306,6 @@ Validation note:
 - [ ] Run Prisma generation, typecheck, tests and production build; review parser tests and merge only after checks pass.
 - [ ] Deploy the backend and test the reported product URL through the authenticated live importer. AliExpress may still serve anti-bot/challenge HTML; do not claim extraction works until the live test confirms it.
 - Branch: fix/aliexpress-embedded-product-data.
+
+- PR #10: https://github.com/MEGATRON300924/ttfl-store-backend/pull/10 (open; not merged).
+- CI run `44500904253` was queued and entered validation for head `a1546617e2fd8b2c38e8bca580b810013c9de482`; final result pending at this update.
