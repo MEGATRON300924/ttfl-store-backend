@@ -363,3 +363,16 @@ Validation note:
 - [x] Ensure restaurant detail responses return the restaurant-specific name, slug and address, not the linked main Store values.
 - [ ] Run backend CI (Prisma generation, typecheck, tests, production build), then deploy once after the coordinated frontend PRs are ready.
 - [ ] Rider accounts/live GPS, vendor-customer chat and external delivery-partner adapters remain separate planned work; do not represent them as implemented.
+
+
+## TTFL Foods open-source location foundation — 2026-11-19
+- [x] Add nullable restaurant latitude/longitude to the existing Foods restaurant profile table using runtime-safe `ADD COLUMN IF NOT EXISTS` guards; no Prisma migration or destructive schema change is required.
+- [x] Return restaurant coordinates in authenticated vendor profile reads and public restaurant directory/detail responses.
+- [x] Accept coordinate pairs on the authenticated vendor profile update API; validate latitude/longitude ranges and reject half-populated coordinate pairs.
+- [ ] Add regression tests for coordinate validation, ownership, public visibility and legacy profiles with no coordinates.
+- [ ] Run backend Prisma generation, TypeScript typecheck, tests and production build.
+- [ ] Deploy only after the coordinated Foods frontend preview and backend CI pass; verify the runtime SQL columns on Render.
+- Map stack: MapLibre GL JS + OpenFreeMap vector style (OpenStreetMap-derived data); GPS is browser/device Geolocation. Address search and routing are separate follow-on services.
+- Branch: `feat/foods-store-onboarding`.
+- Consolidated implementation commit: `9289dda6ed6d5ee05adc832f7eb246cca6598f6d`.
+- Status: source changes prepared; CI, deployment and authenticated runtime tests pending.
