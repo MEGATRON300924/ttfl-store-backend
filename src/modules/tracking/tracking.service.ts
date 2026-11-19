@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual, createHash, randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { AppError } from "@/utils/app-error";
 import { getVendorProfileForUser } from "@/lib/vendor-access";
@@ -20,6 +20,7 @@ async function getProductsByIds(productIds: string[]) { if (!productIds.length) 
 function base64Url(value: string) { return Buffer.from(value).toString("base64url"); }
 function fromBase64Url(value: string) { return Buffer.from(value, "base64url").toString("utf8"); }
 function signTrackingPayload(payload: string) { return createHmac("sha256", env.jwt.accessSecret).update(payload).digest("base64url"); }
+function hashRiderAccessToken(token: string) { return createHash("sha256").update(token).digest("hex"); }
 
 export function createPublicTrackingToken(orderNumber: string) {
   const expiresAt = Math.floor(Date.now() / 1000) + Math.max(1, env.whatsapp.trackingLinkTtlDays) * 86400;
@@ -71,7 +72,7 @@ export async function trackByPublicToken(token: string) {
   const order = await prisma.order.findUnique({ where: { orderNumber }, include: { vendorOrders: { include: { items: true, vendor: { select: { id: true, storeName: true, storeSlug: true, verified: true } }, trackingEvents: { orderBy: { checkpoint: "asc" } } } } } });
   if (!order) throw AppError.notFound("Order not found");
   const products = await getProductsByIds(order.vendorOrders.flatMap((vo) => vo.items.map((item) => item.productId)));
-  return { orderNumber: order.orderNumber, createdAt: order.createdAt, paymentStatus: order.paymentStatus, vendorOrders: order.vendorOrders.map((vo) => serializeVendorOrder(vo, order.createdAt, products)) };
+  return { orderNumber: order.orderNumber, createdAt: order.createdAt, paymentStatus: order.paymentStatus, vendorOrders: order.vendorOrders.map((vo) => serializeVendorOrder(vo, order.createdAt, products, order.deliveryLatitude, order.deliveryLongitude)) };
 }
 
 export async function trackPublic(orderNumber: string, productId: string) {
@@ -89,13 +90,14 @@ export async function trackAuthenticated(orderNumber: string, userId: string) {
 
 export async function getVendorOrderTracking(userId: string, vendorOrderId: string) {
   const vendor = await getVendorProfileForUser(userId); const vendorOrder = await prisma.vendorOrder.findUnique({ where: { id: vendorOrderId }, include: { items: true, vendor: { select: { id: true, storeName: true, storeSlug: true, verified: true } }, trackingEvents: { orderBy: { checkpoint: "asc" } } } });
-  if (!vendorOrder || vendorOrder.vendorId !== vendor.id) throw AppError.notFound("Order not found"); const order = await prisma.order.findUnique({ where: { id: vendorOrder.orderId }, select: { createdAt: true } }); if (!order) throw AppError.notFound("Parent order not found"); const products = await getProductsByIds(vendorOrder.items.map((item) => item.productId)); return serializeVendorOrder(vendorOrder, order.createdAt, products);
+  if (!vendorOrder || vendorOrder.vendorId !== vendor.id) throw AppError.notFound("Order not found"); const order = await prisma.order.findUnique({ where: { id: vendorOrder.orderId }, select: { createdAt: true, deliveryLatitude: true, deliveryLongitude: true } }); if (!order) throw AppError.notFound("Parent order not found"); const products = await getProductsByIds(vendorOrder.items.map((item) => item.productId)); return serializeVendorOrder(vendorOrder, order.createdAt, products, order.deliveryLatitude, order.deliveryLongitude);
 }
 
-function serializeVendorOrder(vo: any, createdAt: Date, products: Map<string, any>) {
+function serializeVendorOrder(vo: any, createdAt: Date, products: Map<string, any>, destinationLatitude?: number | null, destinationLongitude?: number | null) {
   const latest = vo.trackingEvents[vo.trackingEvents.length - 1] ?? null; const currentCheckpoint = vo.trackingEvents.reduce((max: number, event: any) => Math.max(max, event.checkpoint), 0) || (vo.status === "PROCESSING" ? 1 : vo.status === "SHIPPED" ? 3 : vo.status === "OUT_FOR_DELIVERY" || vo.status === "DELIVERED" ? 5 : 0);
   const days = vo.items.reduce((max: number, item: any) => Math.max(max, Number(products.get(item.productId)?.estimatedDeliveryDays ?? 7)), 0) || 7; const estimatedDeliveryAt = vo.estimatedDeliveryAt ?? new Date(createdAt.getTime() + days * 86400000);
-  return { id: vo.id, status: vo.status, estimatedDeliveryAt, vendor: vo.vendor, items: vo.items.map((item: any) => { const product = products.get(item.productId); return { id: item.id, productId: item.productId, publicProductId: product?.publicProductId ?? null, productName: item.productName, quantity: item.quantity, estimatedDeliveryDays: product?.estimatedDeliveryDays ?? 7 }; }), currentCheckpoint, checkpoints: CHECKPOINTS.map((definition) => ({ ...definition, event: vo.trackingEvents.find((event: any) => event.checkpoint === definition.checkpoint) ?? null })), latestEvent: latest };
+  const locationIsFresh = vo.status === "OUT_FOR_DELIVERY" && vo.driverLocationUpdatedAt && Date.now() - new Date(vo.driverLocationUpdatedAt).getTime() <= 120000;
+  return { id: vo.id, status: vo.status, estimatedDeliveryAt, liveLocation: locationIsFresh ? { latitude: vo.driverLatitude, longitude: vo.driverLongitude, accuracy: vo.driverAccuracy, heading: vo.driverHeading, speed: vo.driverSpeed, updatedAt: vo.driverLocationUpdatedAt } : null, deliveryDestination: destinationLatitude != null && destinationLongitude != null ? { latitude: destinationLatitude, longitude: destinationLongitude } : null, vendor: vo.vendor, items: vo.items.map((item: any) => { const product = products.get(item.productId); return { id: item.id, productId: item.productId, publicProductId: product?.publicProductId ?? null, productName: item.productName, quantity: item.quantity, estimatedDeliveryDays: product?.estimatedDeliveryDays ?? 7 }; }), currentCheckpoint, checkpoints: CHECKPOINTS.map((definition) => ({ ...definition, event: vo.trackingEvents.find((event: any) => event.checkpoint === definition.checkpoint) ?? null })), latestEvent: latest };
 }
 
 export async function updateCheckpoint(userId: string, vendorOrderId: string, checkpoint: number, description?: string, avatar?: string, trackingUrl?: string, riderName?: string, riderPhone?: string) {
@@ -204,6 +206,8 @@ export async function assignTtflDriver(
   const definition = CHECKPOINTS[4];
   const description = input.description?.trim() || "A TTFL delivery rider has been assigned to your order.";
   const existingEvent = vendorOrder.trackingEvents.find((event) => event.checkpoint === 5);
+  const riderAccessToken = randomBytes(32).toString("base64url");
+  const riderAccessExpiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000);
   const event = await prisma.trackingEvent.upsert({
     where: { vendorOrderId_checkpoint: { vendorOrderId, checkpoint: 5 } },
     create: { vendorOrderId, checkpoint: 5, title: definition.title, description, avatar: "motorcycle", trackingUrl: input.trackingUrl?.trim() || null, riderName: input.riderName.trim(), riderPhone: input.riderPhone.trim() },
@@ -211,7 +215,7 @@ export async function assignTtflDriver(
   });
   const updated = await prisma.vendorOrder.update({
     where: { id: vendorOrderId },
-    data: { status: "OUT_FOR_DELIVERY" },
+    data: { status: "OUT_FOR_DELIVERY", driverAccessTokenHash: hashRiderAccessToken(riderAccessToken), driverAccessExpiresAt: riderAccessExpiresAt, driverLatitude: null, driverLongitude: null, driverAccuracy: null, driverHeading: null, driverSpeed: null, driverLocationUpdatedAt: null },
   });
   if (!existingEvent) {
     void sendEmail({
@@ -226,5 +230,33 @@ export async function assignTtflDriver(
     url: "/orders/" + encodeURIComponent(vendorOrder.order.orderNumber),
     data: { type: "order.ttfl_rider_assigned", orderNumber: vendorOrder.order.orderNumber, riderName: input.riderName.trim() },
   }).catch((error) => logger.warn("Failed to create TTFL rider assignment notification", { vendorOrderId, error }));
-  return { vendorOrder: updated, event, message: "TTFL delivery rider assigned." };
+  return { vendorOrder: updated, event, riderAccessToken, riderAccessExpiresAt, message: "TTFL delivery rider assigned." };
+}
+
+export async function getRiderAssignment(token: string) {
+  if (!token || token.length < 32 || token.length > 200) throw AppError.unauthorized("This rider link is invalid or expired.", "RIDER_LINK_INVALID");
+  const now = new Date();
+  const vendorOrder = await prisma.vendorOrder.findFirst({
+    where: { driverAccessTokenHash: hashRiderAccessToken(token), driverAccessExpiresAt: { gt: now }, deliveryMethod: "TTFL", status: "OUT_FOR_DELIVERY", order: { paymentStatus: "PAID" } },
+    include: { order: { select: { orderNumber: true, deliveryName: true, deliveryPhone: true, deliveryLine1: true, deliveryLine2: true, deliveryCity: true, deliveryState: true, deliveryLatitude: true, deliveryLongitude: true } }, vendor: { select: { storeName: true } }, items: { select: { productName: true, quantity: true } } },
+  });
+  if (!vendorOrder) throw AppError.unauthorized("This rider link is invalid, expired or no longer assigned.", "RIDER_LINK_INVALID");
+  return { orderNumber: vendorOrder.order.orderNumber, status: vendorOrder.status, restaurant: vendorOrder.vendor.storeName, delivery: { name: vendorOrder.order.deliveryName, phone: vendorOrder.order.deliveryPhone, address: [vendorOrder.order.deliveryLine1, vendorOrder.order.deliveryLine2, vendorOrder.order.deliveryCity, vendorOrder.order.deliveryState].filter(Boolean).join(", "), latitude: vendorOrder.order.deliveryLatitude, longitude: vendorOrder.order.deliveryLongitude }, items: vendorOrder.items };
+}
+
+export async function updateRiderLocation(token: string, input: { latitude: number; longitude: number; accuracy?: number; heading?: number; speed?: number }) {
+  if (!token || token.length < 32 || token.length > 200) throw AppError.unauthorized("This rider link is invalid or expired.", "RIDER_LINK_INVALID");
+  const now = new Date();
+  const vendorOrder = await prisma.vendorOrder.findFirst({ where: { driverAccessTokenHash: hashRiderAccessToken(token), driverAccessExpiresAt: { gt: now }, deliveryMethod: "TTFL", status: "OUT_FOR_DELIVERY", order: { paymentStatus: "PAID" } }, select: { id: true } });
+  if (!vendorOrder) throw AppError.unauthorized("This rider link is invalid, expired or no longer assigned.", "RIDER_LINK_INVALID");
+  const updated = await prisma.vendorOrder.updateMany({ where: { id: vendorOrder.id, driverAccessTokenHash: hashRiderAccessToken(token), driverAccessExpiresAt: { gt: now }, status: "OUT_FOR_DELIVERY" }, data: { driverLatitude: input.latitude, driverLongitude: input.longitude, driverAccuracy: input.accuracy ?? null, driverHeading: input.heading ?? null, driverSpeed: input.speed ?? null, driverLocationUpdatedAt: now } });
+  if (updated.count !== 1) throw AppError.unauthorized("This rider assignment is no longer active.", "RIDER_LINK_INVALID");
+  return { accepted: true, updatedAt: now };
+}
+
+export async function stopRiderLocation(token: string) {
+  if (!token || token.length < 32 || token.length > 200) throw AppError.unauthorized("This rider link is invalid or expired.", "RIDER_LINK_INVALID");
+  const updated = await prisma.vendorOrder.updateMany({ where: { driverAccessTokenHash: hashRiderAccessToken(token), driverAccessExpiresAt: { gt: new Date() }, status: "OUT_FOR_DELIVERY" }, data: { driverAccessTokenHash: null, driverAccessExpiresAt: null, driverLatitude: null, driverLongitude: null, driverAccuracy: null, driverHeading: null, driverSpeed: null, driverLocationUpdatedAt: null } });
+  if (updated.count !== 1) throw AppError.unauthorized("This rider assignment is no longer active.", "RIDER_LINK_INVALID");
+  return { stopped: true };
 }

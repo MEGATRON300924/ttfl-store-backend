@@ -363,3 +363,44 @@ Validation note:
 - [x] Ensure restaurant detail responses return the restaurant-specific name, slug and address, not the linked main Store values.
 - [ ] Run backend CI (Prisma generation, typecheck, tests, production build), then deploy once after the coordinated frontend PRs are ready.
 - [ ] Rider accounts/live GPS, vendor-customer chat and external delivery-partner adapters remain separate planned work; do not represent them as implemented.
+
+
+## TTFL Foods open-source location foundation — 2026-11-19
+- [x] Add nullable restaurant latitude/longitude to the existing Foods restaurant profile table using runtime-safe `ADD COLUMN IF NOT EXISTS` guards; no Prisma migration or destructive schema change is required.
+- [x] Return restaurant coordinates in authenticated vendor profile reads and public restaurant directory/detail responses.
+- [x] Accept coordinate pairs on the authenticated vendor profile update API; validate latitude/longitude ranges and reject half-populated coordinate pairs.
+- [ ] Add regression tests for coordinate validation, ownership, public visibility and legacy profiles with no coordinates.
+- [ ] Run backend Prisma generation, TypeScript typecheck, tests and production build.
+- [ ] Deploy only after the coordinated Foods frontend preview and backend CI pass; verify the runtime SQL columns on Render.
+- Map stack: MapLibre GL JS + OpenFreeMap vector style (OpenStreetMap-derived data); GPS is browser/device Geolocation. Address search and routing are separate follow-on services.
+- Branch: `feat/foods-store-onboarding`.
+- Consolidated implementation commit: `9289dda6ed6d5ee05adc832f7eb246cca6598f6d`.
+- Status: source changes prepared; CI, deployment and authenticated runtime tests pending.
+
+
+## Customer delivery coordinates — 2026-11-19
+- [x] Add optional latitude/longitude to the checkout delivery schema with range and coordinate-pair validation.
+- [x] Persist customer-selected delivery coordinates on the existing order record; coordinates are scoped to that order and are not exposed as public customer profile data.
+- [x] Add a runtime-safe database compatibility script and register it in the existing prestart schema checks.
+- [ ] Run Prisma generation, typecheck, tests and production build after this follow-up.
+- [ ] Verify order coordinates are returned only through authorized customer/vendor order reads; add rider-scoped tracking access in the live GPS phase.
+- Customer coordinate source: optional customer map pin or browser GPS. Address text and existing delivery-area validation remain required; GPS does not bypass restaurant delivery coverage.
+- Branch: `feat/foods-store-onboarding`.
+- Previous restaurant-coordinate commit: `dfb838f2943087164c45a8b5d2e28af147dce4a0`.
+- Status: source prepared; CI and runtime DB migration pending.
+
+ 
+## TTFL Foods rider live-location phase — 2026-11-19
+- [x] Add hashed, expiring (8-hour) rider access credentials generated only when an admin assigns a paid TTFL-delivery order; raw tokens are returned once and never stored.
+- [x] Add rider assignment read, GPS update and explicit stop/revoke endpoints. Rider token is accepted only through a dedicated request header, not query parameters.
+- [x] Persist driver coordinates, accuracy, heading, speed and timestamp on the existing vendor-order record; expose fresh coordinates (maximum age 2 minutes) only while the order is OUT_FOR_DELIVERY.
+- [x] Add runtime-safe nullable-column setup for the existing vendor_orders table.
+- [x] Add rider portal UI and one-time share-link display in Foods dispatch admin (implemented in Foods frontend PR #10).
+- [x] Add customer-facing live map to the main TTFL Store tracking page with 10-second polling; production frontend build is READY, but live data awaits backend deployment.
+- [x] Backend CI passed. Foods Vercel preview is READY and `/rider/portal` + `/admin/deliveries` return HTTP 200.
+- [ ] Test token expiry/reassignment, unauthorized access, location permission denied, stop/revoke, stale GPS and delivered/cancelled orders with a real assigned order.
+- Security: rider portal is a bearer-link MVP, not a full driver account. Treat the link like a password; share only with the assigned rider. A future driver identity system should replace this link model before larger fleet operations.
+- Branch: `feat/foods-store-onboarding`.
+- [x] Backend CI passed on commit `984a97705a05be54aa69fd4e46c75bc96c878e41` (Prisma generation, TypeScript, tests and production build).
+- [ ] Render runtime schema migration and authenticated API smoke tests remain pending; backend has not been deployed.
+- Status: backend source and CI ready; awaiting coordinated PR review/merge and runtime migration.

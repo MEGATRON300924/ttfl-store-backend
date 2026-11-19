@@ -26,3 +26,9 @@ trackingRouter.patch("/admin/:vendorOrderId/driver",requireAuth,requireRole("ADM
   const input=ttflDriverSchema.parse(req.body);
   res.json(await service.assignTtflDriver(req.params.vendorOrderId,input));
 }));
+
+const riderPositionSchema=z.object({latitude:z.number().min(-90).max(90),longitude:z.number().min(-180).max(180),accuracy:z.number().min(0).max(5000).optional(),heading:z.number().min(0).max(360).optional(),speed:z.number().min(0).max(100).optional()});
+function riderToken(req: import("express").Request) { const value=req.headers["x-ttfl-rider-token"]; return typeof value==="string"?value:""; }
+trackingRouter.get("/rider/assignment",asyncHandler(async(req,res)=>{res.json({assignment:await service.getRiderAssignment(riderToken(req))});}));
+trackingRouter.post("/rider/location",asyncHandler(async(req,res)=>{const input=riderPositionSchema.parse(req.body);res.json(await service.updateRiderLocation(riderToken(req),input));}));
+trackingRouter.post("/rider/stop",asyncHandler(async(req,res)=>{res.json(await service.stopRiderLocation(riderToken(req)));}));
