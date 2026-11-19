@@ -350,3 +350,6 @@ Validation note:
 
 - [x] Paystack status classifier CI run 44506263699 passed Prisma generation, TypeScript typecheck, tests and production build.
 - [ ] Merge and deploy the classifier tests; full gateway E2E remains pending a safe Paystack test-mode transaction.
+
+- [x] Final Paystack classifier CI run 44506510171 passed Prisma generation, typecheck, tests and production build.
+- [ ] Merge and deploy Paystack status handling; do not run live charges.
