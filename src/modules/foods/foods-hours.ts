@@ -7,7 +7,7 @@ export type FoodBusinessHour = {
 
 function minutes(value: string | null): number | null {
   if (!value) return null;
-  const match = value.match(/^(\\d{2}):(\\d{2})/);
+  const match = value.match(/^(\d{2}):(\d{2})/);
   if (!match) return null;
   const hour = Number(match[1]);
   const minute = Number(match[2]);
