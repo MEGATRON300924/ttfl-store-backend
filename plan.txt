@@ -324,3 +324,6 @@ Validation note:
 - [x] CI run 668 found an over-escaped time parser regex: typecheck passed, but two opening-hours tests failed. Corrected the regex to parse HH:MM values; a fresh CI run is required.
 
 - [x] Corrected a subtle schedule-state distinction: no saved schedule preserves legacy ordering, while a saved all-closed week correctly rejects checkout.
+
+- [x] Final review tightened the no-hours-vs-all-closed distinction; the current PR head includes this fix and its expanded tests.
+- [ ] Re-run CI on the final PR head before merge.
