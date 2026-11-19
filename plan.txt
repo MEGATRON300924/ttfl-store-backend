@@ -311,3 +311,19 @@ Validation note:
 - CI run `44500904253` was queued and entered validation for head `a1546617e2fd8b2c38e8bca580b810013c9de482`; final result pending at this update.
 
 - CI run `44500904253` found a strict TypeScript nullability error in the optional embedded description fallback; fixed with an explicit null fallback. Test/build stages were skipped until typecheck passes.
+
+
+## TTFL Foods opening-hours enforcement — 2026-11-19
+- [x] Reuse the existing shared vendor business-hours table and `/api/store-hours/me` API; no separate Foods hours store or vendor account created.
+- [x] Add Africa/Lagos timezone-aware evaluation, including overnight opening windows.
+- [x] Enforce configured restaurant hours server-side during Foods checkout; existing restaurants with no schedule configured remain orderable until they opt into hours.
+- [x] Add automated tests for unconfigured hours, open windows, closing-time rejection, overnight schedules and closed days.
+- [ ] Run backend Prisma generation, typecheck, tests and production build; deploy only after CI passes.
+- Branch: feat/foods-opening-hours-enforcement.
+
+- [x] CI run 668 found an over-escaped time parser regex: typecheck passed, but two opening-hours tests failed. Corrected the regex to parse HH:MM values; a fresh CI run is required.
+
+- [x] Corrected a subtle schedule-state distinction: no saved schedule preserves legacy ordering, while a saved all-closed week correctly rejects checkout.
+
+- [x] Final review tightened the no-hours-vs-all-closed distinction; the current PR head includes this fix and its expanded tests.
+- [ ] Re-run CI on the final PR head before merge.
