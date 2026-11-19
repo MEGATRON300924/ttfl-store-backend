@@ -503,6 +503,8 @@ model Order {
   deliveryCity String
   deliveryState String
   deliveryPostcode String? @map("delivery_postcode")
+  deliveryLatitude Float? @map("delivery_latitude")
+  deliveryLongitude Float? @map("delivery_longitude")
   deliveryCountry String @default("Nigeria")
   vendorOrders VendorOrder[]
   payments Payment[]

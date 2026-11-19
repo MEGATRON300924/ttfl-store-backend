@@ -25,6 +25,8 @@ async function ensureFoodsTables() {
       restaurant_name TEXT NULL,
       restaurant_slug TEXT NULL,
       restaurant_address TEXT NULL,
+      restaurant_latitude DOUBLE PRECISION NULL,
+      restaurant_longitude DOUBLE PRECISION NULL,
       cuisine_tags TEXT[] NOT NULL DEFAULT '{}',
       phone_number TEXT NULL,
       prep_time_min INTEGER NOT NULL DEFAULT 20,
@@ -61,6 +63,10 @@ async function ensureFoodsTables() {
   await prisma.$executeRawUnsafe(`ALTER TABLE foods_restaurant_profiles ADD COLUMN IF NOT EXISTS restaurant_name TEXT`);
   await prisma.$executeRawUnsafe(`ALTER TABLE foods_restaurant_profiles ADD COLUMN IF NOT EXISTS restaurant_slug TEXT`);
   await prisma.$executeRawUnsafe(`ALTER TABLE foods_restaurant_profiles ADD COLUMN IF NOT EXISTS restaurant_address TEXT`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE foods_restaurant_profiles ADD COLUMN IF NOT EXISTS restaurant_latitude DOUBLE PRECISION`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE foods_restaurant_profiles ADD COLUMN IF NOT EXISTS restaurant_longitude DOUBLE PRECISION`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_latitude DOUBLE PRECISION`);
+  await prisma.$executeRawUnsafe(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS delivery_longitude DOUBLE PRECISION`);
   await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS foods_restaurant_profiles_slug_idx ON foods_restaurant_profiles(restaurant_slug) WHERE restaurant_slug IS NOT NULL`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS foods_delivery_areas_vendor_idx ON foods_delivery_areas(vendor_id, enabled)`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS foods_delivery_areas_location_idx ON foods_delivery_areas(state, city, area) WHERE enabled = TRUE`);
@@ -96,7 +102,7 @@ async function getOwnRestaurant(userId: string) {
     vendor.id, vendor.storeName, defaultSlug, vendor.location ?? null, vendor.whatsappNumber ?? null,
   );
   const rows = await prisma.$queryRawUnsafe<any[]>(
-    `SELECT id, vendor_id AS "vendorId", restaurant_name AS "restaurantName", restaurant_slug AS "restaurantSlug", restaurant_address AS "restaurantAddress", description, cuisine_tags AS "cuisineTags",
+    `SELECT id, vendor_id AS "vendorId", restaurant_name AS "restaurantName", restaurant_slug AS "restaurantSlug", restaurant_address AS "restaurantAddress", restaurant_latitude AS "restaurantLatitude", restaurant_longitude AS "restaurantLongitude", description, cuisine_tags AS "cuisineTags",
       phone_number AS "phoneNumber", prep_time_min AS "prepTimeMin", prep_time_max AS "prepTimeMax",
       min_order_amount AS "minOrderAmount", accepts_orders AS "acceptsOrders", is_published AS "isPublished",
       restaurant_riders AS "restaurantRiders", ttfl_delivery AS "ttflDelivery"
@@ -108,6 +114,8 @@ async function getOwnRestaurant(userId: string) {
 const profileSchema = z.object({
   restaurantName: z.string().trim().min(2).max(100).optional(),
   restaurantAddress: z.string().trim().min(5).max(300).optional(),
+  restaurantLatitude: z.number().min(-90).max(90).nullable().optional(),
+  restaurantLongitude: z.number().min(-180).max(180).nullable().optional(),
   description: z.string().trim().max(2000).nullable().optional(),
   cuisineTags: z.array(z.string().trim().min(1).max(40)).max(40).optional(),
   phoneNumber: z.string().trim().max(30).nullable().optional(),
@@ -124,6 +132,10 @@ const profileSchema = z.object({
   }
   if (data.restaurantRiders === false && data.ttflDelivery === false) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Enable restaurant delivery or TTFL delivery.", path: ["ttflDelivery"] });
+  }
+  if ((data.restaurantLatitude === null) !== (data.restaurantLongitude === null) ||
+      (data.restaurantLatitude === undefined) !== (data.restaurantLongitude === undefined)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Restaurant latitude and longitude must be supplied together.", path: ["restaurantLatitude"] });
   }
 });
 
@@ -145,7 +157,7 @@ foodsRouter.get("/restaurants", asyncHandler(async (req, res) => {
   const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
   const rows = await prisma.$queryRawUnsafe<any[]>(
     `SELECT vp.id AS "vendorId", COALESCE(frp.restaurant_name,vp."storeName") AS "storeName", COALESCE(frp.restaurant_slug,vp."storeSlug") AS "storeSlug",
-      vp."logoUrl" AS "logoUrl", vp."bannerUrl" AS "bannerUrl", COALESCE(frp.restaurant_address,vp.location) AS location, vp.verified,
+      vp."logoUrl" AS "logoUrl", vp."bannerUrl" AS "bannerUrl", COALESCE(frp.restaurant_address,vp.location) AS location, frp.restaurant_latitude AS "latitude", frp.restaurant_longitude AS "longitude", vp.verified,
       frp.description, frp.cuisine_tags AS "cuisineTags", frp.prep_time_min AS "prepTimeMin",
       frp.prep_time_max AS "prepTimeMax", frp.min_order_amount AS "minOrderAmount",
       frp.restaurant_riders AS "restaurantRiders", frp.ttfl_delivery AS "ttflDelivery"
@@ -226,12 +238,16 @@ foodsRouter.put("/me/profile", requireAuth, requireRole("VENDOR"), asyncHandler(
       prep_time_max=COALESCE($6,prep_time_max), min_order_amount=COALESCE($7,min_order_amount),
       accepts_orders=COALESCE($8,accepts_orders), is_published=COALESCE($9,is_published),
       restaurant_riders=$10, ttfl_delivery=$11, restaurant_name=COALESCE($12,restaurant_name),
-      restaurant_slug=COALESCE($13,restaurant_slug), restaurant_address=COALESCE($14,restaurant_address), updated_at=NOW()
+      restaurant_slug=COALESCE($13,restaurant_slug), restaurant_address=COALESCE($14,restaurant_address),
+      restaurant_latitude=CASE WHEN $15::boolean THEN $16::double precision ELSE restaurant_latitude END,
+      restaurant_longitude=CASE WHEN $17::boolean THEN $18::double precision ELSE restaurant_longitude END, updated_at=NOW()
      WHERE vendor_id=$1`,
     vendor.id, data.description ?? null, data.cuisineTags ?? null, data.phoneNumber ?? null,
     data.prepTimeMin ?? null, data.prepTimeMax ?? null, data.minOrderAmount ?? null,
     data.acceptsOrders ?? null, data.isPublished ?? null, nextOwnRiders, nextTtflDelivery,
     data.restaurantName ?? null, nextRestaurantSlug, data.restaurantAddress ?? null,
+    data.restaurantLatitude !== undefined, data.restaurantLatitude ?? null,
+    data.restaurantLongitude !== undefined, data.restaurantLongitude ?? null,
   );
   const updated = await getOwnRestaurant(req.user!.sub);
   res.json({ restaurant: updated.restaurant, message: "Restaurant profile saved." });
