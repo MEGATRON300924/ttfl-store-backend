@@ -296,3 +296,18 @@ Validation note:
 - [x] Backend PR #9: https://github.com/MEGATRON300924/ttfl-store-backend/pull/9
 - [x] Backend CI run `44499343375` passed Prisma generation, typecheck, tests and production build on head `30308eb36d56ff8666ef6d3dd9de3a3e2fd5d08e`.
 - [ ] PR merge, Render deployment and authenticated live Jiji/Jumia test remain pending.
+
+
+## AliExpress embedded product data extraction — 2026-11-19
+- [x] Confirmed the reported NO_PRODUCT_METADATA error occurs after the supplier URL is accepted and the page fetch returns HTML; the existing parser only handled JSON-LD and Open Graph metadata.
+- [x] Added a bounded parser for AliExpress window.runParams and standalone embedded JSON script payloads, extracting title, description, image paths, and price/currency modules when present.
+- [x] Kept image URL validation restricted to HTTPS and the existing AliExpress/CDN allowlist; protocol-relative CDN image URLs are normalized against the product URL.
+- [x] Added a regression fixture matching AliExpress runParams module structure.
+- [ ] Run Prisma generation, typecheck, tests and production build; review parser tests and merge only after checks pass.
+- [ ] Deploy the backend and test the reported product URL through the authenticated live importer. AliExpress may still serve anti-bot/challenge HTML; do not claim extraction works until the live test confirms it.
+- Branch: fix/aliexpress-embedded-product-data.
+
+- PR #10: https://github.com/MEGATRON300924/ttfl-store-backend/pull/10 (open; not merged).
+- CI run `44500904253` was queued and entered validation for head `a1546617e2fd8b2c38e8bca580b810013c9de482`; final result pending at this update.
+
+- CI run `44500904253` found a strict TypeScript nullability error in the optional embedded description fallback; fixed with an explicit null fallback. Test/build stages were skipped until typecheck passes.
