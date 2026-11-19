@@ -122,41 +122,43 @@ async function fetchSupplierHtml(initialUrl: URL): Promise<{ html: string; final
   for (let redirect = 0; redirect <= 3; redirect += 1) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    let response: Response;
     try {
-      response = await fetch(current, {
+      const response = await fetch(current, {
         method: "GET", redirect: "manual", signal: controller.signal,
         headers: { "User-Agent": "Mozilla/5.0 (compatible; TTFLStoreProductImporter/1.0)", Accept: "text/html,application/xhtml+xml" },
       });
-    } catch {
-      throw AppError.badRequest("AliExpress could not be reached. Try again or enter the product details manually.", "SUPPLIER_FETCH_FAILED");
-    } finally { clearTimeout(timeout); }
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.get("location");
-      if (!location || redirect === 3) throw AppError.badRequest("The supplier page redirected too many times.", "SUPPLIER_REDIRECT_LIMIT");
-      current = await validateSupplierUrl(new URL(location, current).toString());
-      continue;
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const location = response.headers.get("location");
+        if (!location || redirect === 3) throw AppError.badRequest("The supplier page redirected too many times.", "SUPPLIER_REDIRECT_LIMIT");
+        current = await validateSupplierUrl(new URL(location, current).toString());
+        continue;
+      }
+      if (!response.ok) throw AppError.badRequest("AliExpress did not return a product page. The listing may be unavailable or protected.", "SUPPLIER_PAGE_UNAVAILABLE");
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!contentType.toLowerCase().includes("text/html")) throw AppError.badRequest("The supplied URL did not return an HTML product page.", "SUPPLIER_NOT_HTML");
+      const declaredLength = Number(response.headers.get("content-length") ?? 0);
+      if (declaredLength > MAX_HTML_BYTES) throw AppError.badRequest("The supplier page is too large to import safely.", "SUPPLIER_PAGE_TOO_LARGE");
+      const reader = response.body?.getReader();
+      if (!reader) throw AppError.badRequest("The supplier page returned no readable content.", "SUPPLIER_EMPTY_PAGE");
+      const chunks: Uint8Array[] = [];
+      let total = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value.byteLength;
+        if (total > MAX_HTML_BYTES) { await reader.cancel(); throw AppError.badRequest("The supplier page is too large to import safely.", "SUPPLIER_PAGE_TOO_LARGE"); }
+        chunks.push(value);
+      }
+      const bytes = new Uint8Array(total);
+      let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+      return { html: new TextDecoder().decode(bytes), finalUrl: current };
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      throw AppError.badRequest("AliExpress could not be reached or timed out. Try again or enter the product details manually.", "SUPPLIER_FETCH_FAILED");
+    } finally {
+      clearTimeout(timeout);
     }
-    if (!response.ok) throw AppError.badRequest("AliExpress did not return a product page. The listing may be unavailable or protected.", "SUPPLIER_PAGE_UNAVAILABLE");
-    const contentType = response.headers.get("content-type") ?? "";
-    if (!contentType.toLowerCase().includes("text/html")) throw AppError.badRequest("The supplied URL did not return an HTML product page.", "SUPPLIER_NOT_HTML");
-    const declaredLength = Number(response.headers.get("content-length") ?? 0);
-    if (declaredLength > MAX_HTML_BYTES) throw AppError.badRequest("The supplier page is too large to import safely.", "SUPPLIER_PAGE_TOO_LARGE");
-    const reader = response.body?.getReader();
-    if (!reader) throw AppError.badRequest("The supplier page returned no readable content.", "SUPPLIER_EMPTY_PAGE");
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > MAX_HTML_BYTES) { await reader.cancel(); throw AppError.badRequest("The supplier page is too large to import safely.", "SUPPLIER_PAGE_TOO_LARGE"); }
-      chunks.push(value);
-    }
-    const bytes = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-    return { html: new TextDecoder().decode(bytes), finalUrl: current };
   }
   throw AppError.badRequest("Unable to follow the supplier product link.", "SUPPLIER_FETCH_FAILED");
 }
