@@ -261,3 +261,10 @@ Validation note:
 - Backend branch: `feat/vendor-url-product-import`.
 - Backend commits: `80db809` (plan), `7a54ca6` (import service), `6137ac9` (route), `478b0d0` (controller), `b1c2906` (test exports), `3cc2c5e` (parser/URL tests), `de9f8a2` (timeout through response download).
 - Backend CI, Render deployment and authenticated production testing remain pending.
+
+
+### Backend CI result — 2026-11-19
+- [x] GitHub Actions run `44491996146` passed on PR #7 / head `9bd7e27ffa57a0e3b5a14e9014d70be95d8f7584`.
+- [x] Automated suite passed all 6 tests, including the new AliExpress URL allowlist and metadata extraction cases.
+- [x] Prisma generation and TypeScript production build passed.
+- [ ] Render deployment and authenticated production endpoint test remain pending; PR #7 is open and not merged.
