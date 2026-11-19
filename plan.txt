@@ -327,3 +327,15 @@ Validation note:
 
 - [x] Final review tightened the no-hours-vs-all-closed distinction; the current PR head includes this fix and its expanded tests.
 - [ ] Re-run CI on the final PR head before merge.
+
+
+## TTFL Foods rider assignment — 2026-11-19
+- [x] Add admin-only queue for paid TTFL-delivery vendor orders.
+- [x] Add admin-only rider assignment with name, phone and optional tracking URL.
+- [x] Persist assignment in the existing checkpoint-5 tracking event, move the vendor order to OUT_FOR_DELIVERY and notify the customer.
+- [ ] Run backend CI and validate the queue/assignment API with an admin account.
+- [ ] Add the Foods admin dispatch screen and verify a complete dispatch from the UI.
+- [ ] This is manual dispatch; automatic rider matching, rider accounts and live GPS are not part of this patch.
+
+- [x] Backend CI run 44505828460 passed Prisma generation, TypeScript typecheck, tests and production build for the rider-assignment implementation.
+- [ ] Merge and deploy the manual TTFL rider-assignment API; then validate with an admin account.
