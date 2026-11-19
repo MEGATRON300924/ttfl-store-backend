@@ -229,7 +229,7 @@ export function extractMetadata(html: string, sourceUrl: URL): ProductMetadata {
   }))).slice(0, 8);
   return {
     name: plainText(product?.name) ?? plainText(metaContent(html, "og:title")) ?? embedded?.name ?? plainText(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1], 160),
-    description: plainText(product?.description) ?? plainText(metaContent(html, "og:description"), 5000) ?? plainText(metaContent(html, "description"), 5000) ?? embedded?.description,
+    description: plainText(product?.description) ?? plainText(metaContent(html, "og:description"), 5000) ?? plainText(metaContent(html, "description"), 5000) ?? embedded?.description ?? null,
     images,
     supplierPrice: Number.isFinite(priceValue) && priceValue > 0 ? priceValue : null,
     supplierCurrency: typeof currencyValue === "string" ? currencyValue.toUpperCase().slice(0, 3) : (supplier === "Jiji" && Number.isFinite(priceValue) && priceValue > 0 ? "NGN" : null),
