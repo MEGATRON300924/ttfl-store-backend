@@ -339,3 +339,11 @@ Validation note:
 
 - [x] Backend CI run 44505828460 passed Prisma generation, TypeScript typecheck, tests and production build for the rider-assignment implementation.
 - [ ] Merge and deploy the manual TTFL rider-assignment API; then validate with an admin account.
+
+
+## TTFL Foods operational integration review — 2026-11-19
+- [x] Customer/vendor/admin order notifications already use the shared notifications service, email and configured WhatsApp events for order creation, payment confirmation, status changes and tracking checkpoints.
+- [x] Restaurant publication is gated by the shared TTFL vendor approval status; admin order listing/refunds and vendor approval remain in the existing TTFL Store admin system.
+- [x] Add explicit Paystack verification-state classification (pending, success, fail-closed unknown) with automated unit tests.
+- [ ] Run backend CI for Paystack status tests.
+- [ ] Full Paystack gateway end-to-end test still requires an explicitly configured test-mode key and a safe test transaction; never run a live charge as a test.
