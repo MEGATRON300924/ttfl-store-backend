@@ -245,3 +245,18 @@ Validation note:
 ### Fix branch
 - Branch: `fix/affiliate-dashboard-order-number-column`
 - This addresses the production PostgreSQL error `42703: column o.order_number does not exist` observed in Render logs on 2026-11-16.
+
+## Vendor supplier URL product importer — 2026-11-19
+- [x] Started implementation on `feat/vendor-url-product-import`; branch is based on current `main`.
+- [x] Audited the existing authenticated vendor product routes and validation conventions.
+- [ ] Add an authenticated vendor-only supplier URL extraction endpoint; extraction is a preview only and must never create or publish a product.
+- [ ] Restrict the initial importer to explicitly supported HTTPS supplier hosts, reject private/local targets, validate redirects, and enforce response time/size limits to mitigate SSRF and resource exhaustion.
+- [ ] Extract only best-effort product metadata (title, description, images, supplier price/currency) from Open Graph/Product JSON-LD with safe fallbacks.
+- [ ] Return a USD and NGN reference conversion with rate source and timestamp; do not write supplier costs into Product pricing or expose them publicly.
+- [ ] Add automated tests for URL validation, blocked hosts/redirects, HTML metadata parsing and currency conversion.
+- [ ] Run Prisma generation/typecheck/tests/build, open coordinated frontend/backend PRs, and verify Render deployment before enabling the frontend.
+- MAX AI-assisted product creation is explicitly deferred; do not implement or scaffold it in this phase.
+
+### Branch and validation
+- Backend branch: `feat/vendor-url-product-import`.
+- No functional backend code has been committed yet. Record each implementation commit, test result, PR and deployment state below.
