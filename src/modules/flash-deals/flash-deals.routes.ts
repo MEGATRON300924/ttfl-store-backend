@@ -8,6 +8,8 @@ flashDealsRouter.get("/",asyncHandler(async(_req,res)=>res.json({deals:await ser
 flashDealsRouter.get("/mine",requireAuth,requireRole("VENDOR"),asyncHandler(async(req,res)=>res.json({deals:await service.listMine(req.user!.sub)})));
 const dealSchema=z.object({productId:z.string().uuid(),discountPercent:z.number().positive().max(99),startsAt:z.string().min(1),endsAt:z.string().min(1),quantityCap:z.number().int().positive().optional(),blackFriday:z.boolean().optional()});
 flashDealsRouter.post("/mine",requireAuth,requireRole("VENDOR"),asyncHandler(async(req,res)=>res.status(201).json({deals:await service.upsert(req.user!.sub,dealSchema.parse(req.body))})));
+const blackFridayProposalSchema=z.object({productId:z.string().uuid(),salePrice:z.number().positive().max(999_999_999),discountPercent:z.number().positive().max(99)});
+flashDealsRouter.post("/mine/black-friday",requireAuth,requireRole("VENDOR"),asyncHandler(async(req,res)=>res.status(201).json({proposal:await service.submitBlackFridayProposal(req.user!.sub,blackFridayProposalSchema.parse(req.body))})));
 flashDealsRouter.delete("/mine/:id",requireAuth,requireRole("VENDOR"),asyncHandler(async(req,res)=>res.json(await service.remove(req.user!.sub,req.params.id))));
 flashDealsRouter.patch("/mine/:id/pause",requireAuth,requireRole("VENDOR"),asyncHandler(async(req,res)=>{const input=z.object({paused:z.boolean()}).parse(req.body);res.json(await service.pause(req.user!.sub,req.params.id,input.paused));}));
 flashDealsRouter.patch("/mine/:id/quantity-cap",requireAuth,requireRole("VENDOR"),asyncHandler(async(req,res)=>{const input=z.object({quantityCap:z.number().int().positive().nullable()}).parse(req.body);res.json(await service.setQuantityCap(req.user!.sub,req.params.id,input.quantityCap));}));

@@ -404,3 +404,15 @@ Validation note:
 - [x] Backend CI passed on commit `984a97705a05be54aa69fd4e46c75bc96c878e41` (Prisma generation, TypeScript, tests and production build).
 - [ ] Render runtime schema migration and authenticated API smoke tests remain pending; backend has not been deployed.
 - Status: backend source and CI ready; awaiting coordinated PR review/merge and runtime migration.
+
+
+## Vendor Black Friday participation — 2026-11-21
+- [x] Added a vendor-only Black Friday proposal endpoint that requires the admin campaign toggle to be enabled and vendor participation to be allowed.
+- [x] Enforced approved vendor status, active non-coming-soon products, checkout selling method, a 1–99% discount, a sale price below the regular price, and consistency between the entered sale price and discount percentage.
+- [x] Reused the existing flash-deal record and admin approval queue; vendor proposals remain hidden from customers and checkout until approved.
+- [ ] Run backend typecheck/tests and exercise proposal → pending admin review → approval → public deal → checkout pricing.
+- [ ] Merge and deploy alongside the frontend only after validation.
+
+### Validation update — 2026-11-21
+- [x] GitHub Actions backend validation passed, including Prisma client generation, TypeScript typecheck, tests, and production build, for commit `1f60d1619bf9149d50b0946898420bdeb46ba4dc`.
+- [ ] Run integrated vendor proposal → admin approval → customer storefront/checkout verification after the frontend and backend are both available in a preview environment.
