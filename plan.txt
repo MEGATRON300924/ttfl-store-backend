@@ -412,3 +412,7 @@ Validation note:
 - [x] Reused the existing flash-deal record and admin approval queue; vendor proposals remain hidden from customers and checkout until approved.
 - [ ] Run backend typecheck/tests and exercise proposal → pending admin review → approval → public deal → checkout pricing.
 - [ ] Merge and deploy alongside the frontend only after validation.
+
+### Validation update — 2026-11-21
+- [x] GitHub Actions backend validation passed, including Prisma client generation, TypeScript typecheck, tests, and production build, for commit `1f60d1619bf9149d50b0946898420bdeb46ba4dc`.
+- [ ] Run integrated vendor proposal → admin approval → customer storefront/checkout verification after the frontend and backend are both available in a preview environment.
