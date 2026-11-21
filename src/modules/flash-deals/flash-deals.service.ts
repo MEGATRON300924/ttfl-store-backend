@@ -42,6 +42,7 @@ export async function submitBlackFridayProposal(userId:string,input:{productId:s
   if(vendor.status!=="APPROVED") throw AppError.forbidden("Your store must be approved before joining Black Friday");
   const campaign=await getBlackFridayConfig();
   if(!campaign.enabled) throw AppError.forbidden("Black Friday vendor participation is currently disabled","BLACK_FRIDAY_DISABLED");
+  if(new Date(campaign.endsAt).getTime()<=Date.now()) throw AppError.forbidden("The Black Friday campaign has ended","BLACK_FRIDAY_ENDED");
   if(campaign.participation==="ttfl"||campaign.discountMode==="admin") throw AppError.forbidden("Vendor participation is not enabled for this Black Friday campaign","BLACK_FRIDAY_VENDOR_PARTICIPATION_DISABLED");
   const product=await prisma.product.findFirst({where:{id:input.productId,vendorId:vendor.id,deletedAt:null}});
   if(!product) throw AppError.notFound("Product not found in your store");
