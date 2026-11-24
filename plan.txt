@@ -426,3 +426,12 @@ Validation note:
 - [ ] Run backend typecheck/tests/build, deploy, and verify vendor Flash Deal creation plus checkout reservation upsert.
 - [ ] Open PR and merge/deploy only after validation.
 - Branch: `fix/flash-deal-upsert-constraints-2026`.
+
+
+## Black Friday server-side pricing correction — 2026-11-24
+- [x] Black Friday proposal endpoint now accepts only `productId`.
+- [x] Backend reads `products.previousPrice` as the original price and `products.price` as the current discounted price.
+- [x] Backend calculates and validates the discount itself, then stores the product's current price as the Flash Deal sale price.
+- [x] Regular Flash Deals retain their existing percentage-based pricing calculation.
+- [ ] Run backend typecheck, tests and build; verify proposal payload, approval, listing price and checkout price.
+- Branch: `fix/black-friday-use-product-prices-2026`.
