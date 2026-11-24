@@ -416,3 +416,13 @@ Validation note:
 ### Validation update — 2026-11-21
 - [x] GitHub Actions backend validation passed, including Prisma client generation, TypeScript typecheck, tests, and production build, for commit `1f60d1619bf9149d50b0946898420bdeb46ba4dc`.
 - [ ] Run integrated vendor proposal → admin approval → customer storefront/checkout verification after the frontend and backend are both available in a preview environment.
+
+
+## Flash Deals legacy upsert constraint repair — 2026-11-24
+- [x] Render application logs showed PostgreSQL error `42P10` (`there is no unique or exclusion constraint matching the ON CONFLICT specification`) in the TTFL Store backend.
+- [x] Identified legacy-schema risk: `CREATE TABLE IF NOT EXISTS` does not retrofit the `UNIQUE(vendor_id, product_id)` and `UNIQUE(flash_deal_id, order_id)` constraints onto tables created by earlier versions.
+- [x] Added idempotent unique indexes for both Flash Deal upsert conflict targets to the runtime schema ensure path.
+- [ ] Check for legacy duplicate pairs before release; unique-index creation will surface duplicates rather than silently deleting records.
+- [ ] Run backend typecheck/tests/build, deploy, and verify vendor Flash Deal creation plus checkout reservation upsert.
+- [ ] Open PR and merge/deploy only after validation.
+- Branch: `fix/flash-deal-upsert-constraints-2026`.

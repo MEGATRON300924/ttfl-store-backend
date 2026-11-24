@@ -12,6 +12,9 @@ import { getBlackFridayConfig } from "@/modules/settings/settings.service";
 async function ensureTable(){
   await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS flash_deals (id TEXT PRIMARY KEY,vendor_id TEXT NOT NULL REFERENCES vendor_profiles(id) ON DELETE CASCADE,product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,discount_percent NUMERIC(5,2) NOT NULL,sale_price NUMERIC(12,2) NOT NULL,starts_at TIMESTAMPTZ NOT NULL,ends_at TIMESTAMPTZ NOT NULL,quantity_cap INTEGER,sold_count INTEGER NOT NULL DEFAULT 0,paused BOOLEAN NOT NULL DEFAULT false,active BOOLEAN NOT NULL DEFAULT true,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(vendor_id,product_id))`);
   await prisma.$executeRawUnsafe(`ALTER TABLE flash_deals ADD COLUMN IF NOT EXISTS quantity_cap INTEGER`);
+  // CREATE TABLE IF NOT EXISTS does not retrofit constraints onto legacy tables.
+  // These unique indexes make the existing ON CONFLICT targets valid after upgrades.
+  await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS flash_deals_vendor_product_uidx ON flash_deals(vendor_id,product_id)`);
   await prisma.$executeRawUnsafe(`ALTER TABLE flash_deals ADD COLUMN IF NOT EXISTS black_friday BOOLEAN NOT NULL DEFAULT false`);
   await prisma.$executeRawUnsafe(`ALTER TABLE flash_deals ADD COLUMN IF NOT EXISTS black_friday_approved BOOLEAN NOT NULL DEFAULT true`);
   await prisma.$executeRawUnsafe(`ALTER TABLE flash_deals ADD COLUMN IF NOT EXISTS sold_count INTEGER NOT NULL DEFAULT 0`);
@@ -19,6 +22,7 @@ async function ensureTable(){
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS flash_deals_active_idx ON flash_deals(active,paused,starts_at,ends_at)`);
   await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS flash_deal_reservations (id TEXT PRIMARY KEY,flash_deal_id TEXT NOT NULL REFERENCES flash_deals(id) ON DELETE CASCADE,order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,quantity INTEGER NOT NULL CHECK(quantity>0),status TEXT NOT NULL DEFAULT 'ACTIVE',expires_at TIMESTAMPTZ NOT NULL,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),UNIQUE(flash_deal_id,order_id))`);
   await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS flash_deal_reservations_active_idx ON flash_deal_reservations(flash_deal_id,status,expires_at)`);
+  await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS flash_deal_reservations_deal_order_uidx ON flash_deal_reservations(flash_deal_id,order_id)`);
 }
 
 async function releaseExpiredReservations(){await ensureTable();await prisma.$executeRawUnsafe(`UPDATE flash_deal_reservations SET status='EXPIRED',updated_at=NOW() WHERE status='ACTIVE' AND expires_at<=NOW()`);}
