@@ -442,3 +442,10 @@ Validation note:
 - [ ] Run backend Prisma generation, typecheck, tests and production build; deploy and verify an existing-product Black Friday proposal.
 - [ ] Verify normal Flash Deal creation still calculates and persists its percentage-derived sale price.
 - Branch: `fix/flash-deal-sale-price-sql-parameter-2026`.
+
+
+## 2026-11-25 — Follow-up: legacy flash_deals updated_at constraint
+- Render logs after PR #20 deployed show a second vendor Black Friday proposal failure at 10:17 UTC: PostgreSQL 23502 (NOT NULL violation).
+- The failing row indicates legacy flash_deals timestamp columns are not being populated by INSERT defaults.
+- Fix in progress: explicitly set created_at and updated_at to NOW() in both vendor and admin flash_deals INSERT statements.
+- Validation pending: CI, Render deployment, and successful live vendor proposal submission.
