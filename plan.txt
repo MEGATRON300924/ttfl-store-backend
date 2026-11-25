@@ -435,3 +435,10 @@ Validation note:
 - [x] Regular Flash Deals retain their existing percentage-based pricing calculation.
 - [ ] Run backend typecheck, tests and build; verify proposal payload, approval, listing price and checkout price.
 - Branch: `fix/black-friday-use-product-prices-2026`.
+
+## Flash Deal sale-price SQL parameter correction — 2026-11-25
+- [x] Traced vendor Black Friday submission error `TTFL-ERR-20261125-E8133D88` to PostgreSQL `42804`: a timestamp was bound to numeric `sale_price`.
+- [x] Corrected `saveDeal()` argument ordering by binding the calculated/overridden `salePrice` as SQL parameter `$5`, shifting campaign dates and remaining values to their matching placeholders.
+- [ ] Run backend Prisma generation, typecheck, tests and production build; deploy and verify an existing-product Black Friday proposal.
+- [ ] Verify normal Flash Deal creation still calculates and persists its percentage-derived sale price.
+- Branch: `fix/flash-deal-sale-price-sql-parameter-2026`.
